@@ -34,6 +34,10 @@
 
 ---
 
+## 🧪 Roadmap
+- Rafraîchissement en arrière-plan de l'état des appareils
+- Version iOS (selon compatibilité)
+
 ## 🚀 Installation & Déploiement
 
 ### 💻 Pré-requis
@@ -49,3 +53,8 @@ git clone https://github.com/<ton-utilisateur>/lixee-assist.git
 cd lixee-assist
 flutter pub get
 flutter run
+```
+
+## 📄 Licence
+Ce projet est sous licence MIT 
+
