@@ -1,16 +1,51 @@
-# zigpower_connect
+# 📱 LiXee-Assist
 
-A new Flutter project.
+**LiXee-Assist** est une application mobile Android développée en Flutter permettant de détecter, configurer et gérer des appareils **LiXeeGW** via le WiFi. Elle propose un provisioning intelligent, une interface intuitive, et un support de résolution mDNS pour accéder aux interfaces embarquées.
 
-## Getting Started
+---
 
-This project is a starting point for a Flutter application.
+## 📸 Aperçu
 
-A few resources to get you started if this is your first Flutter project:
+> Ajoute ici des captures d’écran de ton application (`/screenshots/`) une fois disponibles
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+---
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## ⚙️ Fonctionnalités
+
+- 🔍 **Scan automatique des modules LiXee (SSID: LIXEEGW-xxxx)**
+- 📶 **Connexion WiFi automatique avec mot de passe pré-rempli**
+- 🌐 **Envoi de la configuration WiFi à l’appareil**
+- 💾 **Sauvegarde des modules configurés (nom + URL)**
+- 🖥 **Accès WebView à l’interface des modules**
+- 🌍 **Support de la résolution mDNS** (pour les noms `*.local`)
+- 🛠 **Ajout manuel d’un appareil (nom + IP ou URL)**
+- 🧼 **Interface épurée, flat design, logo officiel LiXee intégré**
+
+---
+
+## 🏗 Technologies
+
+- Flutter (Dart)
+- Plugins :
+    - [`wifi_iot`](https://pub.dev/packages/wifi_iot)
+    - [`webview_flutter`](https://pub.dev/packages/webview_flutter)
+    - [`shared_preferences`](https://pub.dev/packages/shared_preferences)
+    - [`multicast_dns`](https://pub.dev/packages/multicast_dns)
+
+---
+
+## 🚀 Installation & Déploiement
+
+### 💻 Pré-requis
+
+- Flutter SDK (v3.7+ recommandé)
+- Android Studio
+- Android 8.0+
+
+### 🔧 Installation locale
+
+```bash
+git clone https://github.com/<ton-utilisateur>/lixee-assist.git
+cd lixee-assist
+flutter pub get
+flutter run
