@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'wifi_provision_screen.dart';
@@ -14,11 +15,19 @@ class HomeScreen extends StatefulWidget {
 bool isIPAddress(String url) {
   final ipv4Pattern = RegExp(r'^\d{1,3}(\.\d{1,3}){3}$');
   final ipv6Pattern = RegExp(r'^[0-9a-fA-F:]+$');
-  Uri? parsedUri = Uri.tryParse(url);
-  if (parsedUri == null) return false;
-  String host = parsedUri.host;
-  return ipv4Pattern.hasMatch(host) || ipv6Pattern.hasMatch(host);
+
+  try {
+    // 🔍 Extraire ce qui est entre http(s):// et le port (ou le /)
+    Uri uri = Uri.parse(url);
+    String host = uri.host;
+
+    return ipv4Pattern.hasMatch(host) || ipv6Pattern.hasMatch(host);
+  } catch (e) {
+    print("❌ Erreur lors de la validation IP : $e");
+    return false;
+  }
 }
+
 
 /// 🔍 mDNS lookup
 Future<String?> resolveMdnsIP(String deviceName) async {
@@ -56,12 +65,20 @@ Future<String?> resolveMdnsIP(String deviceName) async {
 
 class _HomeScreenState extends State<HomeScreen> {
   List<String> devices = [];
+  Timer? _refreshTimer;
   Map<String, bool> deviceStatuses = {};
 
   @override
   void initState() {
     super.initState();
     _loadDevices();
+    _startAutoRefresh(); // ✅ start polling
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
   }
 
   void checkDeviceStatus(String deviceName, String url, String entryKey) async {
@@ -85,7 +102,7 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final result = await HttpClient()
           .getUrl(Uri.parse(url))
-          .then((req) => req.close().timeout(Duration(seconds: 2)));
+          .then((req) => req.close().timeout(Duration(seconds: 4)));
 
       if (result.statusCode == 200) {
         print("✅ Appareil actif : $url");
@@ -104,6 +121,28 @@ class _HomeScreenState extends State<HomeScreen> {
         deviceStatuses[entryKey] = false;
       });
     }
+  }
+
+  void _startAutoRefresh() {
+    _refreshTimer = Timer.periodic(Duration(seconds: 10), (timer) {
+      /*for (var entry in devices) {
+        List<String> parts = entry.split('|');
+        if (parts.length == 2) {
+          checkDeviceStatus(entry, parts[1]);
+        }
+      }*/
+
+      for (int i = 0; i < devices.length; i++) {
+        List<String> parts = devices[i].split('|');
+        if (parts.length == 2) {
+          String deviceName = parts[0];
+          String deviceUrl = parts[1];
+          checkDeviceStatus(deviceName, deviceUrl, devices[i]);
+        }
+      }
+
+
+    });
   }
 
   void _loadDevices() async {

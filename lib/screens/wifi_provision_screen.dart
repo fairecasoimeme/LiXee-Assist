@@ -256,19 +256,19 @@ class _WifiProvisionScreenState extends State<WifiProvisionScreen> {
               },
             ),
           ),
-          OutlinedButton.icon(
-            onPressed: _scanForWifiNetworks,
-            icon: Icon(Icons.refresh,size: 32),
-            label: Text(""),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: Color(0xFF1B75BC),
-              side: BorderSide(color: Color(0xFF1B75BC)),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-            ),
-          ),
-
         ],
+
+      ),
+      floatingActionButton: OutlinedButton.icon(
+        onPressed: _scanForWifiNetworks,
+        icon: Icon(Icons.refresh,size: 32),
+        label: Text(""),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: Color(0xFF1B75BC),
+          side: BorderSide(color: Color(0xFF1B75BC)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        ),
       ),
     );
   }
