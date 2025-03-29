@@ -15,7 +15,7 @@ class WiFiForceBinder(private val context: Context) : MethodChannel.MethodCallHa
         if (call.method == "bindNetwork") {
             val ssid = call.argument<String>("ssid")
             if (ssid != null) {
-                bindToNetwork(result)
+                bindToNetwork(context,ssid,result)
             } else {
                 result.error("NO_SSID", "SSID non fourni", null)
             }
@@ -24,23 +24,40 @@ class WiFiForceBinder(private val context: Context) : MethodChannel.MethodCallHa
         }
     }
 
-    private fun bindToNetwork(result: MethodChannel.Result) {
+    private fun bindToNetwork(context: Context, ssid: String, result: MethodChannel.Result) {
         val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val request = NetworkRequest.Builder()
             .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
             .build()
 
-        connectivityManager.requestNetwork(request, object : ConnectivityManager.NetworkCallback() {
+        var hasResponded = false
+
+        val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                connectivityManager.bindProcessToNetwork(network)
-                Log.d("WiFiForceBinder", "✅ Connexion forcée au WiFi")
-                result.success(true)
+                if (!hasResponded) {
+                    hasResponded = true
+                    connectivityManager.bindProcessToNetwork(network)
+                    result.success(true)
+                }
             }
 
             override fun onLost(network: Network) {
-                Log.e("WiFiForceBinder", "❌ Perte de connexion au WiFi")
-                result.success(false)
+                if (!hasResponded) {
+                    hasResponded = true
+                    result.success(false)
+                }
             }
-        })
+
+            override fun onUnavailable() {
+                if (!hasResponded) {
+                    hasResponded = true
+                    result.success(false)
+                }
+            }
+        }
+
+        connectivityManager.requestNetwork(request, callback)
     }
+
 }
+
