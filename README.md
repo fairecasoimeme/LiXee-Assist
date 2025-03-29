@@ -6,8 +6,10 @@
 
 ## 📸 Aperçu
 
-> Ajoute ici des captures d’écran de ton application (`/screenshots/`) une fois disponibles
-
+<img src="doc/img/lixee-assist-dashboard.jpg" width="250px" />
+<img src="doc/img/lixee-assist-provisioning-wifi.jpg" width="250px" />
+<img src="doc/img/lixee-assist-ajout-appareil.jpg" width="250px" />
+<img src="doc/img/lixee-assist-webview.jpg" width="250px" />
 ---
 
 ## ⚙️ Fonctionnalités
