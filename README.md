@@ -37,7 +37,6 @@
 ---
 
 ## 🧪 Roadmap
-- Rafraîchissement en arrière-plan de l'état des appareils
 - Version iOS (selon compatibilité)
 
 ## 🚀 Installation & Déploiement
@@ -51,7 +50,7 @@
 ### 🔧 Installation locale
 
 ```bash
-git clone https://github.com/<ton-utilisateur>/lixee-assist.git
+git clone https://github.com/fairecasoimeme/lixee-assist.git
 cd lixee-assist
 flutter pub get
 flutter run
