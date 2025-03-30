@@ -99,12 +99,15 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
 
+    final client = HttpClient();
+    url = url + "/poll";
     try {
-      final result = await HttpClient()
-          .getUrl(Uri.parse(url))
-          .then((req) => req.close().timeout(Duration(seconds: 4)));
+      final request = await client.getUrl(Uri.parse(url));
+      final response = await request.close().timeout(Duration(seconds: 4));
 
-      if (result.statusCode == 200) {
+      await response.drain(); // 🔥 lit le corps → ferme la socket
+
+      if (response.statusCode == 200) {
         print("✅ Appareil actif : $url");
         setState(() {
           deviceStatuses[entryKey] = true;
@@ -120,7 +123,10 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         deviceStatuses[entryKey] = false;
       });
+    } finally {
+      client.close(force: true); // 🔒 bonne pratique pour nettoyer
     }
+
   }
 
   void _startAutoRefresh() {
@@ -359,7 +365,7 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             Image.asset("assets/logo.png", height: 64),
             SizedBox(width: 10),
-            Text("Assist", style: TextStyle(color: Colors.black87)),
+            Text("Assist v1.1", style: TextStyle(color: Colors.black87)),
           ],
         ),
         actions: [
