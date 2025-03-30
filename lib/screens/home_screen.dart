@@ -5,6 +5,7 @@ import 'wifi_provision_screen.dart';
 import 'webview_device_screen.dart';
 import 'package:multicast_dns/multicast_dns.dart';
 import 'dart:io';
+import 'about_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   @override
@@ -365,7 +366,7 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             Image.asset("assets/logo.png", height: 64),
             SizedBox(width: 10),
-            Text("Assist v1.1", style: TextStyle(color: Colors.black87)),
+            Text("Assist", style: TextStyle(color: Colors.black87)),
           ],
         ),
         actions: [
@@ -379,6 +380,17 @@ class _HomeScreenState extends State<HomeScreen> {
             tooltip: "Ajout manuel",
             onPressed: _showManualAddDialog,
           ),
+          IconButton(
+            icon: Icon(Icons.info_outline),
+            tooltip: "À propos",
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => AboutScreen()),
+              );
+            },
+          ),
+
         ],
       ),
       body: devices.isEmpty
