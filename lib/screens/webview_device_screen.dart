@@ -13,6 +13,7 @@ class WebViewDeviceScreen extends StatefulWidget {
 
 class _WebViewDeviceScreenState extends State<WebViewDeviceScreen> {
   late final WebViewController _controller;
+  bool _isLoading = true;
 
   @override
   void initState() {
@@ -21,14 +22,34 @@ class _WebViewDeviceScreenState extends State<WebViewDeviceScreen> {
 
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onPageStarted: (url) {
+            setState(() => _isLoading = true);
+          },
+          onPageFinished: (url) {
+            setState(() => _isLoading = false);
+          },
+        ),
+      )
       ..loadRequest(Uri.parse(widget.url));
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text("🔗 ${widget.deviceName}")),
-      body: WebViewWidget(controller: _controller),
+    return SafeArea(
+        child:  Scaffold(
+          appBar: AppBar(title: Text("🔗 ${widget.deviceName}")),
+          body: Stack(
+            children: [
+              WebViewWidget(controller: _controller),
+              if (_isLoading)
+                const Center(
+                  child: CircularProgressIndicator(),
+                ),
+            ],
+          ),
+        ),
     );
   }
 }

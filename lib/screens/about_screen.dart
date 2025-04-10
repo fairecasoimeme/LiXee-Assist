@@ -26,26 +26,28 @@ class _AboutScreenState extends State<AboutScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text("À propos")),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              "📱 Application LiXee-Assist",
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-            const SizedBox(height: 16),
-            Text("Version : $version"),
-            Text("Build : $buildNumber"),
-            const SizedBox(height: 24),
-            Text(
-              "© 2024 LIXEE",
-              style: TextStyle(color: Colors.grey),
-            ),
-          ],
+    return SafeArea(
+      child: Scaffold(
+        appBar: AppBar(title: Text("À propos")),
+        body: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                "📱 Application LiXee-Assist",
+                style: Theme.of(context).textTheme.headlineMedium,
+              ),
+              const SizedBox(height: 16),
+              Text("Version : $version"),
+              Text("Build : $buildNumber"),
+              const SizedBox(height: 24),
+              Text(
+                "© 2024 LIXEE",
+                style: TextStyle(color: Colors.grey),
+              ),
+            ],
+          ),
         ),
       ),
     );

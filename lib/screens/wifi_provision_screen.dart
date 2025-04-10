@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wifi_iot/wifi_iot.dart';
 import 'webview_wifi_post_screen.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'dart:io';
 
 class WifiProvisionScreen extends StatefulWidget {
   @override
@@ -83,7 +84,7 @@ class _WifiProvisionScreenState extends State<WifiProvisionScreen> {
           } else {
             print("⚠ Échec du binding réseau, mais WiFi connecté.");
           }
-          setState(() => _globalConnectingLock = true);
+          setState(() => _globalConnectingLock = false);
           // 👉 Afficher le popup après confirmation de connexion
           _showConfigWifiDialog(last4Chars);
         } else {
@@ -200,7 +201,6 @@ class _WifiProvisionScreenState extends State<WifiProvisionScreen> {
     );
   }
 
-
   void _startProvisioning(String ssid, String password, String last4Chars) async {
     final result = await Navigator.push(
       context,
@@ -217,57 +217,56 @@ class _WifiProvisionScreenState extends State<WifiProvisionScreen> {
       print("📡 Provisioning réussi, ajout de l'appareil...");
 
       print("📡 Provisioning réussi, retour à HomeScreen...");
+
       Navigator.pop(context, true);
+
+      try {
+        final bool success = await MethodChannel('wifi_force_binder')
+            .invokeMethod<bool>('unbindNetwork') ?? false;
+        print(success
+            ? "🔓 Débind réussi, retour au réseau par défaut."
+            : "⚠️ Aucun réseau à débind.");
+      } catch (e) {
+        print("❌ Erreur lors du débind : $e");
+      }
+
     } else {
       print("❌ Provisioning échoué, aucun appareil enregistré.");
     }
   }
 
-
-  /// 💾 Sauvegarde de l'appareil configuré
-  Future<void> _saveDevice(String deviceName) async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    List<String> devices = prefs.getStringList('saved_devices') ?? [];
-
-    if (!devices.contains(deviceName)) {
-      devices.add(deviceName);
-      await prefs.setStringList('saved_devices', devices);
-      print("✅ Appareil enregistré : $deviceName");
-    } else {
-      print("ℹ️ L'appareil est déjà enregistré.");
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text("Connexion WiFi")),
-      body: Column(
-        children: [
-          Expanded(
-            child: ListView.builder(
-              itemCount: networks.length,
-              itemBuilder: (context, index) {
-                return ListTile(
-                  title: Text(networks[index].ssid ?? "SSID inconnu"),
-                  trailing: Icon(Icons.wifi,color: Color(0xFF1B75BC)),
-                  onTap: () => _connectToEsp(networks[index].ssid ?? ""),
-                );
-              },
+    return SafeArea(
+      child: Scaffold(
+        appBar: AppBar(title: Text("🔍 Appareils LiXee découverts")),
+        body: Column(
+          children: [
+            Expanded(
+              child: ListView.builder(
+                itemCount: networks.length,
+                itemBuilder: (context, index) {
+                  return ListTile(
+                    title: Text(networks[index].ssid ?? "SSID inconnu"),
+                    trailing: Icon(Icons.wifi,color: Color(0xFF1B75BC)),
+                    onTap: () => _connectToEsp(networks[index].ssid ?? ""),
+                  );
+                },
+              ),
             ),
-          ),
-        ],
+          ],
 
-      ),
-      floatingActionButton: OutlinedButton.icon(
-        onPressed: _scanForWifiNetworks,
-        icon: Icon(Icons.refresh,size: 32),
-        label: Text(""),
-        style: OutlinedButton.styleFrom(
-          foregroundColor: Color(0xFF1B75BC),
-          side: BorderSide(color: Color(0xFF1B75BC)),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        ),
+        floatingActionButton: OutlinedButton.icon(
+          onPressed: _scanForWifiNetworks,
+          icon: Icon(Icons.refresh,size: 32),
+          label: Text(""),
+          style: OutlinedButton.styleFrom(
+            foregroundColor: Color(0xFF1B75BC),
+            side: BorderSide(color: Color(0xFF1B75BC)),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+          ),
         ),
       ),
     );

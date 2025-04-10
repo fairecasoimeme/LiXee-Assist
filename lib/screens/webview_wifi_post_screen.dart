@@ -85,6 +85,8 @@ class _WebViewWifiPostScreenState extends State<WebViewWifiPostScreen> {
 
     } catch (error) {
       print("❌ Erreur Dio : $error");
+    }finally{
+      dio.close(force: true);
     }
   }
 
@@ -105,9 +107,11 @@ class _WebViewWifiPostScreenState extends State<WebViewWifiPostScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text("Configuration de l'ESP")),
-      body: WebViewWidget(controller: _controller),
+    return SafeArea(
+        child: Scaffold(
+          appBar: AppBar(title: Text("Configuration de l'ESP")),
+          body: WebViewWidget(controller: _controller),
+        ),
     );
   }
 }

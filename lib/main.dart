@@ -1,12 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'screens/welcome_screen.dart';
-import 'screens/dashboard_screen.dart';
-import 'screens/devices_screen.dart';
-import 'screens/automation_screen.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'screens/wifi_provision_screen.dart';
-import 'package:flutter/material.dart';
 import 'screens/home_screen.dart';
 
 Future<void> requestPermissions() async {
@@ -44,10 +39,6 @@ class MyApp extends StatelessWidget {
 class ZigPowerApp extends StatelessWidget {
   final GoRouter _router = GoRouter(
     routes: [
-      GoRoute(path: '/', builder: (context, state) => WelcomeScreen()),
-      GoRoute(path: '/dashboard', builder: (context, state) => DashboardScreen()),
-      GoRoute(path: '/devices', builder: (context, state) => DevicesScreen()),
-      GoRoute(path: '/automation', builder: (context, state) => AutomationScreen()),
       GoRoute(path: '/wifi_provision',builder: (context, state) => WifiProvisionScreen()),
     ],
   );
