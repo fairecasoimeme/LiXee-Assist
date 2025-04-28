@@ -121,81 +121,98 @@ class _WifiProvisionScreenState extends State<WifiProvisionScreen> {
     showDialog(
       context: context,
       builder: (BuildContext context) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: Row(
-            children: [
-              Icon(Icons.wifi, color: Color(0xFF1B75BC)),
-              SizedBox(width: 8),
-              Expanded(child: Text("Scan du WiFi")),
-              IconButton(
-                icon: Icon(Icons.info_outline, color: Colors.grey),
-                onPressed: () {
-                  showDialog(
-                    context: context,
-                    builder: (_) => AlertDialog(
-                      content: Text("💡 Choisissez le réseau WiFi auquel l'appareil LIXEE devra se connecter après le provisioning. Entrez le mot de passe associé pour finaliser la configuration."),
+        bool obscurePassword = true;
+
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: Row(
+                children: [
+                  Icon(Icons.wifi, color: Color(0xFF1B75BC)),
+                  SizedBox(width: 8),
+                  Expanded(child: Text("Scan du WiFi")),
+                  IconButton(
+                    icon: Icon(Icons.info_outline, color: Colors.grey),
+                    onPressed: () {
+                      showDialog(
+                        context: context,
+                        builder: (_) => AlertDialog(
+                          content: Text("💡 Choisissez le réseau WiFi auquel l'appareil LIXEE devra se connecter après le provisioning. Entrez le mot de passe associé pour finaliser la configuration."),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  DropdownButtonFormField<String>(
+                    isExpanded: true,
+                    decoration: InputDecoration(
+                      labelText: "Sélectionnez un réseau WiFi",
+                      border: OutlineInputBorder(),
                     ),
-                  );
-                },
+                    items: availableNetworks.map((net) {
+                      return DropdownMenuItem(
+                        value: net.ssid,
+                        child: Text(net.ssid ?? "SSID inconnu"),
+                      );
+                    }).toList(),
+                    onChanged: (value) => selectedSSID = value,
+                  ),
+                  SizedBox(height: 12),
+                  TextField(
+                    decoration: InputDecoration(
+                      labelText: "Mot de passe WiFi",
+                      border: OutlineInputBorder(),
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          obscurePassword ? Icons.visibility_off : Icons.visibility,
+                          color: Colors.grey,
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            obscurePassword = !obscurePassword;
+                          });
+                        },
+                      ),
+                    ),
+                    onChanged: (value) => password = value,
+                    obscureText: obscurePassword,
+                  ),
+                ],
               ),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              DropdownButtonFormField<String>(
-                isExpanded: true,
-                decoration: InputDecoration(
-                  labelText: "Sélectionnez un réseau WiFi",
-                  border: OutlineInputBorder(),
+              actions: [
+                OutlinedButton.icon(
+                  icon: Icon(Icons.cancel),
+                  label: Text("Annuler"),
+                  onPressed: () => Navigator.of(context).pop(),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Color(0xFF1B75BC),
+                    side: BorderSide(color: Color(0xFF1B75BC)),
+                  ),
                 ),
-                items: availableNetworks.map((net) {
-                  return DropdownMenuItem(
-                    value: net.ssid,
-                    child: Text(net.ssid ?? "SSID inconnu"),
-                  );
-                }).toList(),
-                onChanged: (value) => selectedSSID = value,
-              ),
-              SizedBox(height: 12),
-              TextField(
-                decoration: InputDecoration(
-                  labelText: "Mot de passe WiFi",
-                  border: OutlineInputBorder(),
+                OutlinedButton.icon(
+                  icon: Icon(Icons.send),
+                  label: Text("Envoyer"),
+                  onPressed: () {
+                    if (selectedSSID != null && password.isNotEmpty) {
+                      Navigator.of(context).pop();
+                      _startProvisioning(selectedSSID!, password, last4Chars);
+                    } else {
+                      print("❌ SSID ou mot de passe manquant");
+                    }
+                  },
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Color(0xFF1B75BC),
+                    side: BorderSide(color: Color(0xFF1B75BC)),
+                  ),
                 ),
-                onChanged: (value) => password = value,
-                obscureText: true,
-              ),
-            ],
-          ),
-          actions: [
-            OutlinedButton.icon(
-              icon: Icon(Icons.cancel),
-              label: Text("Annuler"),
-              onPressed: () => Navigator.of(context).pop(),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Color(0xFF1B75BC),
-                side: BorderSide(color: Color(0xFF1B75BC)),
-              ),
-            ),
-            OutlinedButton.icon(
-              icon: Icon(Icons.send),
-              label: Text("Envoyer"),
-              onPressed: () {
-                if (selectedSSID != null && password.isNotEmpty) {
-                  Navigator.of(context).pop();
-                  _startProvisioning(selectedSSID!, password, last4Chars);
-                } else {
-                  print("❌ SSID ou mot de passe manquant");
-                }
-              },
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Color(0xFF1B75BC),
-                side: BorderSide(color: Color(0xFF1B75BC)),
-              ),
-            ),
-          ],
+              ],
+            );
+          },
         );
       },
     );

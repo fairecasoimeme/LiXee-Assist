@@ -5,6 +5,7 @@ import 'wifi_provision_screen.dart';
 import 'webview_device_screen.dart';
 import 'package:multicast_dns/multicast_dns.dart';
 import 'dart:io';
+import 'dart:convert'; // ✅ permet d'utiliser base64Encode et utf8
 import 'package:dio/dio.dart';
 import 'about_screen.dart';
 
@@ -83,7 +84,7 @@ Future<bool> _resetDeviceConfig(String name, String url) async {
   try {
     final ip;
     if (isIPAddress(url)) {
-      ip = isIPAddress(url);
+      ip = Uri.parse(url).host;
     } else {
       ip = await resolveMdnsIP(name);
       if (ip == null) {
@@ -144,7 +145,7 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  void checkDeviceStatus(String deviceName, String url, String entryKey) async {
+  void checkDeviceStatus(String deviceName, String url, String entryKey, {String? login, String? password}) async {
     print("🔍 Vérification de l'état de l'appareil : $deviceName");
 
     if (!isIPAddress(url)) {
@@ -168,27 +169,38 @@ class _HomeScreenState extends State<HomeScreen> {
         "$url/poll",
         options: Options(
           sendTimeout: const Duration(seconds: 2),
-          receiveTimeout: const Duration(seconds: 2),
+          receiveTimeout: const Duration(seconds: 5),
           responseType: ResponseType.plain,
+          headers: (login != null && password != null)
+              ? {
+            'Authorization': 'Basic ' + base64Encode(utf8.encode('$login:$password')),
+          }
+              : null,
         ),
       );
 
       if (response.statusCode == 200) {
         print("✅ $deviceName est actif");
-        setState(() {
-          deviceStatuses[entryKey] = true;
-        });
+        if (mounted) {
+          setState(() {
+            deviceStatuses[entryKey] = true;
+          });
+        }
       }else {
         print("❌ $deviceName a répondu avec le code ${response.statusCode}");
+        if (mounted) {
+          setState(() {
+            deviceStatuses[entryKey] = false;
+          });
+        }
+      }
+    } catch (e) {
+      print("❌ Erreur pendant la vérification de $deviceName : $e");
+      if (mounted) {
         setState(() {
           deviceStatuses[entryKey] = false;
         });
       }
-    } catch (e) {
-      print("❌ Erreur pendant la vérification de $deviceName : $e");
-      setState(() {
-        deviceStatuses[entryKey] = false;
-      });
     } finally {
       dio.close(force: true); // 🔒 bonne pratique pour nettoyer
     }
@@ -210,12 +222,16 @@ class _HomeScreenState extends State<HomeScreen> {
 
       for (int i = 0; i < devices.length; i++) {
         List<String> parts = devices[i].split('|');
-        if (parts.length == 2) {
+        if (parts.length == 2 || (parts.length == 5 && parts[2] == 'auth')) {
           String deviceName = parts[0];
           String deviceUrl = parts[1];
-          checkDeviceStatus(deviceName, deviceUrl, devices[i]);
+          String? login = parts.length == 5 ? parts[3] : null;
+          String? password = parts.length == 5 ? parts[4] : null;
+
+          checkDeviceStatus(deviceName, deviceUrl, devices[i], login: login, password: password);
         }
       }
+
 
 
     });
@@ -229,12 +245,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
     for (var entry in rawDevices) {
       List<String> parts = entry.split('|');
-      if (parts.length == 2) {
+      if (parts.length == 2 || (parts.length == 5 && parts[2] == 'auth')) {
         validDevices.add(entry);
       } else {
         print("⚠ Entrée ignorée (format invalide) : $entry");
       }
     }
+
 
     setState(() {
       devices = validDevices;
@@ -257,94 +274,182 @@ class _HomeScreenState extends State<HomeScreen> {
     List<String> parts = originalEntry.split("|");
     String name = parts[0];
     String url = parts[1];
+    bool useAuth = parts.length > 2 && parts[2] == "auth";
+    String login = parts.length > 3 ? parts[3] : "";
+    String password = parts.length > 4 ? parts[4] : "";
+    bool obscurePassword = true;
 
     TextEditingController nameController = TextEditingController(text: name);
     TextEditingController urlController = TextEditingController(text: url);
+    TextEditingController loginController = TextEditingController(text: login);
+    TextEditingController passwordController = TextEditingController(text: password);
 
     showDialog(
       context: context,
       builder: (BuildContext context) {
-        return AlertDialog(
-          title: Row(
-            children: [
-              Image.asset("assets/logo_x.png", height: 32),
-              SizedBox(width: 8),
-              Expanded(child: Text("Modifier l'appareil ?")),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameController,
-                decoration: InputDecoration(labelText: "Nom"),
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: Row(
+                children: [
+                  Image.asset("assets/logo_x.png", height: 32),
+                  SizedBox(width: 8),
+                  Expanded(child: Text("Modifier l'appareil")),
+                ],
               ),
-              TextField(
-                controller: urlController,
-                decoration: InputDecoration(labelText: "URL"),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: nameController,
+                    decoration: InputDecoration(labelText: "Nom"),
+                  ),
+                  TextField(
+                    controller: urlController,
+                    decoration: InputDecoration(labelText: "URL"),
+                  ),
+                  CheckboxListTile(
+                    value: useAuth,
+                    title: Text("Utiliser l'authentification"),
+                    controlAffinity: ListTileControlAffinity.leading,
+                    onChanged: (val) {
+                      setState(() => useAuth = val ?? false);
+                    },
+                  ),
+                  if (useAuth) ...[
+                    TextField(
+                      controller: loginController,
+                      decoration: InputDecoration(labelText: "Login"),
+                    ),
+                    TextField(
+                      controller: passwordController,
+                      obscureText: obscurePassword,
+                      decoration: InputDecoration(
+                        labelText: "Mot de passe",
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            obscurePassword ? Icons.visibility_off : Icons.visibility,
+                          ),
+                          onPressed: () {
+                            setState(() => obscurePassword = !obscurePassword);
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
               ),
-            ],
-          ),
-          actions: [
-            OutlinedButton.icon(
-              icon: Icon(Icons.cancel),
-              label: Text("Annuler"),
-              onPressed: () => Navigator.of(context).pop(),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Color(0xFF1B75BC),
-                side: BorderSide(color: Color(0xFF1B75BC)),
-              ),
-            ),
-            OutlinedButton.icon(
-              icon: Icon(Icons.save_outlined),
-              label: Text("Modifier"),
-              onPressed: () async {
-                String newName = nameController.text.trim();
-                String newUrl = urlController.text.trim();
+              actions: [
+                OutlinedButton.icon(
+                  icon: Icon(Icons.cancel),
+                  label: Text("Annuler"),
+                  onPressed: () => Navigator.of(context).pop(),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Color(0xFF1B75BC),
+                    side: BorderSide(color: Color(0xFF1B75BC)),
+                  ),
+                ),
+                OutlinedButton.icon(
+                  icon: Icon(Icons.save_outlined),
+                  label: Text("Modifier"),
+                  onPressed: () async {
+                    String newName = nameController.text.trim();
+                    String newUrl = urlController.text.trim();
+                    String newLogin = loginController.text.trim();
+                    String newPass = passwordController.text.trim();
 
-                if (newName.isNotEmpty && newUrl.isNotEmpty) {
-                  SharedPreferences prefs = await SharedPreferences.getInstance();
-                  devices.remove(originalEntry);
-                  devices.add("$newName|$newUrl");
-                  await prefs.setStringList('saved_devices', devices);
-                  setState(() {});
-                  Navigator.of(context).pop();
-                } else {
-                  print("❌ Nom ou URL vide !");
-                }
-              },
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Color(0xFF1B75BC),
-                side: BorderSide(color: Color(0xFF1B75BC)),
-              ),
-            ),
-          ],
+                    if (newName.isEmpty || newUrl.isEmpty) {
+                      print("❌ Nom ou URL vide !");
+                      return;
+                    }
+
+                    String newEntry = "$newName|$newUrl";
+                    if (useAuth) newEntry += "|auth|$newLogin|$newPass";
+
+                    SharedPreferences prefs = await SharedPreferences.getInstance();
+                    devices.remove(originalEntry);
+                    devices.add(newEntry);
+                    await prefs.setStringList('saved_devices', devices);
+                    setState(() {});
+                    Navigator.of(context).pop();
+                  },
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Color(0xFF1B75BC),
+                    side: BorderSide(color: Color(0xFF1B75BC)),
+                  ),
+                ),
+              ],
+            );
+          },
         );
       },
     );
   }
 
-  void _removeDevice(String entry) async {
+  void _confirmForceDelete(String entry) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.warning_amber, color: Colors.orange),
+            SizedBox(width: 8),
+            Expanded(child: Text("Suppression forcée ?")),
+          ],
+        ),
+        content: Text(
+            "La tentative de reset de l'appareil a échoué.\nSouhaitez-vous quand même forcer la suppression de ce device ?"),
+        actions: [
+          OutlinedButton.icon(
+            icon: Icon(Icons.cancel),
+            label: Text("Annuler"),
+            onPressed: () => Navigator.of(context).pop(),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Color(0xFF1B75BC),
+              side: BorderSide(color: Color(0xFF1B75BC)),
+            ),
+          ),
+          OutlinedButton.icon(
+            icon: Icon(Icons.delete_forever),
+            label: Text("Forcer"),
+            onPressed: () {
+              Navigator.of(context).pop();
+              _removeDevice(entry, force: true);
+            },
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.red,
+              side: BorderSide(color: Colors.red),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
+  void _removeDevice(String entry, {bool force = false}) async {
     final parts = entry.split('|');
     if (parts.length != 2) return;
 
     final name = parts[0];
     final url = parts[1];
 
-    // 🔁 Réinitialisation avant suppression
-    final success = await _resetDeviceConfig(name, url);
+    if (!force) {
+      final success = await _resetDeviceConfig(name, url);
 
-    // 💾 Suppression locale
-    if (success)
-    {
-      SharedPreferences prefs = await SharedPreferences.getInstance();
-      devices.remove(entry);
-      await prefs.setStringList('saved_devices', devices);
-      setState(() {});
+      if (!success) {
+        // 🔁 Échec de reset : demander confirmation de suppression forcée
+        _confirmForceDelete(entry);
+        return;
+      }
     }
 
+    // ✅ Suppression locale (normale ou forcée)
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    devices.remove(entry);
+    await prefs.setStringList('saved_devices', devices);
+    setState(() {});
   }
+
 
   void _startProvisioning() async {
     final result = await Navigator.push(
@@ -421,20 +526,31 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _openDevice(String name, String url) async {
+  void _openDevice(String entry) async {
+    final parts = entry.split('|');
+    if (parts.length < 2) return;
+
+    final name = parts[0];
+    String url = parts[1];
+    bool result = false;
     if (isIPAddress(url)) {
-      Navigator.push(context,
-          MaterialPageRoute(builder: (_) => WebViewDeviceScreen(deviceName: name, url: url)));
+      result = await Navigator.push(context,
+          MaterialPageRoute(builder: (_) => WebViewDeviceScreen(deviceEntry: entry, url: url)));
     } else {
       String? ip = await resolveMdnsIP(name);
       if (ip != null) {
-        Navigator.push(context,
-            MaterialPageRoute(builder: (_) => WebViewDeviceScreen(deviceName: name, url: "http://$ip")));
+        result = await Navigator.push(context,
+            MaterialPageRoute(builder: (_) => WebViewDeviceScreen(deviceEntry: entry, url: "http://$ip")));
       } else {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text("Impossible de résoudre $name"),
         ));
       }
+    }
+
+    if (result == true) {
+      print("🔁 Rafraîchissement demandé après WebView");
+      _loadDevices(); // ou _resetStateAfterProvisioning() selon ton besoin
     }
   }
 
@@ -494,7 +610,19 @@ class _HomeScreenState extends State<HomeScreen> {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               child: ListTile(
                 contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                title: Text(name, style: TextStyle(fontWeight: FontWeight.w600)),
+                title: Row(
+                  children: [
+                    if (devices[index].contains('|auth|'))
+                      Padding(
+                        padding: const EdgeInsets.only(right: 4.0),
+                        child: Icon(Icons.lock_outline, size: 16, color: Colors.grey),
+                      ),
+                    Text(
+                      name,
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
                 subtitle: Text(url),
                 //leading: Icon(Icons.devices_other, color: Color(0xFF1B75BC)),
                 leading: Icon(
@@ -556,7 +684,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ],
                 ),
-                onTap: () => _openDevice(name, url),
+                onTap: () => _openDevice(devices[index]),
               ),
             );
           },
