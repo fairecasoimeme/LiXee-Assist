@@ -9,7 +9,6 @@ val keystoreProperties = Properties().apply {
 plugins {
     id("com.android.application")
     id("kotlin-android")
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
 
@@ -21,7 +20,9 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
+        isCoreLibraryDesugaringEnabled = true
     }
+
 
     kotlinOptions {
         jvmTarget = JavaVersion.VERSION_11.toString()
@@ -63,4 +64,14 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5") // ✅ syntaxe Kotlin DSL
+    implementation("androidx.core:core-ktx:1.16.0")
+}
+
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
+    implementation("androidx.work:work-runtime-ktx:2.10.1")
 }

@@ -4,14 +4,24 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'wifi_provision_screen.dart';
 import 'webview_device_screen.dart';
 import 'package:multicast_dns/multicast_dns.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'dart:io';
 import 'dart:convert'; // ✅ permet d'utiliser base64Encode et utf8
 import 'package:dio/dio.dart';
 import 'about_screen.dart';
 
+// ✅ Instance globale des notifications - référence celle du main.dart
+final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
+
 class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
+
   @override
   _HomeScreenState createState() => _HomeScreenState();
+}
+
+bool isTV(BuildContext context) {
+  return MediaQuery.of(context).size.width > 720;
 }
 
 /// 📌 Vérifie si l'URL est une adresse IP
@@ -30,6 +40,12 @@ bool isIPAddress(String url) {
     return false;
   }
 }
+
+Future<List<String>> _getNotifications(String deviceName) async {
+  SharedPreferences prefs = await SharedPreferences.getInstance();
+  return prefs.getStringList('notifications_$deviceName') ?? [];
+}
+
 
 /// 🔍 mDNS lookup
 Future<String?> resolveMdnsIP(String deviceName) async {
@@ -82,7 +98,7 @@ Future<String?> resolveMdnsIP(String deviceName) async {
 
 Future<bool> _resetDeviceConfig(String name, String url) async {
   try {
-    final ip;
+    final String? ip;
     if (isIPAddress(url)) {
       ip = Uri.parse(url).host;
     } else {
@@ -111,6 +127,22 @@ Future<bool> _resetDeviceConfig(String name, String url) async {
     return false;
   }
 }
+
+Future<void> saveNotification(String deviceName,String timestamp, String title, String message) async {
+  SharedPreferences prefs = await SharedPreferences.getInstance();
+  String key = 'notifications_$deviceName';
+
+  List<String> existing = prefs.getStringList(key) ?? [];
+
+  // ✅ Vérifier si la notification existe déjà pour éviter les doublons
+  final entry = "$timestamp|$title|$message";
+  if (!existing.contains(entry)) {
+    existing.add(entry);
+    await prefs.setStringList(key, existing);
+    print("✅ Notification sauvegardée pour $deviceName : $title");
+  }
+}
+
 
 class _HomeScreenState extends State<HomeScreen> {
   List<String> devices = [];
@@ -153,12 +185,12 @@ class _HomeScreenState extends State<HomeScreen> {
       String? ip = await resolveMdnsIP(deviceName);
       if (ip != null) {
         url = "http://$ip";
-        print("✅ IP résolue : $url");
       } else {
-        print("❌ Résolution mDNS échouée pour $deviceName");
-        setState(() {
-          deviceStatuses[entryKey] = false;
-        });
+        if (mounted) {
+          setState(() {
+            deviceStatuses[entryKey] = false;
+          });
+        }
         return;
       }
     }
@@ -173,7 +205,7 @@ class _HomeScreenState extends State<HomeScreen> {
           responseType: ResponseType.plain,
           headers: (login != null && password != null)
               ? {
-            'Authorization': 'Basic ' + base64Encode(utf8.encode('$login:$password')),
+            'Authorization': 'Basic ${base64Encode(utf8.encode('$login:$password'))}',
           }
               : null,
         ),
@@ -181,12 +213,84 @@ class _HomeScreenState extends State<HomeScreen> {
 
       if (response.statusCode == 200) {
         print("✅ $deviceName est actif");
+        print(response.data);
+        // ✅ Vérifier si response.data n'est pas null et n'est pas vide
+        if (response.data != null && response.data.toString().trim().isNotEmpty) {
+          try {
+            final jsonData = jsonDecode(response.data);
+
+            // ✅ Vérifier si 'notifications' existe dans la réponse
+            if (jsonData != null && jsonData['notifications'] != null) {
+              List<dynamic> notifications = jsonData['notifications'];
+
+              for (int i = 0; i < notifications.length; i++) {
+                var notif = notifications[i];
+                print("📋 Notification reçue: $notif");
+
+                // ✅ Vérification de la structure de la notification
+                if (notif != null && notif['title'] != null && notif['timeStamp'] != null) {
+                  var title = "";
+                  int notifType = notif['type'] ?? 0;
+
+                  switch (notifType) {
+                    case 1:
+                      title = "❌ $deviceName - ${notif['title']}";
+                      break;
+                    case 2:
+                      title = "⚠️ $deviceName - ${notif['title']}";
+                      break;
+                    case 3:
+                      title = "📋 $deviceName - ${notif['title']}";
+                      break;
+                    default:
+                      title = "$deviceName - ${notif['title']}";
+                  }
+
+                  // ✅ Sauvegarde de la notification
+                  await saveNotification(
+                      deviceName,
+                      notif['timeStamp'].toString(),
+                      title,
+                      notif['message']?.toString() ?? ''
+                  );
+
+                  // ✅ Affichage de la notification uniquement si l'app est active
+                  if (mounted) {
+                    try {
+                      await flutterLocalNotificationsPlugin.show(
+                        DateTime.now().millisecondsSinceEpoch ~/ 1000 + i, // ID unique basé sur le timestamp
+                        title,
+                        notif['message']?.toString() ?? '',
+                        const NotificationDetails(
+                          android: AndroidNotificationDetails(
+                            'lixee_channel_id',
+                            'Lixee Notifications',
+                            importance: Importance.defaultImportance,
+                            priority: Priority.defaultPriority,
+                            styleInformation: BigTextStyleInformation(''),
+                          ),
+                        ),
+                      );
+                      print("✅ Notification affichée: $title");
+                    } catch (notifError) {
+                      print("❌ Erreur lors de l'affichage de la notification: $notifError");
+                    }
+                  }
+                }
+              }
+            }
+          } catch (jsonError) {
+            print("❌ Erreur lors du parsing JSON: $jsonError");
+            print("📄 Données reçues: ${response.data}");
+          }
+        }
+
         if (mounted) {
           setState(() {
             deviceStatuses[entryKey] = true;
           });
         }
-      }else {
+      } else {
         print("❌ $deviceName a répondu avec le code ${response.statusCode}");
         if (mounted) {
           setState(() {
@@ -195,16 +299,15 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       }
     } catch (e) {
-      print("❌ Erreur pendant la vérification de $deviceName : $e");
+      print("❌ Erreur lors de la vérification de $deviceName : $e");
       if (mounted) {
         setState(() {
           deviceStatuses[entryKey] = false;
         });
       }
     } finally {
-      dio.close(force: true); // 🔒 bonne pratique pour nettoyer
+      dio.close(force: true);
     }
-
   }
 
   Future<void> _resetStateAfterProvisioning() async {
@@ -260,10 +363,12 @@ class _HomeScreenState extends State<HomeScreen> {
     // ✅ On fait la vérification d’état APRES avoir chargé
     for (int i = 0; i < validDevices.length; i++) {
       List<String> parts = validDevices[i].split('|');
-      if (parts.length == 2) {
+      if (parts.length == 2 || (parts.length == 5 && parts[2] == 'auth')) {
         String deviceName = parts[0];
         String deviceUrl = parts[1];
-        checkDeviceStatus(deviceName, deviceUrl, validDevices[i]);
+        String? login = parts.length == 5 ? parts[3] : null;
+        String? password = parts.length == 5 ? parts[4] : null;
+        checkDeviceStatus(deviceName, deviceUrl, devices[i], login: login, password: password);
       }
     }
     print("📋 Appareils chargés : $devices");
@@ -526,7 +631,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _openDevice(String entry) async {
+  Future<void> _openDevice(String entry) async {
     final parts = entry.split('|');
     if (parts.length < 2) return;
 
@@ -534,13 +639,21 @@ class _HomeScreenState extends State<HomeScreen> {
     String url = parts[1];
     bool result = false;
     if (isIPAddress(url)) {
-      result = await Navigator.push(context,
-          MaterialPageRoute(builder: (_) => WebViewDeviceScreen(deviceEntry: entry, url: url)));
+      result = (await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => WebViewDeviceScreen(deviceEntry: entry, url: url),
+        ),
+      )) == true;
     } else {
       String? ip = await resolveMdnsIP(name);
       if (ip != null) {
-        result = await Navigator.push(context,
-            MaterialPageRoute(builder: (_) => WebViewDeviceScreen(deviceEntry: entry, url: "http://$ip")));
+        result = (await Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => WebViewDeviceScreen(deviceEntry: entry, url: "http://$ip"),
+          ),
+        )) == true;
       } else {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text("Impossible de résoudre $name"),
@@ -553,6 +666,106 @@ class _HomeScreenState extends State<HomeScreen> {
       _loadDevices(); // ou _resetStateAfterProvisioning() selon ton besoin
     }
   }
+
+  Future<List<Map<String, String>>> getNotifications(String deviceName) async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    List<String> raw = prefs.getStringList('notifications_$deviceName') ?? [];
+
+    return raw.map((entry) {
+      List<String> parts = entry.split('|');
+      if (parts.length >= 3) {
+        return {
+          "date": parts[0],
+          "title": parts[1],
+          "message": parts[2],
+        };
+      }
+      return {
+        "date": "",
+        "title": "Notification malformée",
+        "message": entry,
+      };
+    }).toList();
+  }
+
+  void _showNotificationsDialog(String Entry) async {
+    List<String> parts = Entry.split("|");
+    String name = parts[0];
+
+    List<Map<String, String>> notifications = await getNotifications(name);
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text("🔔 Notifications - $name"),
+          content: notifications.isEmpty
+              ? Text("Pas de notifications.")
+              : SizedBox(
+            width: double.maxFinite,
+            height: 400, // ✅ Hauteur fixe pour éviter le débordement
+            child: ListView.builder(
+              shrinkWrap: true,
+              itemCount: notifications.length,
+              itemBuilder: (context, index) {
+                final notif = notifications[index];
+                return Card(
+                  margin: EdgeInsets.symmetric(vertical: 4),
+                  child: ListTile(
+                    title: Text(
+                      notif['title'] ?? '',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text("🕒 ${notif['date']}"),
+                        SizedBox(height: 4),
+                        Text("📄 ${notif['message']}"),
+                      ],
+                    ),
+                    isThreeLine: true,
+                  ),
+                );
+              },
+            ),
+          ),
+          actions: [
+            if (notifications.isNotEmpty)
+              OutlinedButton.icon(
+                icon: Icon(Icons.delete,),
+                label: Text("Supprimer"),
+                onPressed: () async {
+                  SharedPreferences prefs = await SharedPreferences.getInstance();
+                  await prefs.remove('notifications_$name');
+
+                  Navigator.of(context).pop(); // Ferme le popup
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text("Notifications supprimées pour $name")),
+                  );
+                },
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.red,
+                  side: BorderSide(color: Colors.red),
+                ),
+              ),
+            OutlinedButton.icon(
+              icon: Icon(Icons.cancel,),
+              label: Text("Fermer"),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Color(0xFF1B75BC),
+                side: BorderSide(color: Color(0xFF1B75BC)),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -597,110 +810,170 @@ class _HomeScreenState extends State<HomeScreen> {
             ? Center(child: Text("Aucun appareil enregistré.",
             style: TextStyle(color: Colors.grey)))
             : ListView.builder(
-          padding: EdgeInsets.all(16),
+          padding: EdgeInsets.all(isTV(context) ? 32 : 16),
           itemCount: devices.length,
           itemBuilder: (context, index) {
             List<String> parts = devices[index].split("|");
             String name = parts[0];
             String url = parts[1];
 
-            return Card(
-              elevation: 2,
-              margin: EdgeInsets.symmetric(vertical: 8),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              child: ListTile(
-                contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                title: Row(
-                  children: [
-                    if (devices[index].contains('|auth|'))
-                      Padding(
-                        padding: const EdgeInsets.only(right: 4.0),
-                        child: Icon(Icons.lock_outline, size: 16, color: Colors.grey),
-                      ),
-                    Text(
-                      name,
-                      style: TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                  ],
-                ),
-                subtitle: Text(url),
-                //leading: Icon(Icons.devices_other, color: Color(0xFF1B75BC)),
-                leading: Icon(
-                  Icons.devices_other,
-                  color: deviceStatuses[devices[index]] == true ? Colors.green : Colors.red,
-                ),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: Icon(Icons.edit_outlined, color: Color(0xFF1B75BC)),
-                      tooltip: "Modifier",
-                      onPressed: () => _showEditDialog(devices[index]),
-                    ),
-                    IconButton(
-                      icon: Icon(Icons.delete_outlined, color: Color(0xFF1B75BC)),
-                      onPressed: () {
-                        showDialog(
-                          context: context,
-                          builder: (BuildContext context) {
-                            return AlertDialog(
-                              title: Row(
-                                children: [
-                                  Image.asset("assets/logo_x.png", height: 32),
-                                  SizedBox(width: 8),
-                                  Expanded(child: Text("Supprimer l'appareil ?")),
-                                ],
+            return FutureBuilder<List<String>>(
+              future: _getNotifications(name),
+              builder: (context, snapshot) {
+                final hasNotifications =
+                    snapshot.connectionState == ConnectionState.done &&
+                        (snapshot.data?.isNotEmpty ?? false);
+
+                return Focus(
+                  autofocus: index == 0,
+                  child: Builder(
+                    builder: (focusContext) {
+                      final bool hasFocus = Focus
+                          .of(focusContext)
+                          .hasFocus;
+                      return Card(
+                        elevation: hasFocus ? 8 : 2,
+                        color: Colors.white,
+                        margin: EdgeInsets.symmetric(vertical: isTV(context)
+                            ? 16
+                            : 8),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12)),
+                        child: ListTile(
+                          contentPadding: EdgeInsets.symmetric(
+                              horizontal: isTV(context) ? 32 : 16,
+                              vertical: isTV(context) ? 16 : 8),
+                          title: Row(
+                            children: [
+                              if (devices[index].contains('|auth|'))
+                                Padding(
+                                  padding: const EdgeInsets.only(right: 4.0),
+                                  child: Icon(Icons.lock_outline, size: 16,
+                                      color: Colors.grey),
+                                ),
+                              Text(
+                                name,
+                                style: TextStyle(fontWeight: FontWeight.w600,
+                                    fontSize: isTV(context) ? 24 : 16),
                               ),
-                              content: Text("Êtes-vous sûr de vouloir supprimer cet appareil ?"),
-                              actions: [
-                                OutlinedButton.icon(
-                                  icon: Icon(Icons.cancel,),
-                                  label: Text("Annuler"),
-                                  onPressed: () {
-                                    Navigator.of(context).pop();
-                                  },
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: Color(0xFF1B75BC),
-                                    side: BorderSide(color: Color(0xFF1B75BC)),
-                                  ),
-                                ),
-                                OutlinedButton.icon(
-                                  icon: Icon(Icons.check),
-                                  label: Text("Valider"),
-                                  onPressed: () {
-                                    Navigator.of(context).pop(); // Fermer le dialogue
-                                    _removeDevice(devices[index]); // Supprimer réellement
-                                  },
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: Color(0xFF1B75BC),
-                                    side: BorderSide(color: Color(0xFF1B75BC)),
-                                  ),
-                                ),
-                              ],
-                            );
-                          },
-                        );
-                      },
-                    ),
-                  ],
-                ),
-                onTap: () => _openDevice(devices[index]),
-              ),
+                            ],
+                          ),
+                          subtitle: Text(
+                            url,
+                            style: TextStyle(fontSize: isTV(context) ? 20 : 14),
+                          ),
+                          //leading: Icon(Icons.devices_other, color: Color(0xFF1B75BC)),
+                          leading: Icon(
+                            Icons.devices_other,
+                            color: deviceStatuses[devices[index]] == true
+                                ? Colors
+                                .green
+                                : Colors.red,
+                          ),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: Icon(
+                                    hasNotifications
+                                        ? Icons.notifications
+                                        : Icons.notifications_outlined,
+                                    color: hasNotifications ? Colors.amber : Color(0xFF1B75BC)),
+                                tooltip: "Voir les notifications",
+                                onPressed: () =>
+                                    _showNotificationsDialog(devices[index]),
+                              ),
+                              IconButton(
+                                icon: Icon(
+                                    Icons.edit_outlined,
+                                    color: Color(0xFF1B75BC)),
+                                tooltip: "Modifier",
+                                onPressed: () =>
+                                    _showEditDialog(devices[index]),
+                              ),
+                              IconButton(
+                                icon: Icon(Icons.delete_outlined,
+                                    color: Color(0xFF1B75BC)),
+                                onPressed: () {
+                                  showDialog(
+                                    context: context,
+                                    builder: (BuildContext context) {
+                                      return AlertDialog(
+                                        title: Row(
+                                          children: [
+                                            Image.asset(
+                                                "assets/logo_x.png",
+                                                height: 32),
+                                            SizedBox(width: 8),
+                                            Expanded(child: Text(
+                                                "Supprimer l'appareil ?")),
+                                          ],
+                                        ),
+                                        content: Text(
+                                            "Êtes-vous sûr de vouloir supprimer cet appareil ?"),
+                                        actions: [
+                                          OutlinedButton.icon(
+                                            icon: Icon(Icons.cancel,),
+                                            label: Text("Annuler"),
+                                            onPressed: () {
+                                              Navigator.of(context).pop();
+                                            },
+                                            style: OutlinedButton.styleFrom(
+                                              foregroundColor: Color(
+                                                  0xFF1B75BC),
+                                              side: BorderSide(
+                                                  color: Color(0xFF1B75BC)),
+                                            ),
+                                          ),
+                                          OutlinedButton.icon(
+                                            icon: Icon(Icons.check),
+                                            label: Text("Valider"),
+                                            onPressed: () {
+                                              Navigator
+                                                  .of(context)
+                                                  .pop(); // Fermer le dialogue
+                                              _removeDevice(
+                                                  devices[index]); // Supprimer réellement
+                                            },
+                                            style: OutlinedButton.styleFrom(
+                                              foregroundColor: Color(
+                                                  0xFF1B75BC),
+                                              side: BorderSide(
+                                                  color: Color(0xFF1B75BC)),
+                                            ),
+                                          ),
+                                        ],
+                                      );
+                                    },
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
+                          onTap: () => _openDevice(devices[index]),
+                        ),
+                      );
+                    },
+                  ),
+                );
+              },
             );
-          },
+          }
         ),
-        floatingActionButton: OutlinedButton.icon(
-          onPressed: _startProvisioning,
-          icon: Icon(Icons.add, size: 32),
-          label: Text(""),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: Color(0xFF1B75BC),
-            side: BorderSide(color: Color(0xFF1B75BC)),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        floatingActionButton: Focus(
+          child: OutlinedButton.icon(
+            onPressed: _startProvisioning,
+            icon: Icon(Icons.add, size: 32),
+            label: Text(""),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Color(0xFF1B75BC),
+              side: BorderSide(color: Color(0xFF1B75BC)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+            ),
           ),
         ),
-      ),
+      )
     );
   }
 }

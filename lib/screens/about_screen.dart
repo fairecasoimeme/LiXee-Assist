@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 class AboutScreen extends StatefulWidget {
+  const AboutScreen({super.key});
+
   @override
   _AboutScreenState createState() => _AboutScreenState();
 }

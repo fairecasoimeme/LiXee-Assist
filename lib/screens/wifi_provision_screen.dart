@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:wifi_iot/wifi_iot.dart';
 import 'webview_wifi_post_screen.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
-import 'dart:io';
 
 class WifiProvisionScreen extends StatefulWidget {
+  const WifiProvisionScreen({super.key});
+
   @override
   _WifiProvisionScreenState createState() => _WifiProvisionScreenState();
 }
@@ -13,6 +13,7 @@ class WifiProvisionScreen extends StatefulWidget {
 class _WifiProvisionScreenState extends State<WifiProvisionScreen> {
   List<WifiNetwork> networks = [];
   static bool _globalConnectingLock = false;
+
   @override
   void initState() {
     super.initState();
@@ -37,9 +38,9 @@ class _WifiProvisionScreenState extends State<WifiProvisionScreen> {
 
       print("📡 Réseaux uniques détectés : ${filteredList.length}");
 
-      filteredList.forEach((net) {
+      for (var net in filteredList) {
         print("📶 ${net.ssid}");
-      });
+      }
 
       setState(() {
         networks = filteredList.where((net) => net.ssid!.startsWith("LIXEEGW")).toList();

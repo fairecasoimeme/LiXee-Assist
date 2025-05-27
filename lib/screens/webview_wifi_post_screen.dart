@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:webview_flutter/webview_flutter.dart';
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -8,7 +7,7 @@ class WebViewWifiPostScreen extends StatefulWidget {
   final String password;
   final String deviceId; // ✅ Ajout du Device ID
 
-  const WebViewWifiPostScreen({
+  const WebViewWifiPostScreen({super.key, 
     required this.ssid,
     required this.password,
     required this.deviceId,
@@ -19,26 +18,17 @@ class WebViewWifiPostScreen extends StatefulWidget {
 }
 
 class _WebViewWifiPostScreenState extends State<WebViewWifiPostScreen> {
-  late final WebViewController _controller;
+  String statusMessage = "🔧 Configuration en cours...";
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-
-    _controller = WebViewController()
-      ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setNavigationDelegate(
-        NavigationDelegate(
-          onPageFinished: (_) {
-            _sendWifiConfig();
-          },
-        ),
-      )
-      ..loadHtmlString(_buildHtml());
+    _sendWifiConfig();
   }
 
   /// 💾 **Sauvegarde de l'appareil sous "LIXEEGW-XXXX"**
-  void _saveDevice() async {
+  Future<void> _saveDevice() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     List<String> devices = prefs.getStringList('saved_devices') ?? [];
 
@@ -54,8 +44,11 @@ class _WebViewWifiPostScreenState extends State<WebViewWifiPostScreen> {
   }
 
   /// 🔄 Envoi de la configuration WiFi à l'ESP
-  void _sendWifiConfig() async {
-    final dio = Dio();
+  Future<void> _sendWifiConfig() async {
+    final dio = Dio(BaseOptions(
+      connectTimeout: Duration(seconds:5),
+      receiveTimeout: Duration(seconds:5),
+    ));
     try {
       print("📡 Envoi des identifiants WiFi via Dio (multipart/form-data)...");
 
@@ -73,45 +66,55 @@ class _WebViewWifiPostScreenState extends State<WebViewWifiPostScreen> {
       print("📡 Réponse ESP via Dio : ${response.data}");
 
       if (response.data != null && response.data["result"] == true) {
-        print("✅ Configuration réussie !");
+        setState(() {
+          statusMessage = "✅ Configuration réussie !";
+          _isLoading = false;
+        });
         _saveDevice(); // ✅ Enregistrer l'appareil automatiquement
 
-        if (mounted) {
-          Navigator.pop(context, true); // 🔄 Retourne `true` à HomeScreen
-        }
+        await Future.delayed(const Duration(seconds: 2));
+        if (mounted) Navigator.pop(context, true);
       } else {
-        print("❌ La configuration a échoué !");
+        setState(() {
+          statusMessage = "❌ La configuration a échoué !";
+          _isLoading = false;
+        });
       }
 
     } catch (error) {
       print("❌ Erreur Dio : $error");
+      setState(() {
+        statusMessage = "❌ Erreur de connexion à l'ESP.";
+        _isLoading = false;
+      });
     }finally{
       dio.close(force: true);
+      if (mounted) setState(() => _isLoading = false);
     }
-  }
-
-  /// 🖥 Génération du HTML pour WebView
-  String _buildHtml() {
-    return '''
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-      </head>
-      <body>
-        <h2>🔧 Configuration en cours...</h2>
-      </body>
-      </html>
-    ''';
   }
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-        child: Scaffold(
-          appBar: AppBar(title: Text("Configuration de l'ESP")),
-          body: WebViewWidget(controller: _controller),
+    return Scaffold(
+      appBar: AppBar(title: Text("Configuration WiFi")),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (_isLoading) CircularProgressIndicator(),
+            const SizedBox(height: 20),
+            Text(statusMessage, textAlign: TextAlign.center),
+            if (!_isLoading)
+              Padding(
+                padding: const EdgeInsets.only(top: 24.0),
+                child: ElevatedButton(
+                  child: const Text("Fermer"),
+                  onPressed: () => Navigator.pop(context, false),
+                ),
+              )
+          ],
         ),
+      ),
     );
   }
 }

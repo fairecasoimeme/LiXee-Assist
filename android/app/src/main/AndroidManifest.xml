@@ -1,9 +1,15 @@
-<manifest package="com.lixee.assist" xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    package="com.lixee.assist">
+
+
+
     <application
         android:name=".AppContextProvider"
         android:label="LiXee-Assist"
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true"
+        android:banner="@drawable/banner_tv"
         android:supportsRtl="true">
         <activity
             android:name=".MainActivity"
@@ -22,19 +28,32 @@
               android:name="io.flutter.embedding.android.NormalTheme"
               android:resource="@style/NormalTheme"
               />
+            <!-- 1er Intent : pour téléphones/tablettes -->
             <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- 2e Intent : pour Android TV -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
-        <!-- Don't delete the meta-data below.
-             This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
+
+        <service
+            android:name="id.flutter.flutter_background_service.BackgroundService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"
+            tools:replace="android:exported"/>
+
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
 
 
     </application>
+
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
@@ -43,6 +62,15 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES"/>
 
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" android:required="false"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" android:required="false"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" android:required="false"/>
+
+
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.software.leanback" android:required="false" />
 
     <queries>
         <intent>
