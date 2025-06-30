@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'wifi_provision_screen.dart';
+import 'ble_provision_screen.dart'; // ✅ Changement: import du BLE au lieu de WiFi
 import 'webview_device_screen.dart';
 import 'package:multicast_dns/multicast_dns.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -46,30 +46,71 @@ Future<List<String>> _getNotifications(String deviceName) async {
   return prefs.getStringList('notifications_$deviceName') ?? [];
 }
 
-
-/// 🔍 mDNS lookup
+/// 🔍 mDNS lookup avec fallback iOS
 Future<String?> resolveMdnsIP(String deviceName) async {
+  print("🔍 Tentative de résolution mDNS pour: $deviceName");
+
+  // Détection de la plateforme
+  if (Platform.isIOS) {
+    print("🍎 iOS détecté - Utilisation de méthodes alternatives");
+    return await _resolveMdnsIOS(deviceName);
+  } else {
+    print("🤖 Android détecté - Utilisation mDNS standard");
+    return await _resolveMdnsAndroid(deviceName);
+  }
+}
+
+/// 🍎 Résolution mDNS spécifique iOS avec fallbacks multiples
+Future<String?> _resolveMdnsIOS(String deviceName) async {
+  print("🍎 Résolution iOS pour: $deviceName");
+
+  // Méthode 1: Test direct avec .local
+  String? ip = await _testDirectConnection(deviceName);
+  if (ip != null) {
+    print("✅ Résolution directe réussie: $ip");
+    return ip;
+  }
+
+  // Méthode 2: Scan réseau local
+  ip = await _scanLocalNetwork(deviceName);
+  if (ip != null) {
+    print("✅ Scan réseau réussi: $ip");
+    return ip;
+  }
+
+  // Méthode 3: mDNS avec gestion d'erreur iOS
+  ip = await _tryMdnsWithFallback(deviceName);
+  if (ip != null) {
+    print("✅ mDNS fallback réussi: $ip");
+    return ip;
+  }
+
+  print("❌ Toutes les méthodes iOS ont échoué pour: $deviceName");
+  return null;
+}
+
+/// 🤖 Résolution mDNS standard Android (code original)
+Future<String?> _resolveMdnsAndroid(String deviceName) async {
   final client = MDnsClient(
     rawDatagramSocketFactory: (
         host,
         int port, {
           bool reuseAddress = true,
-          bool reusePort = false, // 👈 ce paramètre est ignoré ici
+          bool reusePort = false,
           int ttl=255,
         }) {
       return RawDatagramSocket.bind(
         host,
         port,
         reuseAddress: reuseAddress,
-        // 🛑 🔧 ON FORCE reusePort à false
         reusePort: false,
       );
     },
   );
+
   try {
     await client.start();
-    print("🔍 Recherche mDNS `_http._tcp.local`...");
-
+    print("🔍 Recherche mDNS Android `_http._tcp.local`...");
 
     await for (final PtrResourceRecord ptr in client.lookup<PtrResourceRecord>(
       ResourceRecordQuery.serverPointer('_http._tcp.local'),
@@ -89,11 +130,210 @@ Future<String?> resolveMdnsIP(String deviceName) async {
       }
     }
   } catch (e) {
-    print("❌ Erreur mDNS : $e");
-  }finally{
+    print("❌ Erreur mDNS Android : $e");
+  } finally {
     client.stop();
   }
   return null;
+}
+
+/// 🔗 Test de connexion directe avec .local
+Future<String?> _testDirectConnection(String deviceName) async {
+  try {
+    print("🔗 Test connexion directe: $deviceName.local");
+
+    final dio = Dio();
+    dio.options.connectTimeout = Duration(seconds: 3);
+    dio.options.receiveTimeout = Duration(seconds: 3);
+
+    // Essayer de se connecter directement
+    final response = await dio.get('http://$deviceName.local/poll');
+
+    if (response.statusCode == 200) {
+      print("✅ Connexion directe réussie à $deviceName.local");
+      // Retourner l'URL complète plutôt que l'IP
+      return "$deviceName.local";
+    }
+  } catch (e) {
+    print("❌ Connexion directe échouée: $e");
+  }
+
+  return null;
+}
+
+/// 🌐 Scan du réseau local pour trouver l'appareil
+Future<String?> _scanLocalNetwork(String deviceName) async {
+  try {
+    print("🌐 Scan réseau local pour: $deviceName");
+
+    // Obtenir l'IP locale de l'appareil
+    String? localIP = await _getLocalIP();
+    if (localIP == null) {
+      print("❌ Impossible d'obtenir l'IP locale");
+      return null;
+    }
+
+    print("📱 IP locale: $localIP");
+
+    // Extraire le réseau (ex: 192.168.1.xxx)
+    List<String> parts = localIP.split('.');
+    if (parts.length != 4) return null;
+
+    String networkBase = "${parts[0]}.${parts[1]}.${parts[2]}";
+    print("🌐 Scan du réseau: $networkBase.xxx");
+
+    // Scanner les IPs du réseau local (limité pour ne pas être trop long)
+    List<Future<String?>> futures = [];
+    for (int i = 1; i < 255; i++) {
+      String testIP = "$networkBase.$i";
+      futures.add(_testDeviceAtIP(testIP, deviceName));
+    }
+
+    // Attendre les résultats avec timeout
+    List<String?> results = await Future.wait(futures).timeout(
+      Duration(seconds: 10),
+      onTimeout: () => List.filled(254, null),
+    );
+
+    for (String? result in results) {
+      if (result != null) {
+        print("✅ Appareil trouvé à: $result");
+        return result;
+      }
+    }
+
+  } catch (e) {
+    print("❌ Erreur scan réseau: $e");
+  }
+
+  return null;
+}
+
+/// 📱 Obtenir l'IP locale de l'appareil
+Future<String?> _getLocalIP() async {
+  try {
+    for (var interface in await NetworkInterface.list()) {
+      for (var addr in interface.addresses) {
+        if (addr.type == InternetAddressType.IPv4 && !addr.isLoopback) {
+          String ip = addr.address;
+          if (ip.startsWith('192.168.') || ip.startsWith('10.') || ip.startsWith('172.')) {
+            return ip;
+          }
+        }
+      }
+    }
+  } catch (e) {
+    print("❌ Erreur obtention IP locale: $e");
+  }
+  return null;
+}
+
+/// 🔍 Tester si un appareil LIXEE est à une IP donnée
+Future<String?> _testDeviceAtIP(String ip, String deviceName) async {
+  try {
+    final dio = Dio();
+    dio.options.connectTimeout = Duration(milliseconds: 1000);
+    dio.options.receiveTimeout = Duration(milliseconds: 1000);
+
+    final response = await dio.get('http://$ip/poll');
+
+    if (response.statusCode == 200) {
+      // Vérifier si c'est bien notre appareil
+      try {
+        final data = jsonDecode(response.data);
+        if (data != null && data.toString().contains(deviceName)) {
+          return ip;
+        }
+      } catch (_) {
+        // Si ce n'est pas du JSON, vérifier la réponse brute
+        if (response.data.toString().toLowerCase().contains(deviceName.toLowerCase())) {
+          return ip;
+        }
+      }
+    }
+  } catch (e) {
+    // Échec silencieux pour le scan
+  }
+
+  return null;
+}
+
+/// 🔄 mDNS avec gestion spéciale des erreurs iOS
+Future<String?> _tryMdnsWithFallback(String deviceName) async {
+  try {
+    print("🔄 Tentative mDNS avec fallback iOS");
+
+    // Configuration spéciale pour iOS
+    final client = MDnsClient(
+      rawDatagramSocketFactory: (host, int port, {
+        bool reuseAddress = true,
+        bool reusePort = false,
+        int ttl = 255,
+      }) async {
+        try {
+          // Essayer d'abord avec un port aléatoire
+          return await RawDatagramSocket.bind(
+            host,
+            0, // Port automatique
+            reuseAddress: false,
+            reusePort: false,
+          );
+        } catch (e) {
+          print("⚠️ Bind sur port auto échoué, essai port standard: $e");
+          // Fallback sur port standard avec gestion d'erreur
+          return await RawDatagramSocket.bind(
+            host,
+            port,
+            reuseAddress: true,
+            reusePort: false,
+          );
+        }
+      },
+    );
+
+    await client.start();
+
+    // Timeout plus court pour iOS
+    final completer = Completer<String?>();
+    late Timer timeoutTimer;
+
+    timeoutTimer = Timer(Duration(seconds: 5), () {
+      if (!completer.isCompleted) {
+        completer.complete(null);
+        client.stop();
+      }
+    });
+
+    client.lookup<PtrResourceRecord>(
+      ResourceRecordQuery.serverPointer('_http._tcp.local'),
+    ).listen((ptr) async {
+      if (completer.isCompleted) return;
+
+      String serviceName = ptr.domainName.split("._http._tcp.local").first;
+      if (serviceName.toLowerCase().trim() == deviceName.toLowerCase().trim()) {
+        await for (final srv in client.lookup<SrvResourceRecord>(
+          ResourceRecordQuery.service(ptr.domainName),
+        )) {
+          await for (final ip in client.lookup<IPAddressResourceRecord>(
+            ResourceRecordQuery.addressIPv4(srv.target),
+          )) {
+            if (!completer.isCompleted) {
+              timeoutTimer.cancel();
+              completer.complete(ip.address.address);
+              client.stop();
+              return;
+            }
+          }
+        }
+      }
+    });
+
+    return await completer.future;
+
+  } catch (e) {
+    print("❌ mDNS fallback iOS échoué: $e");
+    return null;
+  }
 }
 
 Future<bool> _resetDeviceConfig(String name, String url) async {
@@ -143,7 +383,6 @@ Future<void> saveNotification(String deviceName,String timestamp, String title, 
   }
 }
 
-
 class _HomeScreenState extends State<HomeScreen> {
   List<String> devices = [];
   Timer? _refreshTimer;
@@ -164,7 +403,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!_initialized) {
       final shouldReset = ModalRoute.of(context)?.settings.arguments == true;
       if (shouldReset) {
-        print("🔁 Rechargement après provisioning détecté");
+        print("🔁 Rechargement après provisioning BLE détecté"); // ✅ Changement: message BLE
         _resetStateAfterProvisioning();
       }
       _initialized = true;
@@ -184,7 +423,12 @@ class _HomeScreenState extends State<HomeScreen> {
       print("🌐 URL n'est pas une IP, tentative de résolution mDNS...");
       String? ip = await resolveMdnsIP(deviceName);
       if (ip != null) {
-        url = "http://$ip";
+        // Gérer le cas où ip peut être une URL .local
+        if (ip.contains('.local')) {
+          url = "http://$ip";
+        } else {
+          url = "http://$ip";
+        }
       } else {
         if (mounted) {
           setState(() {
@@ -311,7 +555,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _resetStateAfterProvisioning() async {
-    print("♻️ Réinitialisation post-provisioning...");
+    print("♻️ Réinitialisation post-provisioning BLE..."); // ✅ Changement: message BLE
     setState(() {
       devices.clear();
       deviceStatuses.clear();
@@ -322,7 +566,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _startAutoRefresh() {
     _refreshTimer = Timer.periodic(Duration(seconds: 10), (timer) {
-
       for (int i = 0; i < devices.length; i++) {
         List<String> parts = devices[i].split('|');
         if (parts.length == 2 || (parts.length == 5 && parts[2] == 'auth')) {
@@ -334,9 +577,6 @@ class _HomeScreenState extends State<HomeScreen> {
           checkDeviceStatus(deviceName, deviceUrl, devices[i], login: login, password: password);
         }
       }
-
-
-
     });
   }
 
@@ -355,12 +595,11 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
 
-
     setState(() {
       devices = validDevices;
     });
 
-    // ✅ On fait la vérification d’état APRES avoir chargé
+    // ✅ On fait la vérification d'état APRES avoir chargé
     for (int i = 0; i < validDevices.length; i++) {
       List<String> parts = validDevices[i].split('|');
       if (parts.length == 2 || (parts.length == 5 && parts[2] == 'auth')) {
@@ -373,7 +612,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     print("📋 Appareils chargés : $devices");
   }
-
 
   void _showEditDialog(String originalEntry) {
     List<String> parts = originalEntry.split("|");
@@ -533,7 +771,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _removeDevice(String entry, {bool force = false}) async {
     final parts = entry.split('|');
-    if (parts.length != 2) return;
+    if (parts.length < 2) return;
 
     final name = parts[0];
     final url = parts[1];
@@ -555,14 +793,13 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {});
   }
 
-
+  // ✅ Changement principal: utilisation de BleProvisionScreen au lieu de WifiProvisionScreen
   void _startProvisioning() async {
     final result = await Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => WifiProvisionScreen()),
+      MaterialPageRoute(builder: (_) => BleProvisionScreen()), // ✅ BLE au lieu de WiFi
     );
     if (result == true) _resetStateAfterProvisioning();
-   // if (result == true) _loadDevices();
   }
 
   void _addManualDevice(String name, String url) async {
@@ -648,10 +885,12 @@ class _HomeScreenState extends State<HomeScreen> {
     } else {
       String? ip = await resolveMdnsIP(name);
       if (ip != null) {
+        // Gérer le cas où ip peut être une URL .local
+        String finalUrl = ip.contains('.local') ? "http://$ip" : "http://$ip";
         result = (await Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => WebViewDeviceScreen(deviceEntry: entry, url: "http://$ip"),
+            builder: (_) => WebViewDeviceScreen(deviceEntry: entry, url: finalUrl),
           ),
         )) == true;
       } else {
@@ -766,214 +1005,212 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      child: Scaffold(
-        backgroundColor: Color(0xFFF5F7FA),
-        appBar: AppBar(
-          backgroundColor: Colors.white,
-          elevation: 1,
-          title: Row(
-            children: [
-              Image.asset("assets/logo.png", height: 64),
-              SizedBox(width: 10),
-              Text("Assist", style: TextStyle(color: Colors.black87)),
+        child: Scaffold(
+          backgroundColor: Color(0xFFF5F7FA),
+          appBar: AppBar(
+            backgroundColor: Colors.white,
+            elevation: 1,
+            title: Row(
+              children: [
+                Image.asset("assets/logo.png", height: 64),
+                SizedBox(width: 10),
+                Text("Assist", style: TextStyle(color: Colors.black87)),
+              ],
+            ),
+            actions: [
+              IconButton(
+                icon: Icon(Icons.bluetooth), // ✅ Changement: icône Bluetooth au lieu de add
+                tooltip: "Ajout automatique (BLE)", // ✅ Changement: tooltip BLE
+                onPressed: _startProvisioning,
+              ),
+              IconButton(
+                icon: Icon(Icons.note_add_outlined),
+                tooltip: "Ajout manuel",
+                onPressed: _showManualAddDialog,
+              ),
+              IconButton(
+                icon: Icon(Icons.info_outline),
+                tooltip: "À propos",
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => AboutScreen()),
+                  );
+                },
+              ),
             ],
           ),
-          actions: [
-            IconButton(
-              icon: Icon(Icons.add),
-              tooltip: "Ajout automatique",
-              onPressed: _startProvisioning,
-            ),
-            IconButton(
-              icon: Icon(Icons.note_add_outlined),
-              tooltip: "Ajout manuel",
-              onPressed: _showManualAddDialog,
-            ),
-            IconButton(
-              icon: Icon(Icons.info_outline),
-              tooltip: "À propos",
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (_) => AboutScreen()),
-                );
-              },
-            ),
+          body: devices.isEmpty
+              ? Center(child: Text("Aucun appareil enregistré.",
+              style: TextStyle(color: Colors.grey)))
+              : ListView.builder(
+              padding: EdgeInsets.all(isTV(context) ? 32 : 16),
+              itemCount: devices.length,
+              itemBuilder: (context, index) {
+                List<String> parts = devices[index].split("|");
+                String name = parts[0];
+                String url = parts[1];
 
-          ],
-        ),
-        body: devices.isEmpty
-            ? Center(child: Text("Aucun appareil enregistré.",
-            style: TextStyle(color: Colors.grey)))
-            : ListView.builder(
-          padding: EdgeInsets.all(isTV(context) ? 32 : 16),
-          itemCount: devices.length,
-          itemBuilder: (context, index) {
-            List<String> parts = devices[index].split("|");
-            String name = parts[0];
-            String url = parts[1];
+                return FutureBuilder<List<String>>(
+                  future: _getNotifications(name),
+                  builder: (context, snapshot) {
+                    final hasNotifications =
+                        snapshot.connectionState == ConnectionState.done &&
+                            (snapshot.data?.isNotEmpty ?? false);
 
-            return FutureBuilder<List<String>>(
-              future: _getNotifications(name),
-              builder: (context, snapshot) {
-                final hasNotifications =
-                    snapshot.connectionState == ConnectionState.done &&
-                        (snapshot.data?.isNotEmpty ?? false);
-
-                return Focus(
-                  autofocus: index == 0,
-                  child: Builder(
-                    builder: (focusContext) {
-                      final bool hasFocus = Focus
-                          .of(focusContext)
-                          .hasFocus;
-                      return Card(
-                        elevation: hasFocus ? 8 : 2,
-                        color: Colors.white,
-                        margin: EdgeInsets.symmetric(vertical: isTV(context)
-                            ? 16
-                            : 8),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12)),
-                        child: ListTile(
-                          contentPadding: EdgeInsets.symmetric(
-                              horizontal: isTV(context) ? 32 : 16,
-                              vertical: isTV(context) ? 16 : 8),
-                          title: Row(
-                            children: [
-                              if (devices[index].contains('|auth|'))
-                                Padding(
-                                  padding: const EdgeInsets.only(right: 4.0),
-                                  child: Icon(Icons.lock_outline, size: 16,
-                                      color: Colors.grey),
-                                ),
-                              Text(
-                                name,
-                                style: TextStyle(fontWeight: FontWeight.w600,
-                                    fontSize: isTV(context) ? 24 : 16),
+                    return Focus(
+                      autofocus: index == 0,
+                      child: Builder(
+                        builder: (focusContext) {
+                          final bool hasFocus = Focus
+                              .of(focusContext)
+                              .hasFocus;
+                          return Card(
+                            elevation: hasFocus ? 8 : 2,
+                            color: Colors.white,
+                            margin: EdgeInsets.symmetric(vertical: isTV(context)
+                                ? 16
+                                : 8),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                            child: ListTile(
+                              contentPadding: EdgeInsets.symmetric(
+                                  horizontal: isTV(context) ? 32 : 16,
+                                  vertical: isTV(context) ? 16 : 8),
+                              title: Row(
+                                children: [
+                                  if (devices[index].contains('|auth|'))
+                                    Padding(
+                                      padding: const EdgeInsets.only(right: 4.0),
+                                      child: Icon(Icons.lock_outline, size: 16,
+                                          color: Colors.grey),
+                                    ),
+                                  Text(
+                                    name,
+                                    style: TextStyle(fontWeight: FontWeight.w600,
+                                        fontSize: isTV(context) ? 24 : 16),
+                                  ),
+                                ],
                               ),
-                            ],
-                          ),
-                          subtitle: Text(
-                            url,
-                            style: TextStyle(fontSize: isTV(context) ? 20 : 14),
-                          ),
-                          //leading: Icon(Icons.devices_other, color: Color(0xFF1B75BC)),
-                          leading: Icon(
-                            Icons.devices_other,
-                            color: deviceStatuses[devices[index]] == true
-                                ? Colors
-                                .green
-                                : Colors.red,
-                          ),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                icon: Icon(
-                                    hasNotifications
-                                        ? Icons.notifications
-                                        : Icons.notifications_outlined,
-                                    color: hasNotifications ? Colors.amber : Color(0xFF1B75BC)),
-                                tooltip: "Voir les notifications",
-                                onPressed: () =>
-                                    _showNotificationsDialog(devices[index]),
+                              subtitle: Text(
+                                url,
+                                style: TextStyle(fontSize: isTV(context) ? 20 : 14),
                               ),
-                              IconButton(
-                                icon: Icon(
-                                    Icons.edit_outlined,
-                                    color: Color(0xFF1B75BC)),
-                                tooltip: "Modifier",
-                                onPressed: () =>
-                                    _showEditDialog(devices[index]),
+                              //leading: Icon(Icons.devices_other, color: Color(0xFF1B75BC)),
+                              leading: Icon(
+                                Icons.devices_other,
+                                color: deviceStatuses[devices[index]] == true
+                                    ? Colors
+                                    .green
+                                    : Colors.red,
                               ),
-                              IconButton(
-                                icon: Icon(Icons.delete_outlined,
-                                    color: Color(0xFF1B75BC)),
-                                onPressed: () {
-                                  showDialog(
-                                    context: context,
-                                    builder: (BuildContext context) {
-                                      return AlertDialog(
-                                        title: Row(
-                                          children: [
-                                            Image.asset(
-                                                "assets/logo_x.png",
-                                                height: 32),
-                                            SizedBox(width: 8),
-                                            Expanded(child: Text(
-                                                "Supprimer l'appareil ?")),
-                                          ],
-                                        ),
-                                        content: Text(
-                                            "Êtes-vous sûr de vouloir supprimer cet appareil ?"),
-                                        actions: [
-                                          OutlinedButton.icon(
-                                            icon: Icon(Icons.cancel,),
-                                            label: Text("Annuler"),
-                                            onPressed: () {
-                                              Navigator.of(context).pop();
-                                            },
-                                            style: OutlinedButton.styleFrom(
-                                              foregroundColor: Color(
-                                                  0xFF1B75BC),
-                                              side: BorderSide(
-                                                  color: Color(0xFF1B75BC)),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    icon: Icon(
+                                        hasNotifications
+                                            ? Icons.notifications
+                                            : Icons.notifications_outlined,
+                                        color: hasNotifications ? Colors.amber : Color(0xFF1B75BC)),
+                                    tooltip: "Voir les notifications",
+                                    onPressed: () =>
+                                        _showNotificationsDialog(devices[index]),
+                                  ),
+                                  IconButton(
+                                    icon: Icon(
+                                        Icons.edit_outlined,
+                                        color: Color(0xFF1B75BC)),
+                                    tooltip: "Modifier",
+                                    onPressed: () =>
+                                        _showEditDialog(devices[index]),
+                                  ),
+                                  IconButton(
+                                    icon: Icon(Icons.delete_outlined,
+                                        color: Color(0xFF1B75BC)),
+                                    onPressed: () {
+                                      showDialog(
+                                        context: context,
+                                        builder: (BuildContext context) {
+                                          return AlertDialog(
+                                            title: Row(
+                                              children: [
+                                                Image.asset(
+                                                    "assets/logo_x.png",
+                                                    height: 32),
+                                                SizedBox(width: 8),
+                                                Expanded(child: Text(
+                                                    "Supprimer l'appareil ?")),
+                                              ],
                                             ),
-                                          ),
-                                          OutlinedButton.icon(
-                                            icon: Icon(Icons.check),
-                                            label: Text("Valider"),
-                                            onPressed: () {
-                                              Navigator
-                                                  .of(context)
-                                                  .pop(); // Fermer le dialogue
-                                              _removeDevice(
-                                                  devices[index]); // Supprimer réellement
-                                            },
-                                            style: OutlinedButton.styleFrom(
-                                              foregroundColor: Color(
-                                                  0xFF1B75BC),
-                                              side: BorderSide(
-                                                  color: Color(0xFF1B75BC)),
-                                            ),
-                                          ),
-                                        ],
+                                            content: Text(
+                                                "Êtes-vous sûr de vouloir supprimer cet appareil ?"),
+                                            actions: [
+                                              OutlinedButton.icon(
+                                                icon: Icon(Icons.cancel,),
+                                                label: Text("Annuler"),
+                                                onPressed: () {
+                                                  Navigator.of(context).pop();
+                                                },
+                                                style: OutlinedButton.styleFrom(
+                                                  foregroundColor: Color(
+                                                      0xFF1B75BC),
+                                                  side: BorderSide(
+                                                      color: Color(0xFF1B75BC)),
+                                                ),
+                                              ),
+                                              OutlinedButton.icon(
+                                                icon: Icon(Icons.check),
+                                                label: Text("Valider"),
+                                                onPressed: () {
+                                                  Navigator
+                                                      .of(context)
+                                                      .pop(); // Fermer le dialogue
+                                                  _removeDevice(
+                                                      devices[index]); // Supprimer réellement
+                                                },
+                                                style: OutlinedButton.styleFrom(
+                                                  foregroundColor: Color(
+                                                      0xFF1B75BC),
+                                                  side: BorderSide(
+                                                      color: Color(0xFF1B75BC)),
+                                                ),
+                                              ),
+                                            ],
+                                          );
+                                        },
                                       );
                                     },
-                                  );
-                                },
+                                  ),
+                                ],
                               ),
-                            ],
-                          ),
-                          onTap: () => _openDevice(devices[index]),
-                        ),
-                      );
-                    },
-                  ),
+                              onTap: () => _openDevice(devices[index]),
+                            ),
+                          );
+                        },
+                      ),
+                    );
+                  },
                 );
-              },
-            );
-          }
-        ),
-        floatingActionButton: Focus(
-          child: OutlinedButton.icon(
-            onPressed: _startProvisioning,
-            icon: Icon(Icons.add, size: 32),
-            label: Text(""),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: Color(0xFF1B75BC),
-              side: BorderSide(color: Color(0xFF1B75BC)),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+              }
+          ),
+          floatingActionButton: Focus(
+            child: OutlinedButton.icon(
+              onPressed: _startProvisioning,
+              icon: Icon(Icons.bluetooth, size: 32), // ✅ Changement: icône Bluetooth
+              label: Text(""),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Color(0xFF1B75BC),
+                side: BorderSide(color: Color(0xFF1B75BC)),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+              ),
             ),
           ),
-        ),
-      )
+        )
     );
   }
 }

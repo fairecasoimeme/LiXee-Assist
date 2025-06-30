@@ -42,7 +42,9 @@ void main() async {
   await flutterLocalNotificationsPlugin.initialize(initSettings);
 
   // ✅ Initialisation WebView avec hybrid composition sur Android
-  await InAppWebViewController.setWebContentsDebuggingEnabled(true);
+  if (Platform.isAndroid) {
+    await InAppWebViewController.setWebContentsDebuggingEnabled(true);
+  }
   // 🔥 Demande les permissions réseau et localisation
   await Permission.location.request();
   await Permission.ignoreBatteryOptimizations.request();
