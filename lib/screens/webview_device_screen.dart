@@ -332,8 +332,8 @@ class _WebViewDeviceScreenState extends State<WebViewDeviceScreen> {
       initialSettings: InAppWebViewSettings(
         javaScriptEnabled: true,
         useShouldOverrideUrlLoading: false,
-        useHybridComposition: true,
-        transparentBackground: false, // ← important !
+        useHybridComposition: Platform.isAndroid,
+        transparentBackground: false,
         cacheEnabled: true,
         domStorageEnabled: true,
         cacheMode: CacheMode.LOAD_DEFAULT,

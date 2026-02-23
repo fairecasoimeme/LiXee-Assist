@@ -33,6 +33,12 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_http._tcp</string>
+	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>LiXee-Assist a besoin d'accéder au réseau local pour détecter et se connecter à vos appareils LiXee</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>LiXee-Assist utilise Bluetooth pour configurer et se connecter à vos appareils LIXEE</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>
