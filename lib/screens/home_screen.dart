@@ -41,6 +41,137 @@ bool isIPAddress(String url) {
   }
 }
 
+/// 📌 Vérifie si l'URL est un nom .local (mDNS)
+bool isLocalDomain(String url) {
+  try {
+    Uri uri = Uri.parse(url);
+    return uri.host.endsWith('.local');
+  } catch (e) {
+    return url.toLowerCase().contains('.local');
+  }
+}
+
+/// 📌 Vérifie si l'URL est un nom DNS classique
+bool isDNSName(String url) {
+  try {
+    Uri uri = Uri.parse(url);
+    String host = uri.host;
+
+    // Pas une IP, pas un .local, et contient au moins un point
+    return !isIPAddress(url) &&
+        !isLocalDomain(url) &&
+        host.contains('.') &&
+        !host.startsWith('localhost');
+  } catch (e) {
+    return false;
+  }
+}
+
+class UniversalResolver {
+  static final Map<String, String> _dnsCache = {};
+  static final Map<String, DateTime> _cacheTimestamps = {};
+  static const Duration _cacheExpiration = Duration(minutes: 5);
+
+  /// ✅ CORRECTION: Utiliser une clé unique incluant deviceName + URL
+  static String _getCacheKey(String address, String? deviceName) {
+    return "${deviceName ?? 'unknown'}::$address";
+  }
+
+  /// Résout uniquement les adresses qui nécessitent une résolution (IP et mDNS)
+  /// Pour les DNS classiques, retourne l'URL originale
+  static Future<String?> resolveAddress(String address, {String? deviceName}) async {
+    print("🔍 Analyse de l'adresse: $address");
+
+    // Nettoyage du cache expiré
+    _cleanExpiredCache();
+
+    String addressType = _getUrlType(address);
+    print("📋 Type détecté: $addressType");
+
+    if (isDNSName(address)) {
+      // Pour les DNS classiques, on retourne l'adresse originale
+      print("🌐 DNS classique détecté - utilisation directe: $address");
+      return address;
+    }
+
+    // ✅ CORRECTION: Utiliser une clé de cache unique par device
+    String cacheKey = _getCacheKey(address, deviceName);
+    if (_dnsCache.containsKey(cacheKey)) {
+      print("📋 Cache utilisé pour ${deviceName}: $address -> ${_dnsCache[cacheKey]}");
+      return _dnsCache[cacheKey];
+    }
+
+    String? resolvedAddress;
+
+    if (isIPAddress(address)) {
+      print("📍 IP détectée pour ${deviceName}: $address");
+      Uri uri = Uri.parse(address.startsWith('http') ? address : 'http://$address');
+      // ✅ CORRECTION: Retourner l'URL complète, pas juste l'host
+      resolvedAddress = address.startsWith('http') ? address : 'http://$address';
+
+    } else if (isLocalDomain(address)) {
+      String hostname = Uri.parse(address.startsWith('http') ? address : 'http://$address').host.replaceAll('.local', '');
+      print("🏠 mDNS détecté pour ${deviceName}: $address (hostname: $hostname)");
+      String? mdnsResult = await resolveMdnsIP(hostname);
+      if (mdnsResult != null) {
+        resolvedAddress = mdnsResult.startsWith('http') ? mdnsResult : 'http://$mdnsResult';
+      }
+    }
+
+    // Mise en cache si succès (uniquement pour IP et mDNS)
+    if (resolvedAddress != null) {
+      _dnsCache[cacheKey] = resolvedAddress;
+      _cacheTimestamps[cacheKey] = DateTime.now();
+      print("✅ Résolution réussie pour ${deviceName}: $address -> $resolvedAddress");
+    } else {
+      print("❌ Échec résolution pour ${deviceName}: $address");
+    }
+
+    return resolvedAddress;
+  }
+
+  /// Nettoie les entrées expirées du cache
+  static void _cleanExpiredCache() {
+    final now = DateTime.now();
+    final expiredKeys = <String>[];
+
+    _cacheTimestamps.forEach((key, timestamp) {
+      if (now.difference(timestamp) > _cacheExpiration) {
+        expiredKeys.add(key);
+      }
+    });
+
+    for (String key in expiredKeys) {
+      _dnsCache.remove(key);
+      _cacheTimestamps.remove(key);
+      print("🗑️ Cache expiré supprimé: $key");
+    }
+  }
+
+  /// Vide complètement le cache
+  static void clearCache() {
+    _dnsCache.clear();
+    _cacheTimestamps.clear();
+    print("🗑️ Cache DNS vidé");
+  }
+}
+
+/// Helper pour identifier le type d'URL
+String _getUrlType(String url) {
+  if (isIPAddress(url)) return "IP";
+  if (isLocalDomain(url)) return "mDNS (.local)";
+  if (isDNSName(url)) return "DNS";
+  return "Inconnu";
+}
+
+/// 🔍 Normalise une URL pour les requêtes HTTP
+String _normalizeUrl(String address) {
+  if (address.startsWith('http://') || address.startsWith('https://')) {
+    return address;
+  }
+  return 'http://$address';
+}
+
 Future<List<String>> _getNotifications(String deviceName) async {
   SharedPreferences prefs = await SharedPreferences.getInstance();
   return prefs.getStringList('notifications_$deviceName') ?? [];
@@ -336,24 +467,38 @@ Future<String?> _tryMdnsWithFallback(String deviceName) async {
   }
 }
 
+// Modification de _resetDeviceConfig
 Future<bool> _resetDeviceConfig(String name, String url) async {
   try {
-    final String? ip;
-    if (isIPAddress(url)) {
-      ip = Uri.parse(url).host;
+    String finalUrl;
+
+    if (isDNSName(url)) {
+      // DNS classique : utilisation directe
+      finalUrl = _normalizeUrl(url);
+      print("🌐 Reset via DNS direct: $finalUrl");
+
     } else {
-      ip = await resolveMdnsIP(name);
-      if (ip == null) {
-        print("❌ Impossible d'extraire l'IP depuis $url");
-        return false;
+      // IP ou mDNS : résolution si nécessaire
+      String? resolvedAddress;
+
+      if (isIPAddress(url)) {
+        resolvedAddress = url;
+      } else {
+        resolvedAddress = await UniversalResolver.resolveAddress(url, deviceName: name);
+        if (resolvedAddress == null) {
+          print("❌ Impossible de résoudre l'adresse: $url");
+          return false;
+        }
       }
+
+      finalUrl = _normalizeUrl(resolvedAddress);
     }
 
     final dio = Dio();
-    final fullUrl = 'http://$ip/setResetDevice';
+    String resetUrl = "$finalUrl/setResetDevice";
 
-    print("🔧 Envoi de la requête de reset vers $fullUrl...");
-    final response = await dio.post(fullUrl);
+    print("🔧 Envoi de la requête de reset vers $resetUrl...");
+    final response = await dio.post(resetUrl);
 
     if (response.statusCode == 200) {
       print("✅ Appareil réinitialisé avec succès !");
@@ -416,20 +561,29 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
+  // Modification de la fonction checkDeviceStatus existante
   void checkDeviceStatus(String deviceName, String url, String entryKey, {String? login, String? password}) async {
     print("🔍 Vérification de l'état de l'appareil : $deviceName");
 
-    if (!isIPAddress(url)) {
-      print("🌐 URL n'est pas une IP, tentative de résolution mDNS...");
-      String? ip = await resolveMdnsIP(deviceName);
-      if (ip != null) {
-        // Gérer le cas où ip peut être une URL .local
-        if (ip.contains('.local')) {
-          url = "http://$ip";
-        } else {
-          url = "http://$ip";
-        }
+    String finalUrl = url;
+
+    // Traitement selon le type d'adresse
+    if (isDNSName(url)) {
+      // DNS classique : utilisation directe
+      finalUrl = _normalizeUrl(url);
+      print("🌐 Utilisation DNS directe: $finalUrl");
+
+    } else if (!isIPAddress(url)) {
+      // mDNS ou autre : résolution nécessaire
+      print("🔄 URL nécessite une résolution, type détecté: ${_getUrlType(url)}");
+
+      String? resolvedAddress = await UniversalResolver.resolveAddress(url, deviceName: deviceName);
+
+      if (resolvedAddress != null) {
+        finalUrl = _normalizeUrl(resolvedAddress);
+        print("✅ URL résolue: $url -> $finalUrl");
       } else {
+        print("❌ Impossible de résoudre: $url");
         if (mounted) {
           setState(() {
             deviceStatuses[entryKey] = false;
@@ -437,16 +591,24 @@ class _HomeScreenState extends State<HomeScreen> {
         }
         return;
       }
+    } else {
+      // IP : normalisation simple
+      finalUrl = _normalizeUrl(url);
     }
 
+    // Requête de polling
     final Dio dio = Dio();
     try {
       final response = await dio.get(
-        "$url/poll",
+        "$finalUrl/poll",
         options: Options(
           sendTimeout: const Duration(seconds: 2),
           receiveTimeout: const Duration(seconds: 5),
           responseType: ResponseType.plain,
+          validateStatus: (status) {
+            // Accepter 200 (OK) et 401 (Unauthorized) comme des réponses valides
+            return status == 200 || status == 401;
+          },
           headers: (login != null && password != null)
               ? {
             'Authorization': 'Basic ${base64Encode(utf8.encode('$login:$password'))}',
@@ -455,15 +617,14 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       );
 
-      if (response.statusCode == 200) {
-        print("✅ $deviceName est actif");
-        print(response.data);
-        // ✅ Vérifier si response.data n'est pas null et n'est pas vide
+      if ((response.statusCode == 200) ||(response.statusCode == 401)) {
+        print("✅ $deviceName est actif et authentifié via $finalUrl");
+
+        // Traitement des notifications (votre code existant)
         if (response.data != null && response.data.toString().trim().isNotEmpty) {
           try {
             final jsonData = jsonDecode(response.data);
 
-            // ✅ Vérifier si 'notifications' existe dans la réponse
             if (jsonData != null && jsonData['notifications'] != null) {
               List<dynamic> notifications = jsonData['notifications'];
 
@@ -471,7 +632,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 var notif = notifications[i];
                 print("📋 Notification reçue: $notif");
 
-                // ✅ Vérification de la structure de la notification
                 if (notif != null && notif['title'] != null && notif['timeStamp'] != null) {
                   var title = "";
                   int notifType = notif['type'] ?? 0;
@@ -490,7 +650,6 @@ class _HomeScreenState extends State<HomeScreen> {
                       title = "$deviceName - ${notif['title']}";
                   }
 
-                  // ✅ Sauvegarde de la notification
                   await saveNotification(
                       deviceName,
                       notif['timeStamp'].toString(),
@@ -498,11 +657,10 @@ class _HomeScreenState extends State<HomeScreen> {
                       notif['message']?.toString() ?? ''
                   );
 
-                  // ✅ Affichage de la notification uniquement si l'app est active
                   if (mounted) {
                     try {
                       await flutterLocalNotificationsPlugin.show(
-                        DateTime.now().millisecondsSinceEpoch ~/ 1000 + i, // ID unique basé sur le timestamp
+                        DateTime.now().millisecondsSinceEpoch ~/ 1000 + i,
                         title,
                         notif['message']?.toString() ?? '',
                         const NotificationDetails(
@@ -525,7 +683,6 @@ class _HomeScreenState extends State<HomeScreen> {
             }
           } catch (jsonError) {
             print("❌ Erreur lors du parsing JSON: $jsonError");
-            print("📄 Données reçues: ${response.data}");
           }
         }
 
@@ -534,6 +691,7 @@ class _HomeScreenState extends State<HomeScreen> {
             deviceStatuses[entryKey] = true;
           });
         }
+
       } else {
         print("❌ $deviceName a répondu avec le code ${response.statusCode}");
         if (mounted) {
@@ -543,15 +701,33 @@ class _HomeScreenState extends State<HomeScreen> {
         }
       }
     } catch (e) {
-      print("❌ Erreur lors de la vérification de $deviceName : $e");
-      if (mounted) {
-        setState(() {
-          deviceStatuses[entryKey] = false;
-        });
+      // Gérer spécifiquement les erreurs DioException pour 401
+      if (e is DioException && e.response?.statusCode == 401) {
+        print("🔐 $deviceName est actif mais nécessite une authentification (exception 401)");
+        if (mounted) {
+          setState(() {
+            deviceStatuses[entryKey] = true; // Actif car il répond
+          });
+        }
+      } else {
+        print("❌ Erreur lors de la vérification de $deviceName : $e");
+        if (mounted) {
+          setState(() {
+            deviceStatuses[entryKey] = false;
+          });
+        }
       }
     } finally {
       dio.close(force: true);
     }
+  }
+
+  /// Helper pour identifier le type d'URL
+  String _getUrlType(String url) {
+    if (isIPAddress(url)) return "IP";
+    if (isLocalDomain(url)) return "mDNS (.local)";
+    if (isDNSName(url)) return "DNS";
+    return "Inconnu";
   }
 
   Future<void> _resetStateAfterProvisioning() async {
@@ -581,17 +757,28 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _loadDevices() async {
+    print("🔍 === DEBUT _loadDevices ===");
+
     SharedPreferences prefs = await SharedPreferences.getInstance();
     List<String> rawDevices = prefs.getStringList('saved_devices') ?? [];
+
+    print("📋 ${rawDevices.length} devices dans SharedPreferences:");
+    for (int i = 0; i < rawDevices.length; i++) {
+      print("   [$i] '${rawDevices[i]}'");
+    }
 
     List<String> validDevices = [];
 
     for (var entry in rawDevices) {
       List<String> parts = entry.split('|');
-      if (parts.length == 2 || (parts.length == 5 && parts[2] == 'auth')) {
+      if (parts.length == 2) {
         validDevices.add(entry);
+        print("✅ Device sans auth: '${parts[0]}' -> '${parts[1]}'");
+      } else if (parts.length == 5 && parts[2] == 'auth') {
+        validDevices.add(entry);
+        print("🔐 Device avec auth: '${parts[0]}' -> '${parts[1]}' (login: '${parts[3]}')");
       } else {
-        print("⚠ Entrée ignorée (format invalide) : $entry");
+        print("⚠️ Format invalide ignoré: '$entry'");
       }
     }
 
@@ -599,27 +786,39 @@ class _HomeScreenState extends State<HomeScreen> {
       devices = validDevices;
     });
 
-    // ✅ On fait la vérification d'état APRES avoir chargé
+    print("📋 ${validDevices.length} devices valides chargés");
+    print("🔍 === FIN _loadDevices ===");
+
+    // Vérification des statuts
     for (int i = 0; i < validDevices.length; i++) {
-      List<String> parts = validDevices[i].split('|');
-      if (parts.length == 2 || (parts.length == 5 && parts[2] == 'auth')) {
-        String deviceName = parts[0];
-        String deviceUrl = parts[1];
-        String? login = parts.length == 5 ? parts[3] : null;
-        String? password = parts.length == 5 ? parts[4] : null;
-        checkDeviceStatus(deviceName, deviceUrl, devices[i], login: login, password: password);
+      final entry = validDevices[i];
+      final parts = entry.split('|');
+      if (parts.length >= 2) {
+        final deviceName = parts[0];
+        final deviceUrl = parts[1];
+        String? login = (parts.length == 5 && parts[2] == 'auth') ? parts[3] : null;
+        String? password = (parts.length == 5 && parts[2] == 'auth') ? parts[4] : null;
+
+        checkDeviceStatus(deviceName, deviceUrl, entry, login: login, password: password);
       }
     }
-    print("📋 Appareils chargés : $devices");
   }
 
   void _showEditDialog(String originalEntry) {
+    print("🔧 _showEditDialog pour: '$originalEntry'");
+
     List<String> parts = originalEntry.split("|");
     String name = parts[0];
     String url = parts[1];
-    bool useAuth = parts.length > 2 && parts[2] == "auth";
-    String login = parts.length > 3 ? parts[3] : "";
-    String password = parts.length > 4 ? parts[4] : "";
+    bool useAuth = parts.length == 5 && parts[2] == "auth";
+    String login = useAuth ? parts[3] : "";
+    String password = useAuth ? parts[4] : "";
+
+    print("📋 Données chargées - Name: '$name', URL: '$url', Auth: $useAuth");
+    if (useAuth) {
+      print("🔐 Login: '$login', Password: ${password.isNotEmpty ? '[SET]' : '[EMPTY]'}");
+    }
+
     bool obscurePassword = true;
 
     TextEditingController nameController = TextEditingController(text: name);
@@ -637,7 +836,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: [
                   Image.asset("assets/logo_x.png", height: 32),
                   SizedBox(width: 8),
-                  Expanded(child: Text("Modifier l'appareil")),
+                  Expanded(child: Text("Modifier $name")),
                 ],
               ),
               content: Column(
@@ -707,14 +906,27 @@ class _HomeScreenState extends State<HomeScreen> {
                     }
 
                     String newEntry = "$newName|$newUrl";
-                    if (useAuth) newEntry += "|auth|$newLogin|$newPass";
+                    if (useAuth && newLogin.isNotEmpty && newPass.isNotEmpty) {
+                      newEntry += "|auth|$newLogin|$newPass";
+                    }
+
+                    print("🔧 Modification: '$originalEntry' -> '$newEntry'");
 
                     SharedPreferences prefs = await SharedPreferences.getInstance();
-                    devices.remove(originalEntry);
-                    devices.add(newEntry);
-                    await prefs.setStringList('saved_devices', devices);
-                    setState(() {});
+                    List<String> saved = prefs.getStringList('saved_devices') ?? [];
+
+                    // ✅ CORRECTION: Supprimer l'entrée EXACTE originale
+                    bool removed = saved.remove(originalEntry);
+                    print("🗑️ Suppression de l'entrée originale: $removed");
+
+                    // Ajouter la nouvelle
+                    saved.add(newEntry);
+                    await prefs.setStringList('saved_devices', saved);
+
+                    print("✅ Sauvegardé: $saved");
+
                     Navigator.of(context).pop();
+                    _loadDevices();
                   },
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Color(0xFF1B75BC),
@@ -869,42 +1081,79 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _openDevice(String entry) async {
+    print("_openDevice DEBUT pour: '$entry'");
+
     final parts = entry.split('|');
-    if (parts.length < 2) return;
+    if (parts.length < 2) {
+      print("Format invalide: $entry");
+      return;
+    }
 
     final name = parts[0];
-    String url = parts[1];
-    bool result = false;
-    if (isIPAddress(url)) {
-      result = (await Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => WebViewDeviceScreen(deviceEntry: entry, url: url),
-        ),
-      )) == true;
-    } else {
-      String? ip = await resolveMdnsIP(name);
-      if (ip != null) {
-        // Gérer le cas où ip peut être une URL .local
-        String finalUrl = ip.contains('.local') ? "http://$ip" : "http://$ip";
-        result = (await Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => WebViewDeviceScreen(deviceEntry: entry, url: finalUrl),
-          ),
-        )) == true;
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text("Impossible de résoudre $name"),
-        ));
+    final url = parts[1];
+
+    // Recharger les devices depuis SharedPreferences pour avoir les derniers credentials
+    _loadDevices();
+
+    // Trouver l'entrée mise à jour dans la liste rechargée
+    String currentEntry = entry;
+    for (String device in devices) {
+      final deviceParts = device.split('|');
+      if (deviceParts.length >= 2 && deviceParts[0] == name && deviceParts[1] == url) {
+        currentEntry = device;
+        print("Credentials mis à jour trouvés: $currentEntry");
+        break;
       }
     }
 
-    if (result == true) {
-      print("🔁 Rafraîchissement demandé après WebView");
-      _loadDevices(); // ou _resetStateAfterProvisioning() selon ton besoin
+    print("Device sélectionné: '$name' avec URL: '$url'");
+
+    String finalUrl = url;
+
+    if (isDNSName(url)) {
+      finalUrl = _normalizeUrl(url);
+      print("DNS direct pour '$name': $finalUrl");
+
+    } else {
+      print("Résolution nécessaire pour '$name': $url");
+      String? resolved = await UniversalResolver.resolveAddress(url, deviceName: name);
+
+      if (resolved != null) {
+        finalUrl = _normalizeUrl(resolved);
+        print("URL résolue pour '$name': $url -> $finalUrl");
+      } else {
+        print("Impossible de résoudre '$name': $url");
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("Impossible de résoudre $name ($url)"))
+        );
+        return;
+      }
+    }
+
+    print("LANCEMENT WebView pour '$name' avec URL finale: $finalUrl");
+    print("Credentials utilisés: $currentEntry");
+
+    bool result = (await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => WebViewDeviceScreen(
+          deviceEntry: currentEntry,  // Utiliser l'entrée mise à jour
+          url: finalUrl,
+        ),
+      ),
+    )) == true;
+
+    print("Retour WebView pour '$name', résultat: $result");
+    await Future.delayed(Duration(milliseconds: 200));
+    _loadDevices();
+
+    if (result) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Configuration mise à jour pour $name"), backgroundColor: Colors.green)
+      );
     }
   }
+
 
   Future<List<Map<String, String>>> getNotifications(String deviceName) async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -1021,26 +1270,69 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
             actions: [
-              IconButton(
-                icon: Icon(Icons.bluetooth), // ✅ Changement: icône Bluetooth au lieu de add
-                tooltip: "Ajout automatique (BLE)", // ✅ Changement: tooltip BLE
-                onPressed: _startProvisioning,
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                child: Material(
+                  color: Color(0xFF1B75BC),
+                  borderRadius: BorderRadius.circular(8),
+                  child: InkWell(
+                    onTap: _startProvisioning,
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      padding: EdgeInsets.all(12),
+                      child: Icon(Icons.bluetooth, color: Colors.white, size: 20),
+                    ),
+                  ),
+                ),
               ),
-              IconButton(
-                icon: Icon(Icons.note_add_outlined),
-                tooltip: "Ajout manuel",
-                onPressed: _showManualAddDialog,
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                child: Material(
+                  color: Color(0xFF1B75BC),
+                  borderRadius: BorderRadius.circular(8),
+                  child: InkWell(
+                    onTap: _showManualAddDialog,
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      padding: EdgeInsets.all(12),
+                      child: Icon(Icons.note_add_outlined, color: Colors.white, size: 20),
+                    ),
+                  ),
+                ),
               ),
-              IconButton(
-                icon: Icon(Icons.info_outline),
-                tooltip: "À propos",
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => AboutScreen()),
-                  );
+              PopupMenuButton<String>(
+                icon: Icon(Icons.more_vert, color: Color(0xFF1B75BC)),
+                tooltip: "Plus d'options",
+                onSelected: (value) {
+                  switch (value) {
+                    case 'about':
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => AboutScreen()),
+                      );
+                      break;
+                    case 'clear_cache':
+                      UniversalResolver.clearCache();
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text("Cache DNS vidé"), backgroundColor: Colors.green),
+                      );
+                      break;
+                  }
                 },
+                itemBuilder: (context) => [
+                  PopupMenuItem(
+                    value: 'about',
+                    child: Row(
+                      children: [
+                        Icon(Icons.info_outline, size: 20, color: Color(0xFF1B75BC)),
+                        SizedBox(width: 12),
+                        Text('À propos'),
+                      ],
+                    ),
+                  ),
+                ],
               ),
+              SizedBox(width: 8),
             ],
           ),
           body: devices.isEmpty
@@ -1196,19 +1488,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   },
                 );
               }
-          ),
-          floatingActionButton: Focus(
-            child: OutlinedButton.icon(
-              onPressed: _startProvisioning,
-              icon: Icon(Icons.bluetooth, size: 32), // ✅ Changement: icône Bluetooth
-              label: Text(""),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: Color(0xFF1B75BC),
-                side: BorderSide(color: Color(0xFF1B75BC)),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-              ),
-            ),
           ),
         )
     );

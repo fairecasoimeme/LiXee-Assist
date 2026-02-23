@@ -34,6 +34,8 @@ class _WebViewDeviceScreenState extends State<WebViewDeviceScreen> {
   bool _hasTriedAuth = false;
   bool _proxyReady = false;
   bool _isDisposed = false;
+  int _loadingProgress = 0;
+  int _proxyPort = 0;
 
   late String name;
   String? login;
@@ -87,6 +89,7 @@ class _WebViewDeviceScreenState extends State<WebViewDeviceScreen> {
       }
 
       _proxyServer = server;
+      _proxyPort = server.port;
 
       setState(() => _proxyReady = true);
     } catch (e) {
@@ -160,6 +163,7 @@ class _WebViewDeviceScreenState extends State<WebViewDeviceScreen> {
 
     if (tempLogin.isEmpty || tempPassword.isEmpty) return;
 
+    // Sauvegarder les credentials
     final parts = widget.deviceEntry.split('|');
     if (parts.length >= 2) {
       final updatedEntry =
@@ -172,7 +176,23 @@ class _WebViewDeviceScreenState extends State<WebViewDeviceScreen> {
       saved.add(updatedEntry);
       await prefs.setStringList('saved_devices', saved);
 
-      Navigator.of(context).pop(true);
+      // Mettre à jour les credentials en mémoire
+      login = tempLogin;
+      password = tempPassword;
+
+      // Arrêter l'ancien proxy
+      _proxyServer?.close(force: true);
+
+      if (mounted) {
+        setState(() {
+          _proxyReady = false;
+          _isLoading = true;
+          _loadingProgress = 0;
+        });
+      }
+
+      // Relancer le proxy avec les nouveaux credentials
+      _startProxyAndLoad();
     }
   }
 
@@ -260,7 +280,7 @@ class _WebViewDeviceScreenState extends State<WebViewDeviceScreen> {
       child: Stack(
         children: [
           _buildInAppWebView(),
-          if (_isLoading) const Center(child: CircularProgressIndicator()),
+          if (_isLoading) _buildLoadingOverlay(),
           Positioned(
             left: cursorX - 8,
             top: cursorY - 8,
@@ -288,29 +308,69 @@ class _WebViewDeviceScreenState extends State<WebViewDeviceScreen> {
       child: Stack(
         children: [
           _buildInAppWebView(),
-          if (_isLoading) const Center(child: CircularProgressIndicator()),
+          if (_isLoading) _buildLoadingOverlay(),
         ],
+      ),
+    );
+  }
+
+  Widget _buildLoadingOverlay() {
+    return Container(
+      color: Colors.white,
+      child: Center(
+        child: CircularProgressIndicator(
+          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF1B75BC)),
+          strokeWidth: 3,
+        ),
       ),
     );
   }
 
   Widget _buildInAppWebView() {
     return InAppWebView(
-      initialUrlRequest: URLRequest(url: WebUri("http://127.0.0.1:8080/")),
+      initialUrlRequest: URLRequest(url: WebUri("http://127.0.0.1:$_proxyPort/")),
       initialSettings: InAppWebViewSettings(
         javaScriptEnabled: true,
         useShouldOverrideUrlLoading: false,
-        useHybridComposition: true,
-        transparentBackground: false, // ← important !
+        useHybridComposition: Platform.isAndroid,
+        transparentBackground: false,
+        cacheEnabled: true,
+        domStorageEnabled: true,
+        cacheMode: CacheMode.LOAD_DEFAULT,
       ),
       onWebViewCreated: (controller) {
         _controller = controller;
       },
       onLoadStart: (controller, url) {
-        setState(() => _isLoading = true);
+        if (mounted) {
+          setState(() {
+            _isLoading = true;
+            _loadingProgress = 0;
+          });
+        }
+      },
+      onProgressChanged: (controller, progress) {
+        if (mounted) {
+          setState(() => _loadingProgress = progress);
+        }
       },
       onLoadStop: (controller, url) async {
-        setState(() => _isLoading = false);
+        if (mounted) {
+          setState(() => _isLoading = false);
+        }
+      },
+      onReceivedHttpAuthRequest: (controller, challenge) async {
+        // Fournir automatiquement les credentials si disponibles
+        if (login != null && password != null) {
+          print("🔐 Auth demandée par ${challenge.protectionSpace.host} → envoi credentials");
+          return HttpAuthResponse(
+            username: login!,
+            password: password!,
+            action: HttpAuthResponseAction.PROCEED,
+          );
+        }
+        print("🔐 Auth demandée mais pas de credentials stockés");
+        return HttpAuthResponse(action: HttpAuthResponseAction.CANCEL);
       },
       onLoadError: (controller, url, code, message) {
         print("❌ WebView error: $code - $message");
@@ -318,7 +378,8 @@ class _WebViewDeviceScreenState extends State<WebViewDeviceScreen> {
       onLoadHttpError: (controller, url, statusCode, description) async {
         print("❌ Erreur HTTP $statusCode pour $url");
 
-        if ((statusCode == 401 || statusCode == 403) && !_hasTriedAuth) {
+        // Ne pas demander l'auth si les credentials sont déjà configurés
+        if ((statusCode == 401 || statusCode == 403) && !_hasTriedAuth && login == null) {
           _hasTriedAuth = true;
           await _askForAuthentication();
         }
