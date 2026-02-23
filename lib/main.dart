@@ -180,7 +180,7 @@ Future<void> initializeService() async {
       onStart: onStart,
       isForegroundMode: true,
       notificationChannelId: notificationChannelId,
-      foregroundServiceTypes: [AndroidForegroundType.dataSync],
+      foregroundServiceTypes: [AndroidForegroundType.specialUse],
       foregroundServiceNotificationId:notificationId,
       initialNotificationTitle: 'LiXee-Assist',
       initialNotificationContent: 'Service de notifications activé ...',
