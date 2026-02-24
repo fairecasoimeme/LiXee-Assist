@@ -44,12 +44,8 @@
         <service
             android:name="id.flutter.flutter_background_service.BackgroundService"
             android:exported="false"
-            android:foregroundServiceType="specialUse"
-            tools:replace="android:exported">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="monitoring" />
-        </service>
+            android:foregroundServiceType="connectedDevice"
+            tools:replace="android:exported" />
 
         <meta-data
             android:name="flutterEmbedding"
@@ -68,7 +64,8 @@
 
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
 
     <!-- Permissions Bluetooth traditionnelles -->
     <uses-permission android:name="android.permission.BLUETOOTH" />
