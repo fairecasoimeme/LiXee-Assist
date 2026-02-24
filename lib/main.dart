@@ -160,11 +160,10 @@ Future<void> initializeService() async {
   final service = FlutterBackgroundService();
 
   const AndroidNotificationChannel channel = AndroidNotificationChannel(
-    notificationChannelId, // id
-    'LiXee Foreground Service', // title
-    description:
-    'Used for alert notifications.', // description
-    importance: Importance.low, // importance must be at low or higher level
+    notificationChannelId,
+    'Surveillance LiXee',
+    description: 'Surveillance des appareils LiXee connectés sur le réseau local',
+    importance: Importance.low,
   );
 
   final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
@@ -180,13 +179,11 @@ Future<void> initializeService() async {
       onStart: onStart,
       isForegroundMode: true,
       notificationChannelId: notificationChannelId,
-      foregroundServiceTypes: [AndroidForegroundType.specialUse],
-      foregroundServiceNotificationId:notificationId,
+      foregroundServiceTypes: [AndroidForegroundType.connectedDevice],
+      foregroundServiceNotificationId: notificationId,
       initialNotificationTitle: 'LiXee-Assist',
-      initialNotificationContent: 'Service de notifications activé ...',
-
+      initialNotificationContent: 'Surveillance des appareils LiXee en cours...',
       autoStart: true,
-
     ),
     iosConfiguration: IosConfiguration(
       /*autoStart: true,
