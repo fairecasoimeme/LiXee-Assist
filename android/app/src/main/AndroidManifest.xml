@@ -1,5 +1,4 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools"
     package="com.lixee.assist">
 
 
@@ -41,12 +40,6 @@
             </intent-filter>
         </activity>
 
-        <service
-            android:name="id.flutter.flutter_background_service.BackgroundService"
-            android:exported="false"
-            android:foregroundServiceType="connectedDevice"
-            tools:replace="android:exported" />
-
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
@@ -62,10 +55,7 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES"/>
 
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
-    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
 
     <!-- Permissions Bluetooth traditionnelles -->
     <uses-permission android:name="android.permission.BLUETOOTH" />
