@@ -100,7 +100,18 @@ Future<void> checkDeviceStatusBackground() async {
     String? login = parts.length == 5 ? parts[3] : null;
     String? password = parts.length == 5 ? parts[4] : null;
 
-    if (!isIPAddress(deviceUrl)) {
+    if (isIPAddress(deviceUrl)) {
+      // IP directe : normaliser l'URL
+      if (!deviceUrl.startsWith('http')) {
+        deviceUrl = "http://$deviceUrl";
+      }
+    } else if (isDNSName(deviceUrl)) {
+      // DNS classique (ex: xxx.lixee-box.fr) : utiliser tel quel
+      if (!deviceUrl.startsWith('http')) {
+        deviceUrl = "http://$deviceUrl";
+      }
+    } else {
+      // mDNS (.local) : résolution nécessaire
       String? ip = await resolveMdnsIP(deviceName);
       if (ip != null) {
         deviceUrl = "http://$ip";

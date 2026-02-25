@@ -528,7 +528,7 @@ Future<void> saveNotification(String deviceName,String timestamp, String title, 
   }
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   List<String> devices = [];
   Timer? _refreshTimer;
   Map<String, bool> deviceStatuses = {};
@@ -537,8 +537,9 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadDevices();
-    _startAutoRefresh(); // ✅ start polling
+    _startAutoRefresh();
   }
 
   @override
@@ -548,7 +549,6 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!_initialized) {
       final shouldReset = ModalRoute.of(context)?.settings.arguments == true;
       if (shouldReset) {
-        print("🔁 Rechargement après provisioning BLE détecté"); // ✅ Changement: message BLE
         _resetStateAfterProvisioning();
       }
       _initialized = true;
@@ -556,7 +556,21 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused) {
+      // App en arrière-plan : arrêter le polling
+      _refreshTimer?.cancel();
+      _refreshTimer = null;
+    } else if (state == AppLifecycleState.resumed) {
+      // App revenue au premier plan : relancer le polling et rafraîchir
+      _loadDevices();
+      _startAutoRefresh();
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _refreshTimer?.cancel();
     super.dispose();
   }
@@ -741,6 +755,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _startAutoRefresh() {
+    _refreshTimer?.cancel();
     _refreshTimer = Timer.periodic(Duration(seconds: 10), (timer) {
       for (int i = 0; i < devices.length; i++) {
         List<String> parts = devices[i].split('|');
