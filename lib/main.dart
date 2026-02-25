@@ -1,33 +1,54 @@
-import 'dart:ui';
-
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:flutter_background_service/flutter_background_service.dart';
+import 'package:workmanager/workmanager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:dio/dio.dart';
 import 'dart:io';
 import 'dart:convert';
-import 'dart:async';
 import 'screens/wifi_provision_screen.dart';
 import 'screens/home_screen.dart';
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
 
+const String deviceCheckTaskName = 'com.lixee.assist.deviceCheck';
+
+@pragma('vm:entry-point')
+void callbackDispatcher() {
+  Workmanager().executeTask((task, inputData) async {
+    try {
+      await checkDeviceStatusBackground();
+    } catch (e) {
+      // Silently handle errors to avoid crashing the worker
+    }
+    return Future.value(true);
+  });
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await initializeService();
+  // Initialiser WorkManager
+  await Workmanager().initialize(callbackDispatcher);
 
-  if (Platform.isAndroid){
+  // Enregistrer la tâche périodique (minimum 15 minutes sur Android)
+  await Workmanager().registerPeriodicTask(
+    deviceCheckTaskName,
+    deviceCheckTaskName,
+    frequency: const Duration(minutes: 15),
+    constraints: Constraints(
+      networkType: NetworkType.connected,
+    ),
+    existingWorkPolicy: ExistingWorkPolicy.replace,
+  );
 
+  if (Platform.isAndroid) {
     final androidInfo = await DeviceInfoPlugin().androidInfo;
     if (androidInfo.version.sdkInt >= 33) {
-      final status = await Permission.notification.request();
-      print("Permission notifications : $status");
+      await Permission.notification.request();
     }
   }
 
@@ -41,18 +62,24 @@ void main() async {
 
   await flutterLocalNotificationsPlugin.initialize(initSettings);
 
-  // ✅ Initialisation WebView avec hybrid composition sur Android
+  // Initialisation WebView avec hybrid composition sur Android
   if (Platform.isAndroid) {
     await InAppWebViewController.setWebContentsDebuggingEnabled(true);
   }
-  // 🔥 Demande les permissions réseau et localisation
+
+  // Demande les permissions réseau et localisation
   await Permission.location.request();
-  await Permission.ignoreBatteryOptimizations.request();
 
   runApp(MyApp());
 }
 
-void checkDeviceStatusBackground() async {
+Future<void> checkDeviceStatusBackground() async {
+  // Initialiser les notifications dans le worker (contexte isolé)
+  final notifPlugin = FlutterLocalNotificationsPlugin();
+  const androidInit = AndroidInitializationSettings('@drawable/ic_stat_notify');
+  const initSettings = InitializationSettings(android: androidInit);
+  await notifPlugin.initialize(initSettings);
+
   SharedPreferences prefs = await SharedPreferences.getInstance();
   await prefs.reload();
   List<String> rawDevices = prefs.getStringList('saved_devices') ?? [];
@@ -63,8 +90,6 @@ void checkDeviceStatusBackground() async {
     List<String> parts = entry.split('|');
     if (parts.length == 2 || (parts.length == 5 && parts[2] == 'auth')) {
       validDevices.add(entry);
-    } else {
-      print("⚠ Entrée ignorée (format invalide) : $entry");
     }
   }
 
@@ -76,12 +101,11 @@ void checkDeviceStatusBackground() async {
     String? password = parts.length == 5 ? parts[4] : null;
 
     if (!isIPAddress(deviceUrl)) {
-
       String? ip = await resolveMdnsIP(deviceName);
       if (ip != null) {
         deviceUrl = "http://$ip";
       } else {
-        return;
+        continue;
       }
     }
     final Dio dio = Dio();
@@ -102,15 +126,12 @@ void checkDeviceStatusBackground() async {
       );
 
       if (response.statusCode == 200) {
-        print("✅ $deviceName est actif");
-
-        int notificationId = 0;
+        int notifId = 0;
         if (response.data != "") {
           List<dynamic> notifications = jsonDecode(
               response.data)['notifications'];
 
           for (var notif in notifications) {
-            print(notif);
             var title = "";
             if (notif['type'] == 1) {
               title = "❌ $deviceName - ${notif['title']}";
@@ -120,9 +141,9 @@ void checkDeviceStatusBackground() async {
             } else if (notif['type'] == 3) {
               title = "️📋 $deviceName - ${notif['title']}";
             }
-            await saveNotification( deviceName, notif['timeStamp'], title, notif['message']);
-            await flutterLocalNotificationsPlugin.show(
-              notificationId++,
+            await saveNotification(deviceName, notif['timeStamp'], title, notif['message']);
+            await notifPlugin.show(
+              notifId++,
               title,
               notif['message'] ?? '',
               NotificationDetails(
@@ -140,73 +161,13 @@ void checkDeviceStatusBackground() async {
             );
           }
         }
-      } else {
-        print("❌ $deviceName a répondu avec le code ${response.statusCode}");
       }
     } catch (e) {
-      print("❌ Erreur pendant la vérification de $deviceName : $e");
+      // Silently handle errors
     } finally {
-      dio.close(force: true); // 🔒 bonne pratique pour nettoyer
+      dio.close(force: true);
     }
-
   }
-
-}
-
-
-const notificationId = 888;
-const notificationChannelId = 'my_foreground';
-Future<void> initializeService() async {
-  final service = FlutterBackgroundService();
-
-  const AndroidNotificationChannel channel = AndroidNotificationChannel(
-    notificationChannelId,
-    'Surveillance LiXee',
-    description: 'Surveillance des appareils LiXee connectés sur le réseau local',
-    importance: Importance.low,
-  );
-
-  final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin =
-  FlutterLocalNotificationsPlugin();
-
-  await flutterLocalNotificationsPlugin
-      .resolvePlatformSpecificImplementation<
-      AndroidFlutterLocalNotificationsPlugin>()
-      ?.createNotificationChannel(channel);
-
-  await service.configure(
-    androidConfiguration: AndroidConfiguration(
-      onStart: onStart,
-      isForegroundMode: true,
-      notificationChannelId: notificationChannelId,
-      foregroundServiceTypes: [AndroidForegroundType.connectedDevice],
-      foregroundServiceNotificationId: notificationId,
-      initialNotificationTitle: 'LiXee-Assist',
-      initialNotificationContent: 'Surveillance des appareils LiXee en cours...',
-      autoStart: true,
-    ),
-    iosConfiguration: IosConfiguration(
-      /*autoStart: true,
-      onForeground: onStartCallback,
-      onBackground: onIosBackground,*/
-    ),
-  );
-
-  await service.startService();
-}
-
-@pragma('vm:entry-point')
-void onStart(ServiceInstance service) async{
-  DartPluginRegistrant.ensureInitialized();
-
-  service.on('stopService').listen((event) {
-    service.stopSelf();
-  });
-
-  Timer.periodic(Duration(seconds: 30), (timer) async {
-    print("⏰ Tâche en arrière-plan lancée !");
-    checkDeviceStatusBackground();
-  });
 }
 
 // ✅ Définition de `MyApp`
