@@ -2,9 +2,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:device_info_plus/device_info_plus.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import '../services/proxy_server.dart';
+import '../main.dart' show TVDetector;
 
 class WebViewDeviceScreen extends StatefulWidget {
   final String deviceEntry;
@@ -23,7 +23,6 @@ class WebViewDeviceScreen extends StatefulWidget {
 class _WebViewDeviceScreenState extends State<WebViewDeviceScreen> {
   InAppWebViewController? _controller;
   HttpServer? _proxyServer;
-  bool isTVDevice = false;
 
   final FocusNode _focusNode = FocusNode(
     skipTraversal: true,
@@ -36,14 +35,18 @@ class _WebViewDeviceScreenState extends State<WebViewDeviceScreen> {
   bool _isDisposed = false;
   int _loadingProgress = 0;
   int _proxyPort = 0;
+  DateTime? _lastProxyRestart;
 
   late String name;
   String? login;
   String? password;
 
+  // --- Curseur TV ---
   double cursorX = 200;
   double cursorY = 200;
-  final double step = 50;
+  double _currentStep = 15; // Vitesse initiale (accélère si touche maintenue)
+  DateTime? _lastKeyTime;
+  bool _showClickFeedback = false;
 
   @override
   void initState() {
@@ -55,24 +58,7 @@ class _WebViewDeviceScreenState extends State<WebViewDeviceScreen> {
       login = parts[3];
       password = parts[4];
     }
-    _detectIfTV();
     _startProxyAndLoad();
-  }
-
-  void _detectIfTV() async {
-    try {
-      if (Platform.isAndroid) {
-        final info = await DeviceInfoPlugin().androidInfo;
-        final hasLeanback = info.systemFeatures.contains("android.software.leanback");
-        if (mounted) {
-          setState(() {
-            isTVDevice = hasLeanback;
-          });
-        }
-      }
-    } catch (e) {
-      print("⚠️ Impossible de déterminer si l'appareil est une TV : $e");
-    }
   }
 
   void _startProxyAndLoad() async {
@@ -120,30 +106,33 @@ class _WebViewDeviceScreenState extends State<WebViewDeviceScreen> {
           builder: (context, setState) {
             return AlertDialog(
               title: Text("🔐 Authentification requise"),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text("Cette page nécessite un identifiant."),
-                  SizedBox(height: 12),
-                  TextField(
-                    decoration: InputDecoration(labelText: "Login"),
-                    onChanged: (val) => tempLogin = val,
-                  ),
-                  TextField(
-                    obscureText: obscure,
-                    onChanged: (val) => tempPassword = val,
-                    decoration: InputDecoration(
-                      labelText: "Mot de passe",
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          obscure ? Icons.visibility_off : Icons.visibility,
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text("Cette page nécessite un identifiant."),
+                    SizedBox(height: 12),
+                    TextField(
+                      decoration: InputDecoration(labelText: "Login"),
+                      onChanged: (val) => tempLogin = val,
+                      autofocus: true,
+                    ),
+                    TextField(
+                      obscureText: obscure,
+                      onChanged: (val) => tempPassword = val,
+                      decoration: InputDecoration(
+                        labelText: "Mot de passe",
+                        suffixIcon: IconButton(
+                          icon: Icon(
+                            obscure ? Icons.visibility_off : Icons.visibility,
+                          ),
+                          onPressed: () =>
+                              setState(() => obscure = !obscure),
                         ),
-                        onPressed: () =>
-                            setState(() => obscure = !obscure),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
               actions: [
                 TextButton(
@@ -196,59 +185,43 @@ class _WebViewDeviceScreenState extends State<WebViewDeviceScreen> {
     }
   }
 
-  /*Future<void> _checkPageForAuth() async {
-    try {
-      final result = await _controller?.evaluateJavascript(source: "document.title");
-      final title = result?.toString().toLowerCase() ?? "";
-      print("📄 Page title: $title");
-
-      final suspicious = ["unauthorized", "forbidden", "non disponible", "not available", "login"];
-
-      if (title.isEmpty || suspicious.any((kw) => title.contains(kw))) {
-        if (!_hasTriedAuth && login == null) {
-          _hasTriedAuth = true;
-          await _askForAuthentication();
-        }
-      }
-    } catch (e) {
-      print("⚠️ JS error: $e");
-      if (!_hasTriedAuth && login == null) {
-        _hasTriedAuth = true;
-        await _askForAuthentication();
-      }
-    }
-  }*/
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      resizeToAvoidBottomInset: true,
-      appBar: AppBar(
-        title: Row(
-          children: [
-            Text("🔗 $name"),
-            if (login != null)
-              Padding(
-                padding: const EdgeInsets.only(left: 6.0),
-                child: Icon(Icons.lock_outline, size: 18),
+    return PopScope(
+      canPop: true,
+      child: Scaffold(
+        resizeToAvoidBottomInset: true,
+        // TV : pas d'AppBar (plein écran), le bouton Retour de la télécommande suffit
+        appBar: TVDetector.isTV
+            ? null
+            : AppBar(
+                title: Row(
+                  children: [
+                    Text("🔗 $name"),
+                    if (login != null)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 6.0),
+                        child: Icon(Icons.lock_outline, size: 18),
+                      ),
+                  ],
+                ),
+                actions: [
+                  IconButton(
+                    icon: Icon(Icons.refresh),
+                    tooltip: "Rafraîchir",
+                    onPressed: () {
+                      _controller?.reload();
+                    },
+                  ),
+                ],
               ),
-          ],
-        ),
-        actions: [
-          IconButton(
-            icon: Icon(Icons.refresh),
-            tooltip: "Rafraîchir",
-            onPressed: () {
-              _controller?.reload();
-            },
+        body: SafeArea(
+          child: SizedBox.expand(
+            child: _proxyReady
+                ? (TVDetector.isTV ? _buildTVWebView() : _buildMobileWebView())
+                : const Center(child: CircularProgressIndicator()),
           ),
-        ],
-      ),
-      body: SafeArea( // ✅ garde la zone sûre
-        child: SizedBox.expand( // ✅ prend tout l’espace restant
-          child: _proxyReady
-              ? (isTVDevice ? _buildTVWebView() : _buildMobileWebView())
-              : const Center(child: CircularProgressIndicator()),
         ),
       ),
     );
@@ -256,24 +229,64 @@ class _WebViewDeviceScreenState extends State<WebViewDeviceScreen> {
 
 
 
+  /// Calcule le step avec accélération : appuis rapides = mouvement plus grand.
+  double _getAcceleratedStep() {
+    final now = DateTime.now();
+    if (_lastKeyTime != null && now.difference(_lastKeyTime!) < const Duration(milliseconds: 200)) {
+      // Touche maintenue → accélérer (max 50px)
+      _currentStep = (_currentStep + 5).clamp(15, 50);
+    } else {
+      // Nouvelle pression → reset
+      _currentStep = 15;
+    }
+    _lastKeyTime = now;
+    return _currentStep;
+  }
+
+  /// Scrolle la page web quand le curseur atteint les bords de l'écran.
+  void _scrollWebViewIfNeeded(double step, String direction) {
+    const edgeMargin = 60.0; // Zone de bord qui déclenche le scroll
+    final size = MediaQuery.of(context).size;
+    final scrollAmount = step * 2; // Scroll un peu plus que le mouvement curseur
+
+    if (direction == 'up' && cursorY <= edgeMargin) {
+      _controller?.evaluateJavascript(source: 'window.scrollBy(0, -$scrollAmount)');
+    } else if (direction == 'down' && cursorY >= size.height - edgeMargin) {
+      _controller?.evaluateJavascript(source: 'window.scrollBy(0, $scrollAmount)');
+    } else if (direction == 'left' && cursorX <= edgeMargin) {
+      _controller?.evaluateJavascript(source: 'window.scrollBy(-$scrollAmount, 0)');
+    } else if (direction == 'right' && cursorX >= size.width - edgeMargin) {
+      _controller?.evaluateJavascript(source: 'window.scrollBy($scrollAmount, 0)');
+    }
+  }
+
   Widget _buildTVWebView() {
     return KeyboardListener(
       focusNode: _focusNode,
       autofocus: true,
       onKeyEvent: (KeyEvent event) async {
-        if (event is KeyDownEvent) {
+        if (event is KeyDownEvent || event is KeyRepeatEvent) {
           final size = MediaQuery.of(context).size;
+          final step = _getAcceleratedStep();
           if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
             setState(() => cursorY = (cursorY - step).clamp(0, size.height));
+            _scrollWebViewIfNeeded(step, 'up');
           } else if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
             setState(() => cursorY = (cursorY + step).clamp(0, size.height));
+            _scrollWebViewIfNeeded(step, 'down');
           } else if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
             setState(() => cursorX = (cursorX - step).clamp(0, size.width));
+            _scrollWebViewIfNeeded(step, 'left');
           } else if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
             setState(() => cursorX = (cursorX + step).clamp(0, size.width));
+            _scrollWebViewIfNeeded(step, 'right');
           } else if (event.logicalKey == LogicalKeyboardKey.select ||
               event.logicalKey == LogicalKeyboardKey.enter) {
+            // Retour visuel au clic
+            setState(() => _showClickFeedback = true);
             await _simulateClickAt(cursorX, cursorY);
+            await Future.delayed(const Duration(milliseconds: 200));
+            if (mounted) setState(() => _showClickFeedback = false);
           }
         }
       },
@@ -281,16 +294,35 @@ class _WebViewDeviceScreenState extends State<WebViewDeviceScreen> {
         children: [
           _buildInAppWebView(),
           if (_isLoading) _buildLoadingOverlay(),
+          // Curseur TV (plus grand, avec ombre et feedback de clic)
           Positioned(
-            left: cursorX - 8,
-            top: cursorY - 8,
-            child: Container(
-              width: 16,
-              height: 16,
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.9),
-                shape: BoxShape.circle,
-                border: Border.all(color: Colors.blue, width: 2),
+            left: cursorX - 12,
+            top: cursorY - 12,
+            child: IgnorePointer(
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 100),
+                width: _showClickFeedback ? 32 : 24,
+                height: _showClickFeedback ? 32 : 24,
+                transform: _showClickFeedback
+                    ? (Matrix4.identity()..translate(-4.0, -4.0))
+                    : Matrix4.identity(),
+                decoration: BoxDecoration(
+                  color: _showClickFeedback
+                      ? Colors.blue.withOpacity(0.5)
+                      : Colors.white.withOpacity(0.9),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: _showClickFeedback ? Colors.white : const Color(0xFF1B75BC),
+                    width: 2.5,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.3),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -357,6 +389,42 @@ class _WebViewDeviceScreenState extends State<WebViewDeviceScreen> {
       onLoadStop: (controller, url) async {
         if (mounted) {
           setState(() => _isLoading = false);
+        }
+
+        // TV : zoom à 60% pour afficher plus de contenu sur grand écran
+        if (TVDetector.isTV) {
+          await controller.evaluateJavascript(
+            source: "document.body.style.zoom = '60%';",
+          );
+        }
+
+        // Détecter si la page de login ESP32 s'affiche dans la WebView
+        final hasLoginForm = await controller.evaluateJavascript(
+          source: "document.querySelector('form[action=\"/login\"]') !== null",
+        );
+        if (hasLoginForm == true || hasLoginForm == 'true') {
+          if (login != null && password != null) {
+            // Cooldown : éviter les boucles de redémarrage du proxy (10s minimum)
+            final now = DateTime.now();
+            if (_lastProxyRestart != null && now.difference(_lastProxyRestart!) < const Duration(seconds: 10)) {
+              return;
+            }
+            _lastProxyRestart = now;
+            // Credentials déjà sauvegardés mais session expirée : relancer le proxy
+            _proxyServer?.close(force: true);
+            if (mounted) {
+              setState(() {
+                _proxyReady = false;
+                _isLoading = true;
+                _loadingProgress = 0;
+              });
+            }
+            _startProxyAndLoad();
+          } else if (!_hasTriedAuth) {
+            // Pas de credentials : afficher le dialog d'auth LiXee-Assist
+            _hasTriedAuth = true;
+            await _askForAuthentication();
+          }
         }
       },
       onReceivedHttpAuthRequest: (controller, challenge) async {

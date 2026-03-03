@@ -9,6 +9,8 @@ import 'dart:io';
 import 'dart:convert'; // ✅ permet d'utiliser base64Encode et utf8
 import 'package:dio/dio.dart';
 import 'about_screen.dart';
+import '../services/session_manager.dart';
+import '../main.dart' show TVDetector;
 
 // ✅ Instance globale des notifications - référence celle du main.dart
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
@@ -532,6 +534,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   List<String> devices = [];
   Timer? _refreshTimer;
   Map<String, bool> deviceStatuses = {};
+  Map<String, SessionManager> _sessionManagers = {};
+  Map<String, AuthMode> _authModes = {};
   bool _initialized = false;
 
   @override
@@ -572,6 +576,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _refreshTimer?.cancel();
+    for (final sm in _sessionManagers.values) {
+      sm.close();
+    }
     super.dispose();
   }
 
@@ -611,40 +618,94 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     }
 
     // Requête de polling
-    final Dio dio = Dio();
     try {
-      final response = await dio.get(
-        "$finalUrl/poll",
-        options: Options(
-          sendTimeout: const Duration(seconds: 2),
-          receiveTimeout: const Duration(seconds: 5),
-          responseType: ResponseType.plain,
-          validateStatus: (status) {
-            // Accepter 200 (OK) et 401 (Unauthorized) comme des réponses valides
-            return status == 200 || status == 401;
-          },
-          headers: (login != null && password != null)
-              ? {
-            'Authorization': 'Basic ${base64Encode(utf8.encode('$login:$password'))}',
+      int statusCode;
+      String responseBody;
+
+      if (login != null && password != null) {
+        // Détecter le mode auth (cache le résultat)
+        final deviceKey = '$deviceName|$finalUrl';
+        _authModes[deviceKey] ??= await detectAuthMode(finalUrl);
+        final authMode = _authModes[deviceKey]!;
+
+        if (authMode == AuthMode.form) {
+          // Mode formulaire : utiliser SessionManager
+          _sessionManagers[deviceKey] ??= SessionManager(
+            targetBaseUrl: finalUrl,
+            username: login,
+            password: password,
+          );
+          final sm = _sessionManagers[deviceKey]!;
+          // Tester le login si pas encore de cookie
+          if (sm.sessionCookie == null) {
+            final loginOk = await sm.login();
+            if (!loginOk) {
+              // Form login échoué → fallback vers Basic Auth
+              print('[HOME] Form login failed for $deviceName, fallback to Basic Auth');
+              sm.close();
+              _sessionManagers.remove(deviceKey);
+              _authModes[deviceKey] = AuthMode.basic;
+            }
           }
-              : null,
-        ),
-      );
+        }
 
-      if ((response.statusCode == 200) ||(response.statusCode == 401)) {
-        print("✅ $deviceName est actif et authentifié via $finalUrl");
-
-        // Traitement des notifications (votre code existant)
-        if (response.data != null && response.data.toString().trim().isNotEmpty) {
+        if (_authModes[deviceKey] == AuthMode.form) {
+          final result = await _sessionManagers[deviceKey]!.authenticatedGet('/poll');
+          statusCode = result.statusCode;
+          responseBody = result.body;
+        } else {
+          // Mode Basic Auth classique
+          final dio = Dio();
           try {
-            final jsonData = jsonDecode(response.data);
+            final response = await dio.get(
+              "$finalUrl/poll",
+              options: Options(
+                sendTimeout: const Duration(seconds: 2),
+                receiveTimeout: const Duration(seconds: 5),
+                responseType: ResponseType.plain,
+                validateStatus: (status) => status == 200 || status == 401,
+                headers: {
+                  'Authorization': 'Basic ${base64Encode(utf8.encode('$login:$password'))}',
+                },
+              ),
+            );
+            statusCode = response.statusCode ?? 0;
+            responseBody = response.data?.toString() ?? '';
+          } finally {
+            dio.close(force: true);
+          }
+        }
+      } else {
+        // Pas d'auth
+        final dio = Dio();
+        try {
+          final response = await dio.get(
+            "$finalUrl/poll",
+            options: Options(
+              sendTimeout: const Duration(seconds: 2),
+              receiveTimeout: const Duration(seconds: 5),
+              responseType: ResponseType.plain,
+              validateStatus: (status) => status == 200 || status == 401,
+            ),
+          );
+          statusCode = response.statusCode ?? 0;
+          responseBody = response.data?.toString() ?? '';
+        } finally {
+          dio.close(force: true);
+        }
+      }
+
+      if (statusCode == 200 || statusCode == 401) {
+        // Traitement des notifications
+        if (responseBody.trim().isNotEmpty) {
+          try {
+            final jsonData = jsonDecode(responseBody);
 
             if (jsonData != null && jsonData['notifications'] != null) {
               List<dynamic> notifications = jsonData['notifications'];
 
               for (int i = 0; i < notifications.length; i++) {
                 var notif = notifications[i];
-                print("📋 Notification reçue: $notif");
 
                 if (notif != null && notif['title'] != null && notif['timeStamp'] != null) {
                   var title = "";
@@ -687,17 +748,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           ),
                         ),
                       );
-                      print("✅ Notification affichée: $title");
-                    } catch (notifError) {
-                      print("❌ Erreur lors de l'affichage de la notification: $notifError");
-                    }
+                    } catch (_) {}
                   }
                 }
               }
             }
-          } catch (jsonError) {
-            print("❌ Erreur lors du parsing JSON: $jsonError");
-          }
+          } catch (_) {}
         }
 
         if (mounted) {
@@ -705,9 +761,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             deviceStatuses[entryKey] = true;
           });
         }
-
       } else {
-        print("❌ $deviceName a répondu avec le code ${response.statusCode}");
         if (mounted) {
           setState(() {
             deviceStatuses[entryKey] = false;
@@ -715,24 +769,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         }
       }
     } catch (e) {
-      // Gérer spécifiquement les erreurs DioException pour 401
-      if (e is DioException && e.response?.statusCode == 401) {
-        print("🔐 $deviceName est actif mais nécessite une authentification (exception 401)");
-        if (mounted) {
-          setState(() {
-            deviceStatuses[entryKey] = true; // Actif car il répond
-          });
-        }
-      } else {
-        print("❌ Erreur lors de la vérification de $deviceName : $e");
-        if (mounted) {
-          setState(() {
-            deviceStatuses[entryKey] = false;
-          });
-        }
+      if (mounted) {
+        setState(() {
+          deviceStatuses[entryKey] = false;
+        });
       }
-    } finally {
-      dio.close(force: true);
     }
   }
 
@@ -854,47 +895,50 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   Expanded(child: Text("Modifier $name")),
                 ],
               ),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: nameController,
-                    decoration: InputDecoration(labelText: "Nom"),
-                  ),
-                  TextField(
-                    controller: urlController,
-                    decoration: InputDecoration(labelText: "URL"),
-                  ),
-                  CheckboxListTile(
-                    value: useAuth,
-                    title: Text("Utiliser l'authentification"),
-                    controlAffinity: ListTileControlAffinity.leading,
-                    onChanged: (val) {
-                      setState(() => useAuth = val ?? false);
-                    },
-                  ),
-                  if (useAuth) ...[
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
                     TextField(
-                      controller: loginController,
-                      decoration: InputDecoration(labelText: "Login"),
+                      controller: nameController,
+                      decoration: InputDecoration(labelText: "Nom"),
+                      autofocus: true,
                     ),
                     TextField(
-                      controller: passwordController,
-                      obscureText: obscurePassword,
-                      decoration: InputDecoration(
-                        labelText: "Mot de passe",
-                        suffixIcon: IconButton(
-                          icon: Icon(
-                            obscurePassword ? Icons.visibility_off : Icons.visibility,
+                      controller: urlController,
+                      decoration: InputDecoration(labelText: "URL"),
+                    ),
+                    CheckboxListTile(
+                      value: useAuth,
+                      title: Text("Utiliser l'authentification"),
+                      controlAffinity: ListTileControlAffinity.leading,
+                      onChanged: (val) {
+                        setState(() => useAuth = val ?? false);
+                      },
+                    ),
+                    if (useAuth) ...[
+                      TextField(
+                        controller: loginController,
+                        decoration: InputDecoration(labelText: "Login"),
+                      ),
+                      TextField(
+                        controller: passwordController,
+                        obscureText: obscurePassword,
+                        decoration: InputDecoration(
+                          labelText: "Mot de passe",
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              obscurePassword ? Icons.visibility_off : Icons.visibility,
+                            ),
+                            onPressed: () {
+                              setState(() => obscurePassword = !obscurePassword);
+                            },
                           ),
-                          onPressed: () {
-                            setState(() => obscurePassword = !obscurePassword);
-                          },
                         ),
                       ),
-                    ),
+                    ],
                   ],
-                ],
+                ),
               ),
               actions: [
                 OutlinedButton.icon(
@@ -1059,6 +1103,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             TextField(
               decoration: InputDecoration(labelText: "Nom de l'appareil"),
               onChanged: (value) => name = value,
+              autofocus: true,
             ),
             TextField(
               decoration: InputDecoration(labelText: "URL de l'appareil"),
@@ -1269,6 +1314,132 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  /// Bouton AppBar focusable au D-pad, avec fond bleu LiXee.
+  Widget _buildAppBarButton({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback onPressed,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+      child: Material(
+        color: const Color(0xFF1B75BC),
+        borderRadius: BorderRadius.circular(8),
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(8),
+          focusColor: Colors.white.withOpacity(0.3),
+          child: Semantics(
+            button: true,
+            label: tooltip,
+            child: Tooltip(
+              message: tooltip,
+              child: Container(
+                padding: EdgeInsets.all(TVDetector.isTV ? 16 : 12),
+                child: Icon(icon, color: Colors.white,
+                    size: TVDetector.isTV ? 28 : 20),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Dialog de confirmation de suppression d'un device.
+  void _showDeleteConfirmDialog(String entry) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Row(
+            children: [
+              Image.asset("assets/logo_x.png", height: 32),
+              SizedBox(width: 8),
+              Expanded(child: Text("Supprimer l'appareil ?")),
+            ],
+          ),
+          content: Text("Êtes-vous sûr de vouloir supprimer cet appareil ?"),
+          actions: [
+            OutlinedButton.icon(
+              icon: Icon(Icons.cancel),
+              label: Text("Annuler"),
+              onPressed: () => Navigator.of(context).pop(),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Color(0xFF1B75BC),
+                side: BorderSide(color: Color(0xFF1B75BC)),
+              ),
+            ),
+            OutlinedButton.icon(
+              icon: Icon(Icons.check),
+              label: Text("Valider"),
+              onPressed: () {
+                Navigator.of(context).pop();
+                _removeDevice(entry);
+              },
+              style: OutlinedButton.styleFrom(
+                foregroundColor: Color(0xFF1B75BC),
+                side: BorderSide(color: Color(0xFF1B75BC)),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  /// Menu contextuel long-press pour les actions device sur TV.
+  void _showDeviceActionsMenu(BuildContext context, String entry, Offset position) {
+    final parts = entry.split('|');
+    final name = parts.isNotEmpty ? parts[0] : '';
+
+    showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        position.dx, position.dy, position.dx + 1, position.dy + 1,
+      ),
+      items: [
+        PopupMenuItem(
+          value: 'notifications',
+          child: Row(children: [
+            Icon(Icons.notifications_outlined, color: Color(0xFF1B75BC)),
+            SizedBox(width: 12),
+            Text('Notifications'),
+          ]),
+        ),
+        PopupMenuItem(
+          value: 'edit',
+          child: Row(children: [
+            Icon(Icons.edit_outlined, color: Color(0xFF1B75BC)),
+            SizedBox(width: 12),
+            Text('Modifier'),
+          ]),
+        ),
+        PopupMenuItem(
+          value: 'delete',
+          child: Row(children: [
+            Icon(Icons.delete_outlined, color: Colors.red),
+            SizedBox(width: 12),
+            Text('Supprimer', style: TextStyle(color: Colors.red)),
+          ]),
+        ),
+      ],
+    ).then((value) {
+      if (value == null) return;
+      switch (value) {
+        case 'notifications':
+          _showNotificationsDialog(entry);
+          break;
+        case 'edit':
+          _showEditDialog(entry);
+          break;
+        case 'delete':
+          _showDeleteConfirmDialog(entry);
+          break;
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return SafeArea(
@@ -1285,35 +1456,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ],
             ),
             actions: [
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-                child: Material(
-                  color: Color(0xFF1B75BC),
-                  borderRadius: BorderRadius.circular(8),
-                  child: InkWell(
-                    onTap: _startProvisioning,
-                    borderRadius: BorderRadius.circular(8),
-                    child: Container(
-                      padding: EdgeInsets.all(12),
-                      child: Icon(Icons.bluetooth, color: Colors.white, size: 20),
-                    ),
-                  ),
-                ),
+              _buildAppBarButton(
+                icon: Icons.bluetooth,
+                tooltip: "Appairer un appareil",
+                onPressed: _startProvisioning,
               ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-                child: Material(
-                  color: Color(0xFF1B75BC),
-                  borderRadius: BorderRadius.circular(8),
-                  child: InkWell(
-                    onTap: _showManualAddDialog,
-                    borderRadius: BorderRadius.circular(8),
-                    child: Container(
-                      padding: EdgeInsets.all(12),
-                      child: Icon(Icons.note_add_outlined, color: Colors.white, size: 20),
-                    ),
-                  ),
-                ),
+              _buildAppBarButton(
+                icon: Icons.note_add_outlined,
+                tooltip: "Ajouter manuellement",
+                onPressed: _showManualAddDialog,
               ),
               PopupMenuButton<String>(
                 icon: Icon(Icons.more_vert, color: Color(0xFF1B75BC)),
@@ -1354,7 +1505,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ? Center(child: Text("Aucun appareil enregistré.",
               style: TextStyle(color: Colors.grey)))
               : ListView.builder(
-              padding: EdgeInsets.all(isTV(context) ? 32 : 16),
+              padding: EdgeInsets.all(TVDetector.isTV ? 32 : 16),
               itemCount: devices.length,
               itemBuilder: (context, index) {
                 List<String> parts = devices[index].split("|");
@@ -1375,126 +1526,102 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           final bool hasFocus = Focus
                               .of(focusContext)
                               .hasFocus;
-                          return Card(
-                            elevation: hasFocus ? 8 : 2,
-                            color: Colors.white,
-                            margin: EdgeInsets.symmetric(vertical: isTV(context)
-                                ? 16
-                                : 8),
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12)),
-                            child: ListTile(
-                              contentPadding: EdgeInsets.symmetric(
-                                  horizontal: isTV(context) ? 32 : 16,
-                                  vertical: isTV(context) ? 16 : 8),
-                              title: Row(
-                                children: [
-                                  if (devices[index].contains('|auth|'))
-                                    Padding(
-                                      padding: const EdgeInsets.only(right: 4.0),
-                                      child: Icon(Icons.lock_outline, size: 16,
-                                          color: Colors.grey),
+                          return GestureDetector(
+                            onLongPressStart: TVDetector.isTV
+                                ? (details) => _showDeviceActionsMenu(
+                                    context, devices[index], details.globalPosition)
+                                : null,
+                            child: Card(
+                              elevation: hasFocus ? 8 : 2,
+                              color: Colors.white,
+                              margin: EdgeInsets.symmetric(vertical: TVDetector.isTV
+                                  ? 16
+                                  : 8),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                                side: hasFocus
+                                    ? const BorderSide(color: Color(0xFF1B75BC), width: 3)
+                                    : BorderSide.none,
+                              ),
+                              child: ListTile(
+                                contentPadding: EdgeInsets.symmetric(
+                                    horizontal: TVDetector.isTV ? 32 : 16,
+                                    vertical: TVDetector.isTV ? 16 : 8),
+                                title: Row(
+                                  children: [
+                                    if (devices[index].contains('|auth|'))
+                                      Padding(
+                                        padding: const EdgeInsets.only(right: 4.0),
+                                        child: Icon(Icons.lock_outline, size: 16,
+                                            color: Colors.grey),
+                                      ),
+                                    Flexible(
+                                      child: Text(
+                                        name,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(fontWeight: FontWeight.w600,
+                                            fontSize: TVDetector.isTV ? 24 : 16),
+                                      ),
                                     ),
-                                  Text(
-                                    name,
-                                    style: TextStyle(fontWeight: FontWeight.w600,
-                                        fontSize: isTV(context) ? 24 : 16),
-                                  ),
-                                ],
-                              ),
-                              subtitle: Text(
-                                url,
-                                style: TextStyle(fontSize: isTV(context) ? 20 : 14),
-                              ),
-                              //leading: Icon(Icons.devices_other, color: Color(0xFF1B75BC)),
-                              leading: Icon(
-                                Icons.devices_other,
-                                color: deviceStatuses[devices[index]] == true
-                                    ? Colors
-                                    .green
-                                    : Colors.red,
-                              ),
-                              trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  IconButton(
-                                    icon: Icon(
-                                        hasNotifications
-                                            ? Icons.notifications
-                                            : Icons.notifications_outlined,
-                                        color: hasNotifications ? Colors.amber : Color(0xFF1B75BC)),
-                                    tooltip: "Voir les notifications",
-                                    onPressed: () =>
-                                        _showNotificationsDialog(devices[index]),
-                                  ),
-                                  IconButton(
-                                    icon: Icon(
-                                        Icons.edit_outlined,
-                                        color: Color(0xFF1B75BC)),
-                                    tooltip: "Modifier",
-                                    onPressed: () =>
-                                        _showEditDialog(devices[index]),
-                                  ),
-                                  IconButton(
-                                    icon: Icon(Icons.delete_outlined,
-                                        color: Color(0xFF1B75BC)),
-                                    onPressed: () {
-                                      showDialog(
-                                        context: context,
-                                        builder: (BuildContext context) {
-                                          return AlertDialog(
-                                            title: Row(
-                                              children: [
-                                                Image.asset(
-                                                    "assets/logo_x.png",
-                                                    height: 32),
-                                                SizedBox(width: 8),
-                                                Expanded(child: Text(
-                                                    "Supprimer l'appareil ?")),
-                                              ],
-                                            ),
-                                            content: Text(
-                                                "Êtes-vous sûr de vouloir supprimer cet appareil ?"),
-                                            actions: [
-                                              OutlinedButton.icon(
-                                                icon: Icon(Icons.cancel,),
-                                                label: Text("Annuler"),
-                                                onPressed: () {
-                                                  Navigator.of(context).pop();
-                                                },
-                                                style: OutlinedButton.styleFrom(
-                                                  foregroundColor: Color(
-                                                      0xFF1B75BC),
-                                                  side: BorderSide(
-                                                      color: Color(0xFF1B75BC)),
-                                                ),
-                                              ),
-                                              OutlinedButton.icon(
-                                                icon: Icon(Icons.check),
-                                                label: Text("Valider"),
-                                                onPressed: () {
-                                                  Navigator
-                                                      .of(context)
-                                                      .pop(); // Fermer le dialogue
-                                                  _removeDevice(
-                                                      devices[index]); // Supprimer réellement
-                                                },
-                                                style: OutlinedButton.styleFrom(
-                                                  foregroundColor: Color(
-                                                      0xFF1B75BC),
-                                                  side: BorderSide(
-                                                      color: Color(0xFF1B75BC)),
-                                                ),
-                                              ),
-                                            ],
+                                  ],
+                                ),
+                                subtitle: Text(
+                                  url,
+                                  style: TextStyle(fontSize: TVDetector.isTV ? 20 : 14),
+                                ),
+                                leading: Icon(
+                                  Icons.devices_other,
+                                  color: deviceStatuses[devices[index]] == true
+                                      ? Colors.green
+                                      : Colors.red,
+                                  size: TVDetector.isTV ? 32 : 24,
+                                ),
+                                trailing: TVDetector.isTV
+                                    // TV : un seul bouton menu (les actions sont dans le long-press)
+                                    ? IconButton(
+                                        icon: Icon(Icons.more_vert, color: Color(0xFF1B75BC),
+                                            size: TVDetector.isTV ? 32 : 24),
+                                        tooltip: "Actions",
+                                        onPressed: () {
+                                          // Calculer la position du bouton pour le popup
+                                          final RenderBox box = focusContext.findRenderObject() as RenderBox;
+                                          final Offset pos = box.localToGlobal(
+                                            Offset(box.size.width - 48, box.size.height / 2),
                                           );
+                                          _showDeviceActionsMenu(context, devices[index], pos);
                                         },
-                                      );
-                                    },
-                                  ),
-                                ],
+                                      )
+                                    // Mobile : les 3 boutons classiques
+                                    : Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          IconButton(
+                                            icon: Icon(
+                                                hasNotifications
+                                                    ? Icons.notifications
+                                                    : Icons.notifications_outlined,
+                                                color: hasNotifications ? Colors.amber : Color(0xFF1B75BC)),
+                                            tooltip: "Voir les notifications",
+                                            onPressed: () =>
+                                                _showNotificationsDialog(devices[index]),
+                                          ),
+                                          IconButton(
+                                            icon: Icon(
+                                                Icons.edit_outlined,
+                                                color: Color(0xFF1B75BC)),
+                                            tooltip: "Modifier",
+                                            onPressed: () =>
+                                                _showEditDialog(devices[index]),
+                                          ),
+                                          IconButton(
+                                            icon: Icon(Icons.delete_outlined,
+                                                color: Color(0xFF1B75BC)),
+                                            onPressed: () => _showDeleteConfirmDialog(devices[index]),
+                                          ),
+                                        ],
+                                      ),
+                                onTap: () => _openDevice(devices[index]),
                               ),
-                              onTap: () => _openDevice(devices[index]),
                             ),
                           );
                         },
