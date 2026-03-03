@@ -11,10 +11,26 @@ import 'dart:io';
 import 'dart:convert';
 import 'screens/wifi_provision_screen.dart';
 import 'screens/home_screen.dart';
+import 'services/session_manager.dart';
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
 
 const String deviceCheckTaskName = 'com.lixee.assist.deviceCheck';
+
+/// Détection TV unifiée (singleton) — initialisé une seule fois dans main().
+class TVDetector {
+  static bool _isTV = false;
+  static bool get isTV => _isTV;
+
+  static Future<void> init() async {
+    if (Platform.isAndroid) {
+      try {
+        final info = await DeviceInfoPlugin().androidInfo;
+        _isTV = info.systemFeatures.contains('android.software.leanback');
+      } catch (_) {}
+    }
+  }
+}
 
 @pragma('vm:entry-point')
 void callbackDispatcher() {
@@ -70,6 +86,9 @@ void main() async {
   // Demande les permissions réseau et localisation
   await Permission.location.request();
 
+  // Détecter si l'appareil est une Android TV (une seule fois)
+  await TVDetector.init();
+
   runApp(MyApp());
 }
 
@@ -119,28 +138,73 @@ Future<void> checkDeviceStatusBackground() async {
         continue;
       }
     }
-    final Dio dio = Dio();
     try {
-      final response = await dio.get(
-        "$deviceUrl/poll",
-        options: Options(
-          sendTimeout: const Duration(seconds: 2),
-          receiveTimeout: const Duration(seconds: 5),
-          responseType: ResponseType.plain,
-          headers: (login != null && password != null)
-              ? {
-            'Authorization': 'Basic ${base64Encode(
-                utf8.encode('$login:$password'))}',
-          }
-              : null,
-        ),
-      );
+      int statusCode;
+      String responseBody;
 
-      if (response.statusCode == 200) {
+      if (login != null && password != null) {
+        // Détecter le mode auth
+        final authMode = await detectAuthMode(deviceUrl);
+
+        if (authMode == AuthMode.form) {
+          // Mode formulaire : utiliser SessionManager
+          final session = SessionManager(
+            targetBaseUrl: deviceUrl,
+            username: login,
+            password: password,
+          );
+          try {
+            final result = await session.authenticatedGet('/poll');
+            statusCode = result.statusCode;
+            responseBody = result.body;
+          } finally {
+            session.close();
+          }
+        } else {
+          // Mode Basic Auth classique
+          final dio = Dio();
+          try {
+            final response = await dio.get(
+              "$deviceUrl/poll",
+              options: Options(
+                sendTimeout: const Duration(seconds: 2),
+                receiveTimeout: const Duration(seconds: 5),
+                responseType: ResponseType.plain,
+                headers: {
+                  'Authorization': 'Basic ${base64Encode(utf8.encode('$login:$password'))}',
+                },
+              ),
+            );
+            statusCode = response.statusCode ?? 0;
+            responseBody = response.data?.toString() ?? '';
+          } finally {
+            dio.close(force: true);
+          }
+        }
+      } else {
+        // Pas d'auth
+        final dio = Dio();
+        try {
+          final response = await dio.get(
+            "$deviceUrl/poll",
+            options: Options(
+              sendTimeout: const Duration(seconds: 2),
+              receiveTimeout: const Duration(seconds: 5),
+              responseType: ResponseType.plain,
+            ),
+          );
+          statusCode = response.statusCode ?? 0;
+          responseBody = response.data?.toString() ?? '';
+        } finally {
+          dio.close(force: true);
+        }
+      }
+
+      if (statusCode == 200 && responseBody.isNotEmpty) {
         int notifId = 0;
-        if (response.data != "") {
-          List<dynamic> notifications = jsonDecode(
-              response.data)['notifications'];
+        final jsonData = jsonDecode(responseBody);
+        if (jsonData != null && jsonData['notifications'] != null) {
+          List<dynamic> notifications = jsonData['notifications'];
 
           for (var notif in notifications) {
             var title = "";
@@ -175,8 +239,6 @@ Future<void> checkDeviceStatusBackground() async {
       }
     } catch (e) {
       // Silently handle errors
-    } finally {
-      dio.close(force: true);
     }
   }
 }
@@ -187,13 +249,59 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    const lixeeBlue = Color(0xFF1B75BC);
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'LiXee-Assist',
       theme: ThemeData(
         primarySwatch: Colors.blue,
+        focusColor: lixeeBlue.withOpacity(0.2),
+        hoverColor: lixeeBlue.withOpacity(0.1),
+        // Style de focus global pour les boutons (visible au D-pad TV)
+        iconButtonTheme: IconButtonThemeData(
+          style: ButtonStyle(
+            overlayColor: WidgetStateProperty.resolveWith((states) {
+              if (states.contains(WidgetState.focused)) {
+                return lixeeBlue.withOpacity(0.25);
+              }
+              return null;
+            }),
+            side: WidgetStateProperty.resolveWith((states) {
+              if (states.contains(WidgetState.focused)) {
+                return const BorderSide(color: lixeeBlue, width: 2);
+              }
+              return null;
+            }),
+          ),
+        ),
+        textButtonTheme: TextButtonThemeData(
+          style: ButtonStyle(
+            overlayColor: WidgetStateProperty.resolveWith((states) {
+              if (states.contains(WidgetState.focused)) {
+                return lixeeBlue.withOpacity(0.15);
+              }
+              return null;
+            }),
+          ),
+        ),
+        outlinedButtonTheme: OutlinedButtonThemeData(
+          style: ButtonStyle(
+            overlayColor: WidgetStateProperty.resolveWith((states) {
+              if (states.contains(WidgetState.focused)) {
+                return lixeeBlue.withOpacity(0.15);
+              }
+              return null;
+            }),
+            side: WidgetStateProperty.resolveWith((states) {
+              if (states.contains(WidgetState.focused)) {
+                return const BorderSide(color: lixeeBlue, width: 2);
+              }
+              return const BorderSide(color: lixeeBlue);
+            }),
+          ),
+        ),
       ),
-      home: HomeScreen(), // Assure-toi que HomeScreen est bien défini
+      home: HomeScreen(),
     );
   }
 }
