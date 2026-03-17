@@ -9,7 +9,7 @@
 	<key>PLIST_VERSION</key>
 	<string>1</string>
 	<key>BUNDLE_ID</key>
-	<string>com.lixee.lixee-assist</string>
+	<string>com.lixee.assist</string>
 	<key>PROJECT_ID</key>
 	<string>lixee-box</string>
 	<key>STORAGE_BUCKET</key>
@@ -25,6 +25,6 @@
 	<key>IS_SIGNIN_ENABLED</key>
 	<true></true>
 	<key>GOOGLE_APP_ID</key>
-	<string>1:874125898307:ios:208b18e12a1fd73d85daf6</string>
+	<string>1:874125898307:ios:28a8cba3e1c921e085daf6</string>
 </dict>
 </plist>
