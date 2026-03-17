@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "874125898307",
+    "project_id": "lixee-box",
+    "storage_bucket": "lixee-box.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:874125898307:android:f46fe2c9f06d6e5b85daf6",
+        "android_client_info": {
+          "package_name": "com.lixee.assist"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBkxGFDGnvrHY86eMjGRWxAbiUi6juwF94"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
