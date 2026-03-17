@@ -44,6 +44,13 @@
             android:name="flutterEmbedding"
             android:value="2" />
 
+        <!-- Icône et couleur par défaut pour les notifications FCM -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_stat_notify" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_color"
+            android:resource="@color/notification_color" />
 
     </application>
 

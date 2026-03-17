@@ -6,12 +6,15 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:workmanager/workmanager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:device_info_plus/device_info_plus.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:dio/dio.dart';
 import 'dart:io';
 import 'dart:convert';
 import 'screens/wifi_provision_screen.dart';
 import 'screens/home_screen.dart';
 import 'services/session_manager.dart';
+import 'services/push_register_service.dart';
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
 
@@ -32,6 +35,17 @@ class TVDetector {
   }
 }
 
+/// Handler Firebase pour les messages reçus en arrière-plan (doit être top-level).
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp();
+  print('[FCM] ======= BACKGROUND MESSAGE =======');
+  print('[FCM] messageId: ${message.messageId}');
+  print('[FCM] notification: ${message.notification?.title} / ${message.notification?.body}');
+  print('[FCM] data: ${message.data}');
+  print('[FCM] ====================================');
+}
+
 @pragma('vm:entry-point')
 void callbackDispatcher() {
   Workmanager().executeTask((task, inputData) async {
@@ -46,6 +60,69 @@ void callbackDispatcher() {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialiser Firebase
+  await Firebase.initializeApp();
+  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+
+  // Demander la permission notifications push (FCM)
+  final messaging = FirebaseMessaging.instance;
+  await messaging.requestPermission(
+    alert: true,
+    badge: true,
+    sound: true,
+  );
+
+  // Récupérer le token FCM et l'enregistrer sur remote.lixee-box.fr
+  try {
+    final fcmToken = await messaging.getToken();
+    print('[FCM] Token: $fcmToken');
+
+    // Enregistrer le token FCM pour tous les devices avec credentials tunnel
+    if (fcmToken != null) {
+      PushRegisterService.registerFcmTokenForAllDevices(fcmToken: fcmToken);
+    }
+  } catch (e) {
+    print('[FCM] Token unavailable (pas de Play Services ?): $e');
+  }
+
+  // Écouter les refresh de token FCM → ré-enregistrer automatiquement
+  FirebaseMessaging.instance.onTokenRefresh.listen((newToken) {
+    print('[FCM] Token refreshed: $newToken');
+    PushRegisterService.forceReRegister(newToken);
+  });
+
+  // Écouter les messages FCM en foreground
+  FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+    print('[FCM] ======= MESSAGE REÇU =======');
+    print('[FCM] messageId: ${message.messageId}');
+    print('[FCM] notification: ${message.notification?.title} / ${message.notification?.body}');
+    print('[FCM] data: ${message.data}');
+    print('[FCM] from: ${message.from}');
+    print('[FCM] ==============================');
+
+    // Extraire titre et body (notification payload OU data payload)
+    String? title = message.notification?.title ?? message.data['title'];
+    String? body = message.notification?.body ?? message.data['body'] ?? message.data['message'];
+
+    if (title != null || body != null) {
+      flutterLocalNotificationsPlugin.show(
+        message.hashCode,
+        title ?? 'LiXee-Box',
+        body ?? '',
+        const NotificationDetails(
+          android: AndroidNotificationDetails(
+            'fcm_channel',
+            'Notifications Push',
+            importance: Importance.high,
+            priority: Priority.high,
+            icon: '@drawable/ic_stat_notify',
+            color: Color(0xFF2196F3),
+          ),
+        ),
+      );
+    }
+  });
 
   // Initialiser WorkManager
   await Workmanager().initialize(callbackDispatcher);
