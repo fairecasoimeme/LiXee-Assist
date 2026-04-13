@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -80,7 +81,10 @@ void main() async {
 
     // Enregistrer le token FCM pour tous les devices avec credentials tunnel
     if (fcmToken != null) {
-      PushRegisterService.registerFcmTokenForAllDevices(fcmToken: fcmToken);
+      // Lancer en background sans bloquer le démarrage de l'UI
+      () async {
+        await PushRegisterService.registerFcmTokenForAllDevices(fcmToken: fcmToken);
+      }();
     }
   } catch (e) {
     print('[FCM] Token unavailable (pas de Play Services ?): $e');
@@ -155,8 +159,8 @@ void main() async {
 
   await flutterLocalNotificationsPlugin.initialize(initSettings);
 
-  // Initialisation WebView avec hybrid composition sur Android
-  if (Platform.isAndroid) {
+  // Initialisation WebView avec debugging uniquement en mode debug
+  if (Platform.isAndroid && kDebugMode) {
     await InAppWebViewController.setWebContentsDebuggingEnabled(true);
   }
 
@@ -184,7 +188,11 @@ Future<void> checkDeviceStatusBackground() async {
 
   for (var entry in rawDevices) {
     List<String> parts = entry.split('|');
-    if (parts.length == 2 || (parts.length == 5 && parts[2] == 'auth')) {
+    // Formats supportés : 2, 3 (fallback sans auth), 5 (auth), 6 (auth+fallback)
+    if (parts.length == 2 ||
+        (parts.length == 3 && parts[2] != 'auth') ||
+        (parts.length == 5 && parts[2] == 'auth') ||
+        (parts.length == 6 && parts[2] == 'auth')) {
       validDevices.add(entry);
     }
   }
@@ -192,29 +200,67 @@ Future<void> checkDeviceStatusBackground() async {
   for (var entry in validDevices) {
     List<String> parts = entry.split('|');
     String deviceName = parts[0];
-    String deviceUrl = parts[1];
-    String? login = parts.length == 5 ? parts[3] : null;
-    String? password = parts.length == 5 ? parts[4] : null;
+    String? login;
+    String? password;
 
-    if (isIPAddress(deviceUrl)) {
-      // IP directe : normaliser l'URL
-      if (!deviceUrl.startsWith('http')) {
-        deviceUrl = "http://$deviceUrl";
+    // Extraire login/password selon le format
+    if ((parts.length == 5 || parts.length == 6) && parts[2] == 'auth') {
+      login = parts[3];
+      password = parts[4];
+    }
+
+    // Construire la liste d'URLs à essayer (primaire + fallback)
+    List<String> urlsToTry = [parts[1]];
+    if (parts.length == 3 && parts[2] != 'auth') {
+      urlsToTry.add(parts[2]); // fallback sans auth
+    } else if (parts.length == 6 && parts[2] == 'auth') {
+      urlsToTry.add(parts[5]); // fallback avec auth
+    }
+
+    // Essayer chaque URL jusqu'à en trouver une qui répond
+    String? deviceUrl;
+    for (final candidate in urlsToTry) {
+      String resolvedUrl = candidate;
+      if (!resolvedUrl.startsWith('http')) {
+        resolvedUrl = "http://$resolvedUrl";
       }
-    } else if (isDNSName(deviceUrl)) {
-      // DNS classique (ex: xxx.lixee-box.fr) : utiliser tel quel
-      if (!deviceUrl.startsWith('http')) {
-        deviceUrl = "http://$deviceUrl";
-      }
-    } else {
-      // mDNS (.local) : résolution nécessaire
-      String? ip = await resolveMdnsIP(deviceName);
-      if (ip != null) {
-        deviceUrl = "http://$ip";
+
+      if (isIPAddress(candidate) || isDNSName(candidate)) {
+        // IP ou DNS : utiliser directement
+        deviceUrl = resolvedUrl;
       } else {
-        continue;
+        // mDNS (.local) : résolution nécessaire
+        String? ip = await resolveMdnsIP(deviceName);
+        if (ip != null) {
+          deviceUrl = "http://$ip";
+        }
+      }
+
+      if (deviceUrl != null) {
+        // Tester si cette URL répond
+        final dio = Dio();
+        dio.options.connectTimeout = const Duration(seconds: 5);
+        try {
+          await dio.get(
+            "$deviceUrl/poll",
+            options: Options(
+              sendTimeout: const Duration(seconds: 2),
+              receiveTimeout: const Duration(seconds: 3),
+              validateStatus: (status) => true,
+            ),
+          );
+          break; // URL joignable, on la garde
+        } catch (_) {
+          print('[BG] $deviceUrl injoignable, essai suivant...');
+          deviceUrl = null; // Pas joignable, essayer la suivante
+        } finally {
+          dio.close(force: true);
+        }
       }
     }
+
+    if (deviceUrl == null) continue; // Aucune URL joignable
+
     try {
       int statusCode;
       String responseBody;
@@ -224,7 +270,6 @@ Future<void> checkDeviceStatusBackground() async {
         final authMode = await detectAuthMode(deviceUrl);
 
         if (authMode == AuthMode.form) {
-          // Mode formulaire : utiliser SessionManager
           final session = SessionManager(
             targetBaseUrl: deviceUrl,
             username: login,
@@ -238,8 +283,8 @@ Future<void> checkDeviceStatusBackground() async {
             session.close();
           }
         } else {
-          // Mode Basic Auth classique
           final dio = Dio();
+          dio.options.connectTimeout = const Duration(seconds: 5);
           try {
             final response = await dio.get(
               "$deviceUrl/poll",
@@ -259,8 +304,8 @@ Future<void> checkDeviceStatusBackground() async {
           }
         }
       } else {
-        // Pas d'auth
         final dio = Dio();
+        dio.options.connectTimeout = const Duration(seconds: 5);
         try {
           final response = await dio.get(
             "$deviceUrl/poll",

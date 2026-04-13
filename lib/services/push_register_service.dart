@@ -44,15 +44,20 @@ class PushRegisterService {
 
     for (var entry in rawDevices) {
       final parts = entry.split('|');
-      // On ne prend que les devices avec auth (5 parties)
-      if (parts.length != 5 || parts[2] != 'auth') {
+      // On ne prend que les devices avec auth (5 ou 6 parties)
+      if ((parts.length != 5 && parts.length != 6) || parts[2] != 'auth') {
         print('[PUSH] Skip device sans auth: ${parts[0]}');
         continue;
       }
 
-      final deviceUrl = parts[1];
+      final primaryUrl = parts[1];
       final login = parts[3];
       final password = parts[4];
+      final fallbackUrl = parts.length == 6 ? parts[5] : null;
+
+      // Pour récupérer les tunnel credentials, préférer l'URL locale (fallback)
+      // car la primaire peut être le tunnel lui-même
+      final deviceUrl = fallbackUrl ?? primaryUrl;
 
       print('[PUSH] Traitement device: ${parts[0]} ($deviceUrl)');
 
