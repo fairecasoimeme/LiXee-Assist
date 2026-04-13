@@ -60,8 +60,15 @@ Future<HttpServer> _startSessionProxy(String targetBaseUrl, SessionManager sessi
 
   server.listen((HttpRequest clientRequest) async {
     try {
-      final path = clientRequest.uri.toString();
-      final url = targetUri.resolve(path);
+      // Construire l'URL cible en gardant path + query du client
+      final requestUri = clientRequest.uri;
+      final url = targetUri.replace(
+        path: requestUri.path,
+        query: requestUri.query.isNotEmpty ? requestUri.query : null,
+      );
+      print('[PROXY-SESSION] clientRequest.uri=${clientRequest.uri}');
+      print('[PROXY-SESSION] requestUri.path=${requestUri.path} query=${requestUri.query}');
+      print('[PROXY-SESSION] → target URL=$url');
 
       final bodyBytes = await _proxyRequest(
         httpClient, clientRequest, url, targetUri, sessionManager,
@@ -178,7 +185,13 @@ Future<List<int>?> _proxyRequest(
         location != null &&
         location.isNotEmpty &&
         redirectCount < maxRedirects) {
-      currentUrl = currentUrl.resolve(location);
+      final redirectUri = currentUrl.resolve(location);
+      // Préserver les query params de l'URL originale si la redirection n'en a pas
+      if (redirectUri.query.isEmpty && originalUrl.query.isNotEmpty) {
+        currentUrl = redirectUri.replace(query: originalUrl.query);
+      } else {
+        currentUrl = redirectUri;
+      }
       currentMethod = 'GET';
       redirectCount++;
       print('[PROXY] Redirect #$redirectCount → $currentUrl');
@@ -244,8 +257,15 @@ Future<HttpServer> _startBasicAuthProxy(String targetBaseUrl, String username, S
 
     server.listen((HttpRequest clientRequest) async {
       try {
-        final path = clientRequest.uri.toString();
-        final url = targetUri.resolve(path);
+        // Construire l'URL cible en gardant path + query du client
+        final requestUri = clientRequest.uri;
+        final url = targetUri.replace(
+          path: requestUri.path,
+          query: requestUri.query.isNotEmpty ? requestUri.query : null,
+        );
+        print('[PROXY-BASIC] clientRequest.uri=${clientRequest.uri}');
+        print('[PROXY-BASIC] requestUri.path=${requestUri.path} query=${requestUri.query}');
+        print('[PROXY-BASIC] → target URL=$url');
 
         final proxyRequest = await httpClient.openUrl(clientRequest.method, url);
 

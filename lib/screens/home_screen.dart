@@ -174,6 +174,60 @@ String _normalizeUrl(String address) {
   return 'http://$address';
 }
 
+/// Parse un device entry et retourne ses composants.
+/// Formats supportés :
+///   name|url                              (2 parts)
+///   name|url|fallbackUrl                  (3 parts, parts[2] != 'auth')
+///   name|url|auth|login|password          (5 parts)
+///   name|url|auth|login|password|fallbackUrl (6 parts)
+Map<String, String>? _parseDeviceEntry(String entry) {
+  final parts = entry.split('|');
+  if (parts.length < 2) return null;
+
+  final result = <String, String>{
+    'name': parts[0],
+    'url': parts[1],
+  };
+
+  if (parts.length == 3 && parts[2] != 'auth') {
+    result['fallback'] = parts[2];
+  } else if (parts.length == 5 && parts[2] == 'auth') {
+    result['login'] = parts[3];
+    result['password'] = parts[4];
+  } else if (parts.length == 6 && parts[2] == 'auth') {
+    result['login'] = parts[3];
+    result['password'] = parts[4];
+    result['fallback'] = parts[5];
+  } else if (parts.length != 2) {
+    return null;
+  }
+
+  return result;
+}
+
+/// Construit un device entry à partir de ses composants.
+String _buildDeviceEntry({
+  required String name,
+  required String url,
+  String? login,
+  String? password,
+  String? fallback,
+}) {
+  String entry = '$name|$url';
+  if (login != null && login.isNotEmpty && password != null && password.isNotEmpty) {
+    entry += '|auth|$login|$password';
+  }
+  if (fallback != null && fallback.isNotEmpty) {
+    // Si pas d'auth, ajouter directement le fallback en 3ème position
+    if (login == null || login.isEmpty) {
+      entry = '$name|$url|$fallback';
+    } else {
+      entry += '|$fallback';
+    }
+  }
+  return entry;
+}
+
 Future<List<String>> _getNotifications(String deviceName) async {
   SharedPreferences prefs = await SharedPreferences.getInstance();
   return prefs.getStringList('notifications_$deviceName') ?? [];
@@ -534,6 +588,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   List<String> devices = [];
   Timer? _refreshTimer;
   Map<String, bool> deviceStatuses = {};
+  Map<String, bool> deviceOnFallback = {}; // true si le polling utilise le fallback
   Map<String, SessionManager> _sessionManagers = {};
   Map<String, AuthMode> _authModes = {};
   bool _initialized = false;
@@ -582,65 +637,27 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     super.dispose();
   }
 
-  // Modification de la fonction checkDeviceStatus existante
-  void checkDeviceStatus(String deviceName, String url, String entryKey, {String? login, String? password}) async {
-    print("🔍 Vérification de l'état de l'appareil : $deviceName");
-
-    String finalUrl = url;
-
-    // Traitement selon le type d'adresse
-    if (isDNSName(url)) {
-      // DNS classique : utilisation directe
-      finalUrl = _normalizeUrl(url);
-      print("🌐 Utilisation DNS directe: $finalUrl");
-
-    } else if (!isIPAddress(url)) {
-      // mDNS ou autre : résolution nécessaire
-      print("🔄 URL nécessite une résolution, type détecté: ${_getUrlType(url)}");
-
-      String? resolvedAddress = await UniversalResolver.resolveAddress(url, deviceName: deviceName);
-
-      if (resolvedAddress != null) {
-        finalUrl = _normalizeUrl(resolvedAddress);
-        print("✅ URL résolue: $url -> $finalUrl");
-      } else {
-        print("❌ Impossible de résoudre: $url");
-        if (mounted) {
-          setState(() {
-            deviceStatuses[entryKey] = false;
-          });
-        }
-        return;
-      }
-    } else {
-      // IP : normalisation simple
-      finalUrl = _normalizeUrl(url);
-    }
-
-    // Requête de polling
+  /// Effectue un poll HTTP sur une URL donnée. Retourne (statusCode, body) ou null si échec.
+  Future<({int statusCode, String body})?> _pollUrl(String finalUrl, String deviceName, {String? login, String? password}) async {
     try {
       int statusCode;
       String responseBody;
 
       if (login != null && password != null) {
-        // Détecter le mode auth (cache le résultat)
         final deviceKey = '$deviceName|$finalUrl';
         _authModes[deviceKey] ??= await detectAuthMode(finalUrl);
         final authMode = _authModes[deviceKey]!;
 
         if (authMode == AuthMode.form) {
-          // Mode formulaire : utiliser SessionManager
           _sessionManagers[deviceKey] ??= SessionManager(
             targetBaseUrl: finalUrl,
             username: login,
             password: password,
           );
           final sm = _sessionManagers[deviceKey]!;
-          // Tester le login si pas encore de cookie
           if (sm.sessionCookie == null) {
             final loginOk = await sm.login();
             if (!loginOk) {
-              // Form login échoué → fallback vers Basic Auth
               print('[HOME] Form login failed for $deviceName, fallback to Basic Auth');
               sm.close();
               _sessionManagers.remove(deviceKey);
@@ -654,8 +671,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           statusCode = result.statusCode;
           responseBody = result.body;
         } else {
-          // Mode Basic Auth classique
           final dio = Dio();
+          dio.options.connectTimeout = const Duration(seconds: 5);
           try {
             final response = await dio.get(
               "$finalUrl/poll",
@@ -676,8 +693,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           }
         }
       } else {
-        // Pas d'auth
         final dio = Dio();
+        dio.options.connectTimeout = const Duration(seconds: 5);
         try {
           final response = await dio.get(
             "$finalUrl/poll",
@@ -694,6 +711,67 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           dio.close(force: true);
         }
       }
+
+      if (statusCode == 200 || statusCode == 401) {
+        return (statusCode: statusCode, body: responseBody);
+      }
+    } catch (e) {
+      print('[POLL] Echec pour $finalUrl: $e');
+    }
+    return null;
+  }
+
+  // Modification de la fonction checkDeviceStatus existante
+  void checkDeviceStatus(String deviceName, String url, String entryKey, {String? login, String? password, String? fallbackUrl}) async {
+    print("🔍 Vérification de l'état de l'appareil : $deviceName");
+
+    // Construire la liste des URLs à essayer (primaire + fallback)
+    final urlCandidates = [url];
+    if (fallbackUrl != null && fallbackUrl.isNotEmpty) {
+      urlCandidates.add(fallbackUrl);
+    }
+
+    // Essayer chaque URL : résoudre puis poll
+    ({int statusCode, String body})? pollResult;
+    bool usedFallback = false;
+    for (int i = 0; i < urlCandidates.length; i++) {
+      final candidate = urlCandidates[i];
+      final resolved = await _resolveToFinalUrl(candidate, deviceName);
+      if (resolved == null) {
+        print("❌ Impossible de résoudre: $candidate, essai suivant...");
+        continue;
+      }
+
+      pollResult = await _pollUrl(resolved, deviceName, login: login, password: password);
+      if (pollResult != null) {
+        usedFallback = i > 0;
+        print("✅ Poll OK sur $resolved (status=${pollResult.statusCode}) ${usedFallback ? '(FALLBACK)' : '(PRIMAIRE)'}");
+        break;
+      }
+      print("❌ Poll échoué sur $resolved, essai suivant...");
+    }
+
+    if (pollResult == null) {
+      print("❌ Aucune URL joignable pour $deviceName");
+      if (mounted) {
+        setState(() {
+          deviceStatuses[entryKey] = false;
+        });
+      }
+      return;
+    }
+
+    // Mettre à jour le statut fallback pour l'affichage du badge
+    if (mounted && fallbackUrl != null && fallbackUrl.isNotEmpty) {
+      setState(() {
+        deviceOnFallback[entryKey] = usedFallback;
+      });
+    }
+
+    // Traitement de la réponse
+    try {
+      final statusCode = pollResult.statusCode;
+      final responseBody = pollResult.body;
 
       if (statusCode == 200 || statusCode == 401) {
         // Traitement des notifications
@@ -761,14 +839,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             deviceStatuses[entryKey] = true;
           });
         }
-      } else {
-        if (mounted) {
-          setState(() {
-            deviceStatuses[entryKey] = false;
-          });
-        }
       }
     } catch (e) {
+      print('[STATUS] Erreur traitement réponse pour $deviceName: $e');
       if (mounted) {
         setState(() {
           deviceStatuses[entryKey] = false;
@@ -799,14 +872,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _refreshTimer?.cancel();
     _refreshTimer = Timer.periodic(Duration(seconds: 10), (timer) {
       for (int i = 0; i < devices.length; i++) {
-        List<String> parts = devices[i].split('|');
-        if (parts.length == 2 || (parts.length == 5 && parts[2] == 'auth')) {
-          String deviceName = parts[0];
-          String deviceUrl = parts[1];
-          String? login = parts.length == 5 ? parts[3] : null;
-          String? password = parts.length == 5 ? parts[4] : null;
-
-          checkDeviceStatus(deviceName, deviceUrl, devices[i], login: login, password: password);
+        final parsed = _parseDeviceEntry(devices[i]);
+        if (parsed != null) {
+          checkDeviceStatus(parsed['name']!, parsed['url']!, devices[i],
+              login: parsed['login'], password: parsed['password'], fallbackUrl: parsed['fallback']);
         }
       }
     });
@@ -830,9 +899,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       if (parts.length == 2) {
         validDevices.add(entry);
         print("✅ Device sans auth: '${parts[0]}' -> '${parts[1]}'");
+      } else if (parts.length == 3 && parts[2] != 'auth') {
+        validDevices.add(entry);
+        print("✅ Device sans auth + fallback: '${parts[0]}' -> '${parts[1]}' (fallback: '${parts[2]}')");
       } else if (parts.length == 5 && parts[2] == 'auth') {
         validDevices.add(entry);
         print("🔐 Device avec auth: '${parts[0]}' -> '${parts[1]}' (login: '${parts[3]}')");
+      } else if (parts.length == 6 && parts[2] == 'auth') {
+        validDevices.add(entry);
+        print("🔐 Device avec auth + fallback: '${parts[0]}' -> '${parts[1]}' (fallback: '${parts[5]}')");
       } else {
         print("⚠️ Format invalide ignoré: '$entry'");
       }
@@ -847,15 +922,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     // Vérification des statuts
     for (int i = 0; i < validDevices.length; i++) {
-      final entry = validDevices[i];
-      final parts = entry.split('|');
-      if (parts.length >= 2) {
-        final deviceName = parts[0];
-        final deviceUrl = parts[1];
-        String? login = (parts.length == 5 && parts[2] == 'auth') ? parts[3] : null;
-        String? password = (parts.length == 5 && parts[2] == 'auth') ? parts[4] : null;
-
-        checkDeviceStatus(deviceName, deviceUrl, entry, login: login, password: password);
+      final parsed = _parseDeviceEntry(validDevices[i]);
+      if (parsed != null) {
+        checkDeviceStatus(parsed['name']!, parsed['url']!, validDevices[i],
+            login: parsed['login'], password: parsed['password'], fallbackUrl: parsed['fallback']);
       }
     }
   }
@@ -863,22 +933,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void _showEditDialog(String originalEntry) {
     print("🔧 _showEditDialog pour: '$originalEntry'");
 
-    List<String> parts = originalEntry.split("|");
-    String name = parts[0];
-    String url = parts[1];
-    bool useAuth = parts.length == 5 && parts[2] == "auth";
-    String login = useAuth ? parts[3] : "";
-    String password = useAuth ? parts[4] : "";
+    final parsed = _parseDeviceEntry(originalEntry);
+    if (parsed == null) return;
 
-    print("📋 Données chargées - Name: '$name', URL: '$url', Auth: $useAuth");
-    if (useAuth) {
-      print("🔐 Login: '$login', Password: ${password.isNotEmpty ? '[SET]' : '[EMPTY]'}");
-    }
+    String name = parsed['name']!;
+    String url = parsed['url']!;
+    String fallback = parsed['fallback'] ?? '';
+    bool useAuth = parsed.containsKey('login');
+    String login = parsed['login'] ?? '';
+    String password = parsed['password'] ?? '';
 
     bool obscurePassword = true;
 
     TextEditingController nameController = TextEditingController(text: name);
     TextEditingController urlController = TextEditingController(text: url);
+    TextEditingController fallbackController = TextEditingController(text: fallback);
     TextEditingController loginController = TextEditingController(text: login);
     TextEditingController passwordController = TextEditingController(text: password);
 
@@ -906,7 +975,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     ),
                     TextField(
                       controller: urlController,
-                      decoration: InputDecoration(labelText: "URL"),
+                      decoration: InputDecoration(
+                        labelText: "URL principale",
+                        hintText: "ex: https://abc123.lixee-box.fr",
+                      ),
+                    ),
+                    TextField(
+                      controller: fallbackController,
+                      decoration: InputDecoration(
+                        labelText: "URL secondaire (fallback)",
+                        hintText: "ex: http://192.168.0.144",
+                      ),
                     ),
                     CheckboxListTile(
                       value: useAuth,
@@ -956,6 +1035,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   onPressed: () async {
                     String newName = nameController.text.trim();
                     String newUrl = urlController.text.trim();
+                    String newFallback = fallbackController.text.trim();
                     String newLogin = loginController.text.trim();
                     String newPass = passwordController.text.trim();
 
@@ -964,21 +1044,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       return;
                     }
 
-                    String newEntry = "$newName|$newUrl";
-                    if (useAuth && newLogin.isNotEmpty && newPass.isNotEmpty) {
-                      newEntry += "|auth|$newLogin|$newPass";
-                    }
+                    String newEntry = _buildDeviceEntry(
+                      name: newName,
+                      url: newUrl,
+                      login: useAuth ? newLogin : null,
+                      password: useAuth ? newPass : null,
+                      fallback: newFallback,
+                    );
 
                     print("🔧 Modification: '$originalEntry' -> '$newEntry'");
 
                     SharedPreferences prefs = await SharedPreferences.getInstance();
                     List<String> saved = prefs.getStringList('saved_devices') ?? [];
 
-                    // ✅ CORRECTION: Supprimer l'entrée EXACTE originale
                     bool removed = saved.remove(originalEntry);
                     print("🗑️ Suppression de l'entrée originale: $removed");
 
-                    // Ajouter la nouvelle
                     saved.add(newEntry);
                     await prefs.setStringList('saved_devices', saved);
 
@@ -1140,65 +1221,242 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  /// Résout une URL (DNS, mDNS, IP) et retourne l'URL HTTP finale, ou null.
+  Future<String?> _resolveToFinalUrl(String url, String name) async {
+    if (isDNSName(url)) {
+      return _normalizeUrl(url);
+    }
+    String? resolved = await UniversalResolver.resolveAddress(url, deviceName: name);
+    if (resolved != null) {
+      return _normalizeUrl(resolved);
+    }
+    return null;
+  }
+
+  /// Teste si une URL est joignable (timeout court).
+  Future<bool> _isUrlReachable(String url) async {
+    print('[REACHABLE] Test de $url...');
+    final dio = Dio();
+    dio.options.connectTimeout = const Duration(seconds: 5);
+    dio.options.sendTimeout = const Duration(seconds: 3);
+    dio.options.receiveTimeout = const Duration(seconds: 3);
+    try {
+      final response = await dio.get(
+        url,
+        options: Options(
+          validateStatus: (status) => true, // Accepter tout statut
+          followRedirects: true,
+        ),
+      );
+      print('[REACHABLE] $url → status ${response.statusCode}');
+      return response.statusCode != null;
+    } catch (e) {
+      print('[REACHABLE] $url → ECHEC: $e');
+      return false;
+    } finally {
+      dio.close(force: true);
+    }
+  }
+
+  /// Vérifie si un tunnel est configuré sur la box locale.
+  /// Retourne l'URL tunnel (ex: https://abc123.lixee-box.fr) ou null.
+  Future<String?> _fetchTunnelUrl(String localUrl, String login, String password) async {
+    String baseUrl = _normalizeUrl(localUrl);
+    print('[TUNNEL] Vérification tunnel sur $baseUrl...');
+
+    try {
+      final authMode = await detectAuthMode(baseUrl);
+
+      if (authMode == AuthMode.form) {
+        final session = SessionManager(
+          targetBaseUrl: baseUrl,
+          username: login,
+          password: password,
+        );
+        try {
+          final loginOk = await session.login();
+          if (!loginOk) {
+            session.close();
+            return _fetchTunnelUrlBasicAuth(baseUrl, login, password);
+          }
+          final result = await session.authenticatedGet('/api/tunnel/credentials');
+          if (result.statusCode == 200 && result.body.isNotEmpty) {
+            final data = jsonDecode(result.body);
+            if (data['tunnelClientId'] != null) {
+              final tunnelUrl = 'https://${data['tunnelClientId']}.lixee-box.fr';
+              print('[TUNNEL] Tunnel trouvé: $tunnelUrl');
+              return tunnelUrl;
+            }
+          }
+        } finally {
+          session.close();
+        }
+      } else {
+        return _fetchTunnelUrlBasicAuth(baseUrl, login, password);
+      }
+    } catch (e) {
+      print('[TUNNEL] Erreur: $e');
+    }
+    print('[TUNNEL] Pas de tunnel configuré');
+    return null;
+  }
+
+  Future<String?> _fetchTunnelUrlBasicAuth(String baseUrl, String login, String password) async {
+    final dio = Dio();
+    dio.options.connectTimeout = const Duration(seconds: 5);
+    dio.options.receiveTimeout = const Duration(seconds: 5);
+    try {
+      final response = await dio.get(
+        '$baseUrl/api/tunnel/credentials',
+        options: Options(
+          headers: {
+            'Authorization': 'Basic ${base64Encode(utf8.encode('$login:$password'))}',
+          },
+          followRedirects: false,
+          validateStatus: (status) => status != null && status < 400,
+        ),
+      );
+      if (response.statusCode == 200 && response.data != null) {
+        final data = response.data is String ? jsonDecode(response.data) : response.data;
+        if (data['tunnelClientId'] != null) {
+          final tunnelUrl = 'https://${data['tunnelClientId']}.lixee-box.fr';
+          print('[TUNNEL] Tunnel trouvé (Basic Auth): $tunnelUrl');
+          return tunnelUrl;
+        }
+      }
+    } catch (e) {
+      print('[TUNNEL] Basic Auth échoué: $e');
+    } finally {
+      dio.close(force: true);
+    }
+    return null;
+  }
+
+  /// Met à jour l'entrée du device dans SharedPreferences.
+  Future<String> _updateDeviceEntry(String originalEntry, String newEntry) async {
+    if (originalEntry == newEntry) return newEntry;
+    final prefs = await SharedPreferences.getInstance();
+    List<String> saved = prefs.getStringList('saved_devices') ?? [];
+    final index = saved.indexOf(originalEntry);
+    if (index >= 0) {
+      saved[index] = newEntry;
+    } else {
+      saved.add(newEntry);
+    }
+    await prefs.setStringList('saved_devices', saved);
+    print('[DEVICE] Entry mise à jour: $newEntry');
+    return newEntry;
+  }
+
   Future<void> _openDevice(String entry) async {
     print("_openDevice DEBUT pour: '$entry'");
 
-    final parts = entry.split('|');
-    if (parts.length < 2) {
+    final parsed = _parseDeviceEntry(entry);
+    if (parsed == null) {
       print("Format invalide: $entry");
       return;
     }
 
-    final name = parts[0];
-    final url = parts[1];
+    final name = parsed['name']!;
+    final primaryUrl = parsed['url']!;
+    final fallbackUrl = parsed['fallback'];
+    final login = parsed['login'];
+    final password = parsed['password'];
 
-    // Recharger les devices depuis SharedPreferences pour avoir les derniers credentials
+    // Recharger les devices pour avoir les derniers credentials
     _loadDevices();
-
-    // Trouver l'entrée mise à jour dans la liste rechargée
     String currentEntry = entry;
     for (String device in devices) {
-      final deviceParts = device.split('|');
-      if (deviceParts.length >= 2 && deviceParts[0] == name && deviceParts[1] == url) {
+      final dp = _parseDeviceEntry(device);
+      if (dp != null && dp['name'] == name && dp['url'] == primaryUrl) {
         currentEntry = device;
-        print("Credentials mis à jour trouvés: $currentEntry");
         break;
       }
     }
 
-    print("Device sélectionné: '$name' avec URL: '$url'");
+    // --- Vérification tunnel à chaque ouverture ---
+    // Si on a l'auth et une URL locale (IP ou .local), chercher le tunnel
+    if (login != null && password != null) {
+      // Déterminer l'URL locale (fallback ou primary si c'est une IP/.local)
+      String? localUrl;
+      if (isIPAddress(primaryUrl) || isLocalDomain(primaryUrl)) {
+        localUrl = primaryUrl;
+      } else if (fallbackUrl != null && (isIPAddress(fallbackUrl) || isLocalDomain(fallbackUrl))) {
+        localUrl = fallbackUrl;
+      }
 
-    String finalUrl = url;
-
-    if (isDNSName(url)) {
-      finalUrl = _normalizeUrl(url);
-      print("DNS direct pour '$name': $finalUrl");
-
-    } else {
-      print("Résolution nécessaire pour '$name': $url");
-      String? resolved = await UniversalResolver.resolveAddress(url, deviceName: name);
-
-      if (resolved != null) {
-        finalUrl = _normalizeUrl(resolved);
-        print("URL résolue pour '$name': $url -> $finalUrl");
-      } else {
-        print("Impossible de résoudre '$name': $url");
-        ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("Impossible de résoudre $name ($url)"))
-        );
-        return;
+      if (localUrl != null) {
+        final localResolved = await _resolveToFinalUrl(localUrl, name);
+        if (localResolved != null) {
+          final tunnelUrl = await _fetchTunnelUrl(localResolved, login, password);
+          if (tunnelUrl != null) {
+            // Tunnel trouvé → mettre tunnel en primaire, local en fallback
+            final currentParsed = _parseDeviceEntry(currentEntry);
+            if (currentParsed != null && currentParsed['url'] != tunnelUrl) {
+              final newEntry = _buildDeviceEntry(
+                name: name,
+                url: tunnelUrl,
+                login: login,
+                password: password,
+                fallback: localUrl,
+              );
+              currentEntry = await _updateDeviceEntry(currentEntry, newEntry);
+              _loadDevices();
+            }
+          }
+        }
       }
     }
 
-    print("LANCEMENT WebView pour '$name' avec URL finale: $finalUrl");
-    print("Credentials utilisés: $currentEntry");
+    // --- Fallback logic : essayer primaire puis secondaire ---
+    // On utilise _pollUrl (vrai test /poll sur la box) au lieu de _isUrlReachable
+    // car le serveur tunnel répond toujours (même si le tunnel est coupé)
+    final updatedParsed = _parseDeviceEntry(currentEntry)!;
+    final updatedLogin = updatedParsed['login'];
+    final updatedPassword = updatedParsed['password'];
+    final urlsToTry = <String>[updatedParsed['url']!];
+    if (updatedParsed['fallback'] != null && updatedParsed['fallback']!.isNotEmpty) {
+      urlsToTry.add(updatedParsed['fallback']!);
+    }
+
+    String? finalUrl;
+    bool isFallback = false;
+    for (int i = 0; i < urlsToTry.length; i++) {
+      final urlCandidate = urlsToTry[i];
+      final resolved = await _resolveToFinalUrl(urlCandidate, name);
+      if (resolved == null) {
+        print("[FALLBACK] Impossible de résoudre: $urlCandidate");
+        continue;
+      }
+      print("[FALLBACK] Test poll sur $resolved...");
+      final pollResult = await _pollUrl(resolved, name, login: updatedLogin, password: updatedPassword);
+      if (pollResult != null) {
+        finalUrl = resolved;
+        isFallback = i > 0;
+        print("[FALLBACK] $resolved répond (status=${pollResult.statusCode}) ${isFallback ? '(FALLBACK)' : '(PRIMAIRE)'} !");
+        break;
+      } else {
+        print("[FALLBACK] $resolved ne répond pas, essai suivant...");
+      }
+    }
+
+    if (finalUrl == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Impossible de joindre $name"))
+      );
+      return;
+    }
+
+    print("LANCEMENT WebView pour '$name' avec URL finale: $finalUrl ${isFallback ? '(FALLBACK)' : '(PRIMAIRE)'}");
 
     bool result = (await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => WebViewDeviceScreen(
-          deviceEntry: currentEntry,  // Utiliser l'entrée mise à jour
-          url: finalUrl,
+          deviceEntry: currentEntry,
+          url: finalUrl!,
+          isFallback: isFallback,
+          hasFallback: urlsToTry.length > 1,
         ),
       ),
     )) == true;
@@ -1508,9 +1766,36 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               padding: EdgeInsets.all(TVDetector.isTV ? 32 : 16),
               itemCount: devices.length,
               itemBuilder: (context, index) {
-                List<String> parts = devices[index].split("|");
-                String name = parts[0];
-                String url = parts[1];
+                final parsed = _parseDeviceEntry(devices[index]);
+                if (parsed == null) return const SizedBox.shrink();
+                String name = parsed['name']!;
+                String url = parsed['url']!;
+                String? fallback = parsed['fallback'];
+                final bool hasFallback = fallback != null && fallback.isNotEmpty;
+                final bool isOnline = deviceStatuses[devices[index]] == true;
+                final bool isOnFallback = deviceOnFallback[devices[index]] ?? false;
+
+                // Logique du badge :
+                // - hasFallback + online + !fallback → "Tunnel" vert
+                // - hasFallback + online + fallback  → "Local" orange
+                // - hasFallback + offline            → "Hors ligne" rouge
+                // - !hasFallback + online            → "Local" vert
+                // - !hasFallback + offline           → "Hors ligne" rouge
+                String badgeLabel;
+                Color badgeColor;
+                if (!isOnline) {
+                  badgeLabel = "Hors ligne";
+                  badgeColor = Colors.red;
+                } else if (hasFallback && !isOnFallback) {
+                  badgeLabel = "Tunnel";
+                  badgeColor = Colors.green;
+                } else if (hasFallback && isOnFallback) {
+                  badgeLabel = "Local";
+                  badgeColor = Colors.orange;
+                } else {
+                  badgeLabel = "Local";
+                  badgeColor = Colors.green;
+                }
 
                 return FutureBuilder<List<String>>(
                   future: _getNotifications(name),
@@ -1567,14 +1852,43 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                 ),
                                 subtitle: Text(
                                   url,
+                                  overflow: TextOverflow.ellipsis,
                                   style: TextStyle(fontSize: TVDetector.isTV ? 20 : 14),
                                 ),
-                                leading: Icon(
-                                  Icons.devices_other,
-                                  color: deviceStatuses[devices[index]] == true
-                                      ? Colors.green
-                                      : Colors.red,
-                                  size: TVDetector.isTV ? 32 : 24,
+                                leading: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.devices_other,
+                                      color: deviceStatuses[devices[index]] == true
+                                          ? Colors.green
+                                          : Colors.red,
+                                      size: TVDetector.isTV ? 32 : 24,
+                                    ),
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 4.0),
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                        decoration: BoxDecoration(
+                                          color: badgeColor.withOpacity(0.15),
+                                          borderRadius: BorderRadius.circular(8),
+                                          border: Border.all(
+                                            color: badgeColor,
+                                            width: 1,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          badgeLabel,
+                                          style: TextStyle(
+                                            fontSize: TVDetector.isTV ? 12 : 9,
+                                            fontWeight: FontWeight.w600,
+                                            color: badgeColor,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                                 trailing: TVDetector.isTV
                                     // TV : un seul bouton menu (les actions sont dans le long-press)

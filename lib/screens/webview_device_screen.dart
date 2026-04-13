@@ -9,11 +9,15 @@ import '../main.dart' show TVDetector;
 class WebViewDeviceScreen extends StatefulWidget {
   final String deviceEntry;
   final String url;
+  final bool isFallback;
+  final bool hasFallback;
 
   const WebViewDeviceScreen({
     super.key,
     required this.deviceEntry,
     required this.url,
+    this.isFallback = false,
+    this.hasFallback = false,
   });
 
   @override
@@ -54,7 +58,7 @@ class _WebViewDeviceScreenState extends State<WebViewDeviceScreen> {
 
     final parts = widget.deviceEntry.split('|');
     name = parts[0];
-    if (parts.length == 5 && parts[2] == 'auth') {
+    if ((parts.length == 5 || parts.length == 6) && parts[2] == 'auth') {
       login = parts[3];
       password = parts[4];
     }
@@ -155,8 +159,11 @@ class _WebViewDeviceScreenState extends State<WebViewDeviceScreen> {
     // Sauvegarder les credentials
     final parts = widget.deviceEntry.split('|');
     if (parts.length >= 2) {
-      final updatedEntry =
-          "${parts[0]}|${parts[1]}|auth|$tempLogin|$tempPassword";
+      // Préserver le fallback URL s'il existe (6ème champ)
+      final fallback = (parts.length == 6 && parts[2] == 'auth') ? parts[5]
+          : (parts.length == 3 && parts[2] != 'auth') ? parts[2] : '';
+      var updatedEntry = "${parts[0]}|${parts[1]}|auth|$tempLogin|$tempPassword";
+      if (fallback.isNotEmpty) updatedEntry += '|$fallback';
 
       final prefs = await SharedPreferences.getInstance();
       List<String> saved = prefs.getStringList('saved_devices') ?? [];
@@ -196,13 +203,47 @@ class _WebViewDeviceScreenState extends State<WebViewDeviceScreen> {
         appBar: TVDetector.isTV
             ? null
             : AppBar(
+                leading: IconButton(
+                  icon: Icon(Icons.arrow_back),
+                  tooltip: "Page précédente",
+                  onPressed: () async {
+                    if (await _controller?.canGoBack() ?? false) {
+                      _controller?.goBack();
+                    }
+                  },
+                ),
                 title: Row(
                   children: [
-                    Text("🔗 $name"),
+                    Flexible(child: Text("🔗 $name", overflow: TextOverflow.ellipsis)),
                     if (login != null)
                       Padding(
                         padding: const EdgeInsets.only(left: 6.0),
                         child: Icon(Icons.lock_outline, size: 18),
+                      ),
+                    if (widget.hasFallback)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 8.0),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: widget.isFallback
+                                ? Colors.orange.withOpacity(0.15)
+                                : Colors.green.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: widget.isFallback ? Colors.orange : Colors.green,
+                              width: 1,
+                            ),
+                          ),
+                          child: Text(
+                            widget.isFallback ? "Local" : "Tunnel",
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: widget.isFallback ? Colors.orange : Colors.green,
+                            ),
+                          ),
+                        ),
                       ),
                   ],
                 ),
@@ -212,6 +253,13 @@ class _WebViewDeviceScreenState extends State<WebViewDeviceScreen> {
                     tooltip: "Rafraîchir",
                     onPressed: () {
                       _controller?.reload();
+                    },
+                  ),
+                  IconButton(
+                    icon: Icon(Icons.close),
+                    tooltip: "Fermer",
+                    onPressed: () {
+                      Navigator.of(context).pop();
                     },
                   ),
                 ],
