@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'network_scope.dart';
@@ -53,6 +54,32 @@ class LinkyKeys {
 /// Voie par laquelle le snapshot a été obtenu.
 enum LinkySource { local, remote }
 
+/// Consommation d'une heure, telle que renvoyée par `/exportEnergyChart`.
+class HourlySample {
+  /// Heure de début, de 0 à 23.
+  final int hour;
+
+  /// Énergie consommée sur l'heure, en Wh.
+  final int wh;
+
+  /// Coût de l'heure en euros, abonnement et taxes compris.
+  ///
+  /// Vaut 0 quand aucun tarif n'est paramétré sur la box. La valeur vient de
+  /// la colonne `Conso - Cout total` de l'export : c'est la box qui applique
+  /// les tarifs HC/HP, rien n'est recalculé ici.
+  final double costEur;
+
+  const HourlySample(this.hour, this.wh, [this.costEur = 0]);
+
+  Map<String, dynamic> toJson() => {'h': hour, 'wh': wh, 'c': costEur};
+
+  factory HourlySample.fromJson(Map<String, dynamic> json) => HourlySample(
+        json['h'] as int? ?? 0,
+        json['wh'] as int? ?? 0,
+        (json['c'] as num?)?.toDouble() ?? 0,
+      );
+}
+
 /// Relevé horodaté des métriques d'une box, tel que consommé par le widget.
 ///
 /// Le code natif ne doit jamais savoir d'où vient la valeur : il lit ce
@@ -67,10 +94,18 @@ class LinkySnapshot {
   final int? indexWh;
 
   final int? currentA;
+
+  /// Intensité souscrite au contrat, en A. Sert d'échelle à la jauge.
+  final int? subscribedCurrentA;
+
   final String? contract;
   final String? tariffPeriod;
   final String? meterSerial;
   final List<int> tierIndexesWh;
+
+  /// Consommation heure par heure sur les 24 dernières heures, dans l'ordre
+  /// chronologique renvoyé par la box. Vide si l'export n'a pas abouti.
+  final List<HourlySample> hourly;
 
   final LinkySource source;
   final DateTime timestamp;
@@ -82,14 +117,68 @@ class LinkySnapshot {
     this.apparentPowerVA,
     this.indexWh,
     this.currentA,
+    this.subscribedCurrentA,
     this.contract,
     this.tariffPeriod,
     this.meterSerial,
     this.tierIndexesWh = const [],
+    this.hourly = const [],
   });
 
+  /// Total des 24 heures relevées, en Wh. `null` si l'export a échoué —
+  /// afficher 0 laisserait croire à une consommation nulle.
+  int? get dailyTotalWh => hourly.isEmpty
+      ? null
+      : hourly.fold<int>(0, (sum, sample) => sum + sample.wh);
+
+  /// Évolution entre les deux dernières heures **complètes**, en pourcentage.
+  ///
+  /// La dernière entrée de la série est l'heure en cours, donc partielle :
+  /// la comparer donnerait une chute systématique en début d'heure. On compare
+  /// donc l'avant-dernière à celle qui la précède.
+  ///
+  /// `null` si l'historique est trop court ou si l'heure de référence est
+  /// nulle — une variation relative n'y aurait pas de sens.
+  double? get hourlyTrendPct {
+    if (hourly.length < 3) return null;
+    final reference = hourly[hourly.length - 3].wh;
+    final last = hourly[hourly.length - 2].wh;
+    if (reference <= 0) return null;
+    return (last - reference) / reference * 100;
+  }
+
+  /// Coût des 24 heures, en euros. `null` si aucun tarif n'est paramétré sur
+  /// la box — l'export renvoie alors des colonnes à zéro, qu'il ne faut pas
+  /// afficher comme une consommation gratuite.
+  double? get dailyCostEur {
+    if (hourly.isEmpty) return null;
+    final total = hourly.fold<double>(0, (sum, s) => sum + s.costEur);
+    return total > 0 ? total : null;
+  }
+
+  /// Puissance souscrite, en VA.
+  ///
+  /// Le compteur ne publie que l'intensité souscrite. Le facteur 200 n'est pas
+  /// une tension mais la convention des paliers d'abonnement : 30 A → 6 kVA,
+  /// 45 A → 9 kVA, 60 A → 12 kVA.
+  int? get subscribedPowerVA =>
+      subscribedCurrentA == null ? null : subscribedCurrentA! * 200;
+
+  /// Index total du compteur, en Wh, toutes tranches confondues.
+  ///
+  /// En contrat BASE la box renseigne `1794_0`. En HP/HC elle le laisse à zéro
+  /// et ne remplit que les index par tranche : s'en tenir à `1794_0` afficherait
+  /// un index nul à ces abonnés.
+  int? get totalIndexWh {
+    if (indexWh != null && indexWh! > 0) return indexWh;
+    final tiers = tierIndexesWh.fold<int>(0, (sum, wh) => sum + wh);
+    if (tiers > 0) return tiers;
+    return indexWh;
+  }
+
   /// Index total en kWh, pour l'affichage.
-  double? get indexKWh => indexWh == null ? null : indexWh! / 1000.0;
+  double? get indexKWh =>
+      totalIndexWh == null ? null : totalIndexWh! / 1000.0;
 
   /// Le contrat est-il en tarif unique ? Les index par tranche sont alors
   /// tous nuls et seul [indexWh] porte de l'information.
@@ -111,6 +200,7 @@ class LinkySnapshot {
       apparentPowerVA: _asInt(json[LinkyKeys.apparentPower]),
       indexWh: _asInt(json[LinkyKeys.index]),
       currentA: _asInt(json[LinkyKeys.current]),
+      subscribedCurrentA: _asInt(json[LinkyKeys.subscribedCurrent]),
       contract: _asString(json[LinkyKeys.contract]),
       tariffPeriod: _asString(json[LinkyKeys.tariffPeriod]),
       meterSerial: _asString(json[LinkyKeys.meterSerial]),
@@ -120,11 +210,29 @@ class LinkySnapshot {
     );
   }
 
+  /// L'export horaire arrive par une seconde requête : on l'attache après coup.
+  LinkySnapshot withHourly(List<HourlySample> samples) => LinkySnapshot(
+        deviceName: deviceName,
+        timestamp: timestamp,
+        source: source,
+        apparentPowerVA: apparentPowerVA,
+        indexWh: indexWh,
+        currentA: currentA,
+        subscribedCurrentA: subscribedCurrentA,
+        contract: contract,
+        tariffPeriod: tariffPeriod,
+        meterSerial: meterSerial,
+        tierIndexesWh: tierIndexesWh,
+        hourly: samples,
+      );
+
   Map<String, dynamic> toJson() => {
         'deviceName': deviceName,
+        'hourly': hourly.map((s) => s.toJson()).toList(),
         'apparentPowerVA': apparentPowerVA,
         'indexWh': indexWh,
         'currentA': currentA,
+        'subscribedCurrentA': subscribedCurrentA,
         'contract': contract,
         'tariffPeriod': tariffPeriod,
         'meterSerial': meterSerial,
@@ -139,12 +247,17 @@ class LinkySnapshot {
       apparentPowerVA: _asInt(json['apparentPowerVA']),
       indexWh: _asInt(json['indexWh']),
       currentA: _asInt(json['currentA']),
+      subscribedCurrentA: _asInt(json['subscribedCurrentA']),
       contract: _asString(json['contract']),
       tariffPeriod: _asString(json['tariffPeriod']),
       meterSerial: _asString(json['meterSerial']),
       tierIndexesWh:
           (json['tierIndexesWh'] as List?)?.map((e) => _asInt(e) ?? 0).toList() ??
               const [],
+      hourly: (json['hourly'] as List?)
+              ?.map((e) => HourlySample.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          const [],
       source: json['source'] == 'local' ? LinkySource.local : LinkySource.remote,
       timestamp:
           DateTime.fromMillisecondsSinceEpoch(_asInt(json['ts']) ?? 0),
@@ -168,7 +281,7 @@ class LinkySnapshot {
   @override
   String toString() =>
       'LinkySnapshot($deviceName, ${apparentPowerVA}VA, ${indexKWh?.toStringAsFixed(1)}kWh, '
-      '${source.name}, ${age.inSeconds}s)';
+      '${hourly.length}h/${dailyTotalWh}Wh, ${source.name}, ${age.inSeconds}s)';
 }
 
 /// Entrée `saved_devices` décodée.
@@ -270,7 +383,8 @@ class WidgetDataService {
           source == LinkySource.local ? localTimeout : remoteTimeout;
 
       try {
-        final body = await _getLinky(baseUrl, device, timeout, source);
+        final body =
+            await _authGet(baseUrl, device, timeout, source, '/getLinky');
         if (body == null) {
           print('[WIDGET-DATA] $baseUrl: pas de réponse exploitable');
           _dropSession(baseUrl, device);
@@ -284,11 +398,20 @@ class WidgetDataService {
         }
 
         _lastGoodUrl[device.key] = candidate;
-        final snapshot = LinkySnapshot.fromLinkyJson(
+        var snapshot = LinkySnapshot.fromLinkyJson(
           decoded,
           deviceName: device.name,
           source: source,
         );
+
+        // Complément facultatif : un échec ici ne doit pas perdre le relevé.
+        try {
+          final hourly = await _fetchHourly(baseUrl, device, timeout, source);
+          if (hourly.isNotEmpty) snapshot = snapshot.withHourly(hourly);
+        } catch (e) {
+          print('[WIDGET-DATA] Export horaire indisponible: $e');
+        }
+
         print('[WIDGET-DATA] $snapshot');
         return snapshot;
       } catch (e) {
@@ -299,6 +422,20 @@ class WidgetDataService {
 
     print('[WIDGET-DATA] Aucune URL joignable pour ${device.name}');
     return null;
+  }
+
+  /// Noms des box enregistrées, dans l'ordre de `saved_devices`.
+  ///
+  /// L'activité de configuration du widget s'en sert pour proposer un choix,
+  /// y compris avant qu'un premier relevé ait eu lieu.
+  static Future<List<String>> savedDeviceNames() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    return (prefs.getStringList('saved_devices') ?? [])
+        .map(_ParsedDevice.tryParse)
+        .whereType<_ParsedDevice>()
+        .map((d) => d.name)
+        .toList(growable: false);
   }
 
   /// Relève toutes les box enregistrées et persiste les snapshots.
@@ -410,20 +547,138 @@ class WidgetDataService {
     return url;
   }
 
+  /// Adresse IEEE du ZLinky, par box. Découverte une fois via `/getDevices`,
+  /// qui est bien plus lourd que l'export lui-même.
+  static final Map<String, String> _linkyIeee = {};
+
+  /// Dernier export horaire réussi, par box. L'historique ne bouge qu'à
+  /// l'heure : inutile de le retélécharger à chaque relevé.
+  static final Map<String, DateTime> _lastHourlyFetch = {};
+  static const _hourlyInterval = Duration(minutes: 10);
+
+  /// Récupère la consommation horaire des 24 dernières heures.
+  ///
+  /// Retourne une liste vide en cas d'échec : le graphe est un complément,
+  /// son absence ne doit jamais faire échouer le relevé principal.
+  static Future<List<HourlySample>> _fetchHourly(
+    String baseUrl,
+    _ParsedDevice device,
+    Duration timeout,
+    LinkySource source,
+  ) async {
+    final last = _lastHourlyFetch[device.key];
+    if (last != null && DateTime.now().difference(last) < _hourlyInterval) {
+      return const [];
+    }
+
+    var ieee = _linkyIeee[device.key];
+    if (ieee == null) {
+      final body = await _authGet(baseUrl, device, timeout, source, '/getDevices');
+      if (body == null) return const [];
+      ieee = _findLinkyIeee(body);
+      if (ieee == null) {
+        print('[WIDGET-DATA] Aucun ZLinky trouvé sur ${device.name}');
+        return const [];
+      }
+      _linkyIeee[device.key] = ieee;
+    }
+
+    final csv = await _authGet(
+      baseUrl,
+      device,
+      timeout,
+      source,
+      '/exportEnergyChart?IEEE=$ieee&time=hour',
+    );
+    if (csv == null) return const [];
+
+    _lastHourlyFetch[device.key] = DateTime.now();
+    return parseHourlyCsv(csv);
+  }
+
+  /// Repère le ZLinky parmi les équipements Zigbee appairés.
+  static String? _findLinkyIeee(String devicesJson) {
+    try {
+      final decoded = jsonDecode(devicesJson);
+      if (decoded is! Map<String, dynamic>) return null;
+      for (final entry in decoded.entries) {
+        final value = entry.value;
+        if (value is! Map) continue;
+        final info = value['INFO'];
+        if (info is Map && (info['model']?.toString() ?? '').startsWith('ZLinky')) {
+          return entry.key;
+        }
+      }
+    } catch (e) {
+      print('[WIDGET-DATA] /getDevices illisible: $e');
+    }
+    return null;
+  }
+
+  /// Décode le CSV de `/exportEnergyChart`.
+  ///
+  /// Format : BOM UTF-8, séparateur `;`, une ligne par heure (`18H;167;167;…`).
+  /// Les colonnes utiles sont repérées par leur en-tête et non par leur rang :
+  /// une box en BASE renvoie 7 colonnes, une box en HP/HC 9 — avec en prime
+  /// des cellules vides pour la période inactive et une colonne de sous-comptage
+  /// quand un usage est suivi à part.
+  @visibleForTesting
+  static List<HourlySample> parseHourlyCsv(String csv) {
+    final lines = csv
+        .replaceFirst('﻿', '')
+        .split(RegExp(r'\r?\n'))
+        .where((l) => l.trim().isNotEmpty)
+        .toList();
+    if (lines.length < 2) return const [];
+
+    final header = lines.first.split(';');
+    var column = header.indexWhere(
+      (h) => h.toLowerCase().contains('consommation totale'),
+    );
+    if (column < 0) column = 1; // Repli : la première colonne de valeurs.
+
+    // Absente si aucun tarif n'est paramétré sur la box.
+    final costColumn = header.indexWhere(
+      (h) => h.toLowerCase().contains('cout total'),
+    );
+
+    final samples = <HourlySample>[];
+    for (final line in lines.skip(1)) {
+      final cells = line.split(';');
+      if (cells.length <= column) continue;
+
+      final hour = int.tryParse(cells[0].replaceAll(RegExp(r'[^0-9]'), ''));
+      final wh = int.tryParse(cells[column].trim());
+      if (hour == null || wh == null) continue;
+
+      // Les montants arrivent avec une virgule décimale.
+      final cost = costColumn >= 0 && cells.length > costColumn
+          ? double.tryParse(cells[costColumn].trim().replaceAll(',', '.')) ?? 0
+          : 0.0;
+
+      samples.add(HourlySample(hour, wh, cost));
+    }
+    return samples;
+  }
+
   static void _dropSession(String baseUrl, _ParsedDevice device) {
     if (device.login != null) {
       SessionPool.invalidate(baseUrl, device.login!);
     }
   }
 
-  static Future<String?> _getLinky(
+  /// GET authentifié sur la box, quel que soit le mode d'auth.
+  ///
+  /// [path] commence par `/`. Retourne `null` si la requête n'aboutit pas.
+  static Future<String?> _authGet(
     String baseUrl,
     _ParsedDevice device,
     Duration timeout,
     LinkySource source,
+    String path,
   ) async {
     if (!device.hasAuth) {
-      return _rawGet('$baseUrl/getLinky', timeout);
+      return _rawGet('$baseUrl$path', timeout);
     }
 
     final basic =
@@ -434,8 +689,7 @@ class WidgetDataService {
     var basicTried = false;
     if (source == LinkySource.local) {
       basicTried = true;
-      final body =
-          await _rawGet('$baseUrl/getLinky', timeout, authHeader: basic);
+      final body = await _rawGet('$baseUrl$path', timeout, authHeader: basic);
       if (body != null) return body;
       print('[WIDGET-DATA] Basic refusé sur $baseUrl, bascule sur le formulaire');
     }
@@ -444,18 +698,17 @@ class WidgetDataService {
     if (mode == AuthMode.form) {
       final session =
           SessionPool.session(baseUrl, device.login!, device.password!);
-      final result =
-          await session.authenticatedGet('/getLinky').timeout(timeout);
+      final result = await session.authenticatedGet(path).timeout(timeout);
       if (result.statusCode == 200 && result.body.isNotEmpty) {
         return result.body;
       }
-      print('[WIDGET-DATA] Formulaire KO (${result.statusCode}) sur $baseUrl');
+      print('[WIDGET-DATA] Formulaire KO (${result.statusCode}) sur $baseUrl$path');
     }
 
     // Inutile de rejouer le Basic si la voie LAN l'a déjà refusé.
     return basicTried
         ? null
-        : _rawGet('$baseUrl/getLinky', timeout, authHeader: basic);
+        : _rawGet('$baseUrl$path', timeout, authHeader: basic);
   }
 
   static Future<String?> _rawGet(

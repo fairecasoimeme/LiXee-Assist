@@ -31,11 +31,49 @@ void main() {
       expect(snapshot.currentA, 1);
     });
 
+    test('expose la puissance souscrite, échelle de la jauge', () {
+      // 2817_13 = 45 A → palier d'abonnement 9 kVA (facteur conventionnel 200).
+      expect(snapshot.subscribedCurrentA, 45);
+      expect(snapshot.subscribedPowerVA, 9000);
+    });
+
+    test('sans intensité souscrite, pas d\'échelle inventée', () {
+      final partial = LinkySnapshot.fromLinkyJson(
+        const {'2820_1295': 410},
+        deviceName: 'x',
+        source: LinkySource.local,
+      );
+      expect(partial.subscribedCurrentA, isNull);
+      expect(partial.subscribedPowerVA, isNull);
+    });
+
     test('décode les champs contractuels', () {
       expect(snapshot.contract, 'BASE');
       expect(snapshot.tariffPeriod, 'TH..');
       expect(snapshot.meterSerial, '021861808743');
       expect(snapshot.isSingleTariff, isTrue);
+    });
+
+    test('en HP/HC, l\'index total vient des tranches', () {
+      // Cas réel d'une box en HC.. : 1794_0 est à zéro, seuls les index par
+      // tranche sont renseignés. S'en tenir à 1794_0 afficherait 0 kWh.
+      final hpHc = LinkySnapshot.fromLinkyJson(
+        const {
+          '1794_0': 0,
+          '1794_256': 21342722,
+          '1794_258': 37405645,
+          '65382_0': 'HC..',
+        },
+        deviceName: 'flo',
+        source: LinkySource.remote,
+      );
+      expect(hpHc.totalIndexWh, 58748367);
+      expect(hpHc.indexKWh, closeTo(58748.367, 0.001));
+      expect(hpHc.isSingleTariff, isFalse);
+    });
+
+    test('en BASE, l\'index total reste celui de 1794_0', () {
+      expect(snapshot.totalIndexWh, 16552341);
     });
 
     test('les index par tranche sont nuls en contrat BASE', () {
@@ -93,12 +131,166 @@ void main() {
     expect(restored.apparentPowerVA, original.apparentPowerVA);
     expect(restored.indexWh, original.indexWh);
     expect(restored.currentA, original.currentA);
+    expect(restored.subscribedCurrentA, original.subscribedCurrentA);
     expect(restored.contract, original.contract);
     expect(restored.tariffPeriod, original.tariffPeriod);
     expect(restored.meterSerial, original.meterSerial);
     expect(restored.tierIndexesWh, original.tierIndexesWh);
     expect(restored.source, LinkySource.local);
     expect(restored.timestamp, original.timestamp);
+  });
+
+  group('série horaire', () {
+    test('le total journalier est la somme des heures', () {
+      final snapshot = LinkySnapshot(
+        deviceName: 'x',
+        timestamp: DateTime.now(),
+        source: LinkySource.local,
+        hourly: const [HourlySample(18, 167), HourlySample(19, 188)],
+      );
+      expect(snapshot.dailyTotalWh, 355);
+    });
+
+    test('le coût du jour est la somme des heures', () {
+      final snapshot = LinkySnapshot(
+        deviceName: 'x',
+        timestamp: DateTime.now(),
+        source: LinkySource.local,
+        hourly: const [HourlySample(18, 167, 0.05), HourlySample(19, 188, 0.06)],
+      );
+      expect(snapshot.dailyCostEur, closeTo(0.11, 0.0001));
+    });
+
+    test('sans tarif paramétré, pas de coût affiché', () {
+      final snapshot = LinkySnapshot(
+        deviceName: 'x',
+        timestamp: DateTime.now(),
+        source: LinkySource.local,
+        hourly: const [HourlySample(18, 167), HourlySample(19, 188)],
+      );
+      // Un total à zéro signifie « pas de tarif », pas « gratuit ».
+      expect(snapshot.dailyCostEur, isNull);
+      expect(snapshot.dailyTotalWh, 355);
+    });
+
+    test('la tendance compare les deux dernières heures complètes', () {
+      // La dernière entrée est l'heure en cours, donc partielle : la retenir
+      // donnerait une chute de 90 % en début d'heure.
+      final snapshot = LinkySnapshot(
+        deviceName: 'x',
+        timestamp: DateTime.now(),
+        source: LinkySource.local,
+        hourly: const [
+          HourlySample(15, 200),
+          HourlySample(16, 250), // référence
+          HourlySample(17, 300), // dernière heure complète
+          HourlySample(18, 30), // heure en cours, partielle
+        ],
+      );
+      expect(snapshot.hourlyTrendPct, closeTo(20, 0.001));
+    });
+
+    test('pas de tendance sans historique suffisant', () {
+      final short = LinkySnapshot(
+        deviceName: 'x',
+        timestamp: DateTime.now(),
+        source: LinkySource.local,
+        hourly: const [HourlySample(17, 300), HourlySample(18, 30)],
+      );
+      expect(short.hourlyTrendPct, isNull);
+    });
+
+    test('pas de tendance si l\'heure de référence est nulle', () {
+      final zeroRef = LinkySnapshot(
+        deviceName: 'x',
+        timestamp: DateTime.now(),
+        source: LinkySource.local,
+        hourly: const [
+          HourlySample(16, 0),
+          HourlySample(17, 300),
+          HourlySample(18, 30),
+        ],
+      );
+      expect(zeroRef.hourlyTrendPct, isNull);
+    });
+
+    test('sans série, pas de total inventé', () {
+      final snapshot = LinkySnapshot(
+        deviceName: 'x',
+        timestamp: DateTime.now(),
+        source: LinkySource.local,
+      );
+      // 0 laisserait croire à une consommation nulle : il faut null.
+      expect(snapshot.dailyTotalWh, isNull);
+    });
+
+    test('la série survit à un aller-retour JSON', () {
+      final original = LinkySnapshot(
+        deviceName: 'x',
+        timestamp: DateTime.fromMillisecondsSinceEpoch(1757260800000),
+        source: LinkySource.remote,
+        hourly: const [HourlySample(18, 167), HourlySample(2, 189)],
+      );
+      final restored =
+          LinkySnapshot.fromJson(jsonDecode(jsonEncode(original.toJson())));
+      expect(restored.hourly.map((s) => '${s.hour}:${s.wh}'),
+          ['18:167', '2:189']);
+      expect(restored.dailyTotalWh, 356);
+    });
+  });
+
+  group('parseHourlyCsv', () {
+    // Box en contrat BASE : 7 colonnes.
+    const baseCsv = '﻿Periode;BASE (Wh);Consommation totale (Wh);'
+        'Conso - Energie (EUR);Conso - Abonnement (EUR);Conso - Taxes (EUR);'
+        'Conso - Cout total (EUR)\r\n'
+        '18H;167;167;0,02;0,03;0,00;0,05\r\n'
+        '19H;188;188;0,03;0,03;0,00;0,06\r\n';
+
+    // Box en HP/HC avec sous-comptage : 9 colonnes, et des cellules vides
+    // pour la période tarifaire inactive.
+    const hpHcCsv = '﻿Periode;HC / EJPHN / BBRHCJB / EASF01 (Wh);'
+        'HP / EJPHPM / BBRHPJB / EASF02 (Wh);Véhicule (Wh);'
+        'Consommation totale (Wh);Conso - Energie (EUR);'
+        'Conso - Abonnement (EUR);Conso - Taxes (EUR);Conso - Cout total (EUR)\r\n'
+        '18H;;1611;130;1741;0,23;0,02;0,06;0,32\r\n'
+        '19H;;1942;2110;4052;0,47;0,02;0,07;0,57\r\n';
+
+    test('lit la bonne colonne en contrat BASE', () {
+      final samples = WidgetDataService.parseHourlyCsv(baseCsv);
+      expect(samples.map((s) => s.wh), [167, 188]);
+      expect(samples.map((s) => s.hour), [18, 19]);
+      expect(samples.first.costEur, closeTo(0.05, 0.0001));
+    });
+
+    test('suit le décalage des colonnes en HP/HC', () {
+      // La consommation totale passe de l'index 2 à 4, le coût de 6 à 8 :
+      // se fier au rang donnerait ici la colonne « Véhicule ».
+      final samples = WidgetDataService.parseHourlyCsv(hpHcCsv);
+      expect(samples.map((s) => s.wh), [1741, 4052]);
+      expect(samples.first.costEur, closeTo(0.32, 0.0001));
+    });
+
+    test('le coût HP/HC vient de la box, pas d\'un recalcul', () {
+      // La colonne « Conso - Cout total » applique déjà les tarifs de chaque
+      // période : c'est elle qu'on lit, on ne réapplique aucun barème ici.
+      final samples = WidgetDataService.parseHourlyCsv(hpHcCsv);
+      expect(samples.map((s) => s.costEur), [
+        closeTo(0.32, 0.0001),
+        closeTo(0.57, 0.0001),
+      ]);
+    });
+
+    test('ignore les colonnes de sous-comptage', () {
+      // « Véhicule » vaut 2110 Wh à 19 h : la lire donnerait un total faux.
+      final samples = WidgetDataService.parseHourlyCsv(hpHcCsv);
+      expect(samples.map((s) => s.wh), [1741, 4052]);
+    });
+
+    test('ignore un CSV sans ligne de données', () {
+      expect(WidgetDataService.parseHourlyCsv('Periode;BASE (Wh)\r\n'), isEmpty);
+      expect(WidgetDataService.parseHourlyCsv(''), isEmpty);
+    });
   });
 
   test('age reflète la fraîcheur du relevé', () {
