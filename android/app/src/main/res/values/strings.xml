@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_conso_label">LiXee — Consommation</string>
+    <string name="widget_conso_description">Puissance instantanée et index du compteur</string>
+
+    <string name="widget_no_device">Box non choisie</string>
+    <string name="widget_tap_to_configure">Retirez et reposez le widget</string>
+    <string name="widget_never_updated">Jamais relevé</string>
+
+    <string name="widget_config_title">Quelle LiXee-Box afficher ?</string>
+    <string name="widget_config_empty">Aucune box enregistrée. Ajoutez-en une dans LiXee-Assist, puis reposez le widget.</string>
+    <string name="widget_placeholder">—</string>
+    <string name="widget_unit_power">VA</string>
+    <string name="widget_unit_energy">⚡ %s kWh</string>
+    <string name="widget_unit_cost">💶 %s €</string>
+    <string name="widget_unit_max">%s kVA</string>
+    <string name="widget_period_24h">24 h</string>
+
+    <!-- Vert = baisse : sur une facture, consommer moins est la bonne nouvelle. -->
+    <string name="widget_trend_up">↑ %d %% vs h-1</string>
+    <string name="widget_trend_down">↓ %d %% vs h-1</string>
+    <string name="widget_trend_flat">→ stable</string>
+    <string name="widget_chart_description">Consommation heure par heure sur les 24 dernières heures</string>
+    <string name="widget_gauge_description">Puissance instantanée rapportée à la puissance souscrite</string>
+    <string name="widget_logo_description">LiXee</string>
+
+    <string name="widget_age_now">à l\'instant</string>
+    <plurals name="widget_age_minutes">
+        <item quantity="one">il y a %d min</item>
+        <item quantity="other">il y a %d min</item>
+    </plurals>
+    <plurals name="widget_age_hours">
+        <item quantity="one">il y a %d h</item>
+        <item quantity="other">il y a %d h</item>
+    </plurals>
+
+    <string name="widget_source_local">local</string>
+    <string name="widget_source_remote">tunnel</string>
+
+    <!-- Valeur d'aperçu du sélecteur de widgets, remplacée au premier rendu. -->
+    <string name="widget_preview_footer">il y a 2 min · tunnel</string>
+</resources>

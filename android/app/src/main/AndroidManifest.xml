@@ -42,6 +42,31 @@
             </intent-filter>
         </activity>
 
+        <!-- Choix de la box, au dépôt du widget. Exportée car lancée par le
+             lanceur : Android impose ce point d'entrée pour android:configure. -->
+        <activity
+            android:name=".WidgetConfigActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.DeviceDefault.Light.Dialog.NoActionBar">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+
+        <!-- Widget d'écran d'accueil : consommation instantanée + index -->
+        <receiver
+            android:name=".ConsoWidgetProvider"
+            android:label="@string/widget_conso_label"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_conso_info" />
+        </receiver>
+
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />

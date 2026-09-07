@@ -17,6 +17,7 @@ import 'screens/home_screen.dart';
 import 'services/session_manager.dart';
 import 'services/push_register_service.dart';
 import 'services/widget_data_service.dart';
+import 'services/home_widget_bridge.dart';
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
 
@@ -56,10 +57,19 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 /// au premier plan, les sessions sont partagées avec l'écran d'accueil.
 Future<void> refreshWidgetMetrics({bool closeSessions = false}) async {
   try {
+    // Publier la liste d'abord : l'utilisateur peut poser un widget et le
+    // configurer avant qu'un seul relevé ait abouti.
+    await HomeWidgetBridge.publishDeviceList(
+      await WidgetDataService.savedDeviceNames(),
+    );
+
     final snapshots = await WidgetDataService.refreshAll(
       mdnsResolver: resolveMdnsIP,
     );
     print('[WIDGET-DATA] ${snapshots.length} relevé(s) mis à jour');
+
+    // Chaque widget posé est lié à une box précise : on pousse tout.
+    await HomeWidgetBridge.push(snapshots);
   } finally {
     if (closeSessions) WidgetDataService.disposeAll();
   }
