@@ -16,6 +16,7 @@ import 'screens/wifi_provision_screen.dart';
 import 'screens/home_screen.dart';
 import 'services/session_manager.dart';
 import 'services/push_register_service.dart';
+import 'services/widget_data_service.dart';
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
 
@@ -47,6 +48,23 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   print('[FCM] ====================================');
 }
 
+/// Relève les métriques Linky de chaque box et les persiste pour le widget.
+///
+/// Volontairement séparé de [checkDeviceStatusBackground] : les deux tâches
+/// sont indépendantes, l'échec de l'une ne doit pas priver l'autre de son tour.
+/// [closeSessions] ne doit être vrai que depuis un isolate qui se termine :
+/// au premier plan, les sessions sont partagées avec l'écran d'accueil.
+Future<void> refreshWidgetMetrics({bool closeSessions = false}) async {
+  try {
+    final snapshots = await WidgetDataService.refreshAll(
+      mdnsResolver: resolveMdnsIP,
+    );
+    print('[WIDGET-DATA] ${snapshots.length} relevé(s) mis à jour');
+  } finally {
+    if (closeSessions) WidgetDataService.disposeAll();
+  }
+}
+
 @pragma('vm:entry-point')
 void callbackDispatcher() {
   Workmanager().executeTask((task, inputData) async {
@@ -54,6 +72,12 @@ void callbackDispatcher() {
       await checkDeviceStatusBackground();
     } catch (e) {
       // Silently handle errors to avoid crashing the worker
+    }
+    try {
+      // Isolate éphémère : refermer les sessions HTTP en sortant.
+      await refreshWidgetMetrics(closeSessions: true);
+    } catch (e) {
+      print('[WIDGET-DATA] Relevé échoué dans le worker: $e');
     }
     return Future.value(true);
   });
@@ -89,6 +113,16 @@ void main() async {
   } catch (e) {
     print('[FCM] Token unavailable (pas de Play Services ?): $e');
   }
+
+  // Premier relevé au démarrage, sans bloquer l'UI : le widget dispose d'une
+  // valeur fraîche sans attendre le prochain tour du worker (15 min).
+  () async {
+    try {
+      await refreshWidgetMetrics();
+    } catch (e) {
+      print('[WIDGET-DATA] Relevé initial échoué: $e');
+    }
+  }();
 
   // Écouter les refresh de token FCM → ré-enregistrer automatiquement
   FirebaseMessaging.instance.onTokenRefresh.listen((newToken) {
