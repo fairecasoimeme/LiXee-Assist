@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:device_info_plus/device_info_plus.dart';
+import 'network_scope.dart';
 import 'session_manager.dart';
 
 /// Service d'enregistrement du token FCM auprès de remote.lixee-box.fr.
@@ -75,7 +76,7 @@ class PushRegisterService {
 
         final tunnelClientId = credentials['tunnelClientId'] as String;
         final tunnelToken = credentials['tunnelToken'] as String;
-        print('[PUSH] Tunnel credentials: id=$tunnelClientId, token=${tunnelToken.substring(0, 8)}...');
+        print('[PUSH] Tunnel credentials reçus pour id=$tunnelClientId');
 
         // Vérifier si déjà enregistré avec ce token + ce device
         final registrationKey = '$tunnelClientId:$fcmToken';
@@ -126,7 +127,18 @@ class PushRegisterService {
       baseUrl = 'http://$baseUrl';
     }
 
-    // Détecter le mode d'auth
+    // En LAN le firmware accepte le Basic : une requête unique, sans détection
+    // ni login préalable. Seul le tunnel impose le formulaire — le tenter ici
+    // coûtait une détection et un POST voué à échouer, soit plusieurs secondes
+    // à chaque démarrage.
+    var basicTried = false;
+    if (isLanUrl(baseUrl)) {
+      basicTried = true;
+      final credentials = await _fetchWithBasicAuth(baseUrl, login, password);
+      if (credentials != null) return credentials;
+      print('[PUSH] Basic refusé sur $baseUrl, bascule sur le formulaire');
+    }
+
     final authMode = await detectAuthMode(baseUrl);
     print('[PUSH] Auth mode pour $baseUrl: $authMode');
 
@@ -140,14 +152,16 @@ class PushRegisterService {
       try {
         final loginOk = await session.login();
         if (!loginOk) {
-          print('[PUSH] Form login échoué pour $baseUrl, essai Basic Auth...');
-          session.close();
-          return _fetchWithBasicAuth(baseUrl, login, password);
+          print('[PUSH] Form login échoué pour $baseUrl');
+          return basicTried
+              ? null
+              : _fetchWithBasicAuth(baseUrl, login, password);
         }
 
         print('[PUSH] Form login OK, appel /api/tunnel/credentials...');
         final result = await session.authenticatedGet('/api/tunnel/credentials');
-        print('[PUSH] Réponse credentials: status=${result.statusCode}, body=${result.body}');
+        // Ne pas journaliser le corps : il porte le tunnelToken.
+        print('[PUSH] Réponse credentials: status=${result.statusCode}, ${result.body.length} octets');
 
         if (result.statusCode == 200 && result.body.isNotEmpty) {
           final data = jsonDecode(result.body);
@@ -160,8 +174,7 @@ class PushRegisterService {
       } finally {
         session.close();
       }
-    } else {
-      // Basic Auth
+    } else if (!basicTried) {
       return _fetchWithBasicAuth(baseUrl, login, password);
     }
     return null;
@@ -188,7 +201,8 @@ class PushRegisterService {
         ),
       );
 
-      print('[PUSH] Basic Auth réponse: status=${response.statusCode}, data=${response.data}');
+      // Ne pas journaliser le corps : il porte le tunnelToken.
+      print('[PUSH] Basic Auth réponse: status=${response.statusCode}');
 
       if (response.statusCode == 200 && response.data != null) {
         final data = response.data is String
@@ -220,8 +234,8 @@ class PushRegisterService {
 
     final url = '$_remoteBaseUrl/api/push/register';
     print('[PUSH] POST $url');
-    print('[PUSH]   Headers: X-Device-Id=$tunnelClientId, X-Device-Token=${tunnelToken.substring(0, 8)}...');
-    print('[PUSH]   Body: token=${fcmToken.substring(0, 20)}..., platform=$platform, deviceName=$deviceName');
+    print('[PUSH]   Headers: X-Device-Id=$tunnelClientId, X-Device-Token=***');
+    print('[PUSH]   Body: token=***, platform=$platform, deviceName=$deviceName');
 
     try {
       final response = await dio.post(

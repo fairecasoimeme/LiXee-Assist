@@ -10,6 +10,7 @@ import 'dart:convert'; // ✅ permet d'utiliser base64Encode et utf8
 import 'package:dio/dio.dart';
 import 'about_screen.dart';
 import '../services/session_manager.dart';
+import '../services/session_pool.dart';
 import '../main.dart' show TVDetector;
 
 // ✅ Instance globale des notifications - référence celle du main.dart
@@ -589,8 +590,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Timer? _refreshTimer;
   Map<String, bool> deviceStatuses = {};
   Map<String, bool> deviceOnFallback = {}; // true si le polling utilise le fallback
-  Map<String, SessionManager> _sessionManagers = {};
-  Map<String, AuthMode> _authModes = {};
   bool _initialized = false;
 
   @override
@@ -631,9 +630,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _refreshTimer?.cancel();
-    for (final sm in _sessionManagers.values) {
-      sm.close();
-    }
+    // Les sessions appartiennent à SessionPool et sont partagées avec le
+    // relevé des métriques : cet écran n'a pas à les fermer.
     super.dispose();
   }
 
@@ -644,30 +642,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       String responseBody;
 
       if (login != null && password != null) {
-        final deviceKey = '$deviceName|$finalUrl';
-        _authModes[deviceKey] ??= await detectAuthMode(finalUrl);
-        final authMode = _authModes[deviceKey]!;
+        var authMode = await SessionPool.authMode(finalUrl);
 
         if (authMode == AuthMode.form) {
-          _sessionManagers[deviceKey] ??= SessionManager(
-            targetBaseUrl: finalUrl,
-            username: login,
-            password: password,
-          );
-          final sm = _sessionManagers[deviceKey]!;
+          final sm = SessionPool.session(finalUrl, login, password);
           if (sm.sessionCookie == null) {
             final loginOk = await sm.login();
             if (!loginOk) {
               print('[HOME] Form login failed for $deviceName, fallback to Basic Auth');
-              sm.close();
-              _sessionManagers.remove(deviceKey);
-              _authModes[deviceKey] = AuthMode.basic;
+              SessionPool.invalidate(finalUrl, login);
+              SessionPool.setAuthMode(finalUrl, AuthMode.basic);
+              authMode = AuthMode.basic;
             }
           }
         }
 
-        if (_authModes[deviceKey] == AuthMode.form) {
-          final result = await _sessionManagers[deviceKey]!.authenticatedGet('/poll');
+        if (authMode == AuthMode.form) {
+          final result = await SessionPool.session(finalUrl, login, password)
+              .authenticatedGet('/poll');
           statusCode = result.statusCode;
           responseBody = result.body;
         } else {
