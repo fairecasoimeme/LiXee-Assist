@@ -2,4 +2,17 @@
 <resources>
     <color name="ic_launcher_background">#FFFFFF</color>
     <color name="notification_color">#2196F3</color>
+
+    <!-- Widget d'écran d'accueil (thème clair) -->
+    <color name="widget_background">#FFFFFF</color>
+    <color name="widget_accent">#1B75BC</color>
+    <color name="widget_text_primary">#1A1A1A</color>
+    <color name="widget_text_secondary">#6B6B6B</color>
+    <color name="widget_gauge_track">#E4E8EC</color>
+    <color name="widget_gauge_ok">#1B75BC</color>
+    <color name="widget_gauge_warn">#E8912D</color>
+    <color name="widget_gauge_alert">#D3452F</color>
+    <!-- Vert = consommation en baisse ou heure la plus creuse. -->
+    <color name="widget_positive">#2E9E5B</color>
+    <color name="widget_negative">#D3452F</color>
 </resources>
