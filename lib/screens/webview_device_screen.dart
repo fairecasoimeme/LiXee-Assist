@@ -1,8 +1,11 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:file_picker/file_picker.dart';
 import '../services/proxy_server.dart';
 import '../main.dart' show TVDetector;
 
@@ -40,6 +43,18 @@ class _WebViewDeviceScreenState extends State<WebViewDeviceScreen> {
   int _loadingProgress = 0;
   int _proxyPort = 0;
   DateTime? _lastProxyRestart;
+
+  static const _bundledAssets = <String, String>{
+    'bootstrap.min.js': 'web/js/bootstrap.min.js.gz',
+    'jquery-min.js': 'web/js/jquery-min.js.gz',
+    'justgage.min.js': 'web/js/justgage.min.js.gz',
+    'raphael-min.js': 'web/js/raphael-min.js.gz',
+    'masonry.pkgd.min.js': 'web/js/masonry.pkgd.min.js.gz',
+    'chart.umd.min.js': 'web/js/chart.umd.min.js.gz',
+    'chart-zoom.min.js': 'web/js/chart-zoom.min.js.gz',
+    'bootstrap.min.css': 'web/css/bootstrap.min.css.gz',
+  };
+  static final Map<String, Uint8List> _assetCache = {};
 
   late String name;
   String? login;
@@ -412,6 +427,7 @@ class _WebViewDeviceScreenState extends State<WebViewDeviceScreen> {
       initialSettings: InAppWebViewSettings(
         javaScriptEnabled: true,
         useShouldOverrideUrlLoading: false,
+        useOnDownloadStart: true,
         useHybridComposition: Platform.isAndroid,
         transparentBackground: false,
         cacheEnabled: true,
@@ -500,8 +516,93 @@ class _WebViewDeviceScreenState extends State<WebViewDeviceScreen> {
           await _askForAuthentication();
         }
       },
+      shouldInterceptRequest: (controller, request) async {
+        final path = request.url.path;
+        if (!path.endsWith('.js') && !path.endsWith('.css')) return null;
 
+        final filename = path.split('/').last;
+        final assetPath = _bundledAssets[filename];
+        if (assetPath == null) return null;
+
+        final contentType = filename.endsWith('.css')
+            ? 'text/css'
+            : 'application/javascript';
+
+        try {
+          if (!_assetCache.containsKey(filename)) {
+            final compressed = await rootBundle.load(assetPath);
+            final decompressed = gzip.decode(compressed.buffer.asUint8List());
+            _assetCache[filename] = Uint8List.fromList(decompressed);
+          }
+          print('[ASSET] Serving $filename from local assets (${_assetCache[filename]!.length} bytes)');
+          return WebResourceResponse(
+            contentType: contentType,
+            contentEncoding: 'utf-8',
+            data: _assetCache[filename],
+            statusCode: 200,
+            reasonPhrase: 'OK',
+          );
+        } catch (e) {
+          print('[ASSET] Failed to load $assetPath: $e');
+          return null;
+        }
+      },
+      onDownloadStartRequest: (controller, request) async {
+        await _handleDownload(request);
+      },
     );
+  }
+
+  Future<void> _handleDownload(DownloadStartRequest request) async {
+    final url = request.url.toString();
+    final suggestedName = request.suggestedFilename ?? url.split('/').last.split('?').first;
+    final filename = suggestedName.isNotEmpty ? suggestedName : 'export.csv';
+
+    print('[DOWNLOAD] $filename from $url');
+
+    try {
+      final client = HttpClient();
+      final req = await client.getUrl(Uri.parse(url));
+      final response = await req.close();
+
+      final bytes = <int>[];
+      await for (final chunk in response) {
+        bytes.addAll(chunk);
+      }
+      client.close();
+
+      final savedPath = await FilePicker.platform.saveFile(
+        dialogTitle: 'Enregistrer le fichier',
+        fileName: filename,
+        bytes: Uint8List.fromList(bytes),
+      );
+
+      if (savedPath == null) {
+        print('[DOWNLOAD] Annulé par l\'utilisateur');
+        return;
+      }
+
+      print('[DOWNLOAD] Saved to $savedPath (${bytes.length} bytes)');
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$filename enregistré'),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    } catch (e) {
+      print('[DOWNLOAD] Error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur de téléchargement : $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _simulateClickAt(double x, double y) async {
