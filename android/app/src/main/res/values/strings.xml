@@ -39,9 +39,6 @@
         <item quantity="other">il y a %d h</item>
     </plurals>
 
-    <string name="widget_source_local">local</string>
-    <string name="widget_source_remote">tunnel</string>
-
     <!-- Valeur d'aperçu du sélecteur de widgets, remplacée au premier rendu. -->
-    <string name="widget_preview_footer">il y a 2 min · tunnel</string>
+    <string name="widget_preview_footer">il y a 2 min</string>
 </resources>

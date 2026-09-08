@@ -87,11 +87,10 @@ class ConsoWidgetProvider : HomeWidgetProvider() {
 
             val power = widgetData.getString("$device.power", null)?.toIntOrNull()
             val maxPower = widgetData.getString("$device.maxpower", null)?.toIntOrNull()
-            val source = widgetData.getString("$device.source", null)
             val timestamp = widgetData.getString("$device.ts", null)?.toLongOrNull()
 
             views.setTextViewText(R.id.widget_device, device)
-            views.setTextViewText(R.id.widget_footer, footer(context, timestamp, source))
+            views.setTextViewText(R.id.widget_footer, footer(context, timestamp))
             // Un relevé qui vieillit doit se signaler : sans ça, une box
             // injoignable laisse des chiffres périmés d'apparence normale.
             views.setTextColor(
@@ -232,12 +231,14 @@ class ConsoWidgetProvider : HomeWidgetProvider() {
          * Le lanceur redessine le widget sans que Dart tourne : l'âge doit être
          * recalculé ici, sinon il resterait figé à sa valeur d'écriture.
          */
-        private fun footer(context: Context, timestamp: Long?, source: String?): String {
+        private fun footer(context: Context, timestamp: Long?): String {
             if (timestamp == null) return context.getString(R.string.widget_never_updated)
 
-            val elapsed = age(timestamp)
-            val minutes = elapsed / 60_000L
-            val age = when {
+            // La voie employée — tunnel ou LAN — n'est plus affichée : c'est
+            // une information de diagnostic, sans intérêt pour qui regarde son
+            // écran d'accueil, et elle pesait autant que la fraîcheur.
+            val minutes = age(timestamp) / 60_000L
+            return when {
                 minutes < 1L -> context.getString(R.string.widget_age_now)
                 minutes < 60L -> context.resources.getQuantityString(
                     R.plurals.widget_age_minutes, minutes.toInt(), minutes.toInt()
@@ -249,13 +250,6 @@ class ConsoWidgetProvider : HomeWidgetProvider() {
                     )
                 }
             }
-
-            val via = when (source) {
-                "local" -> context.getString(R.string.widget_source_local)
-                "remote" -> context.getString(R.string.widget_source_remote)
-                else -> null
-            }
-            return if (via == null) age else "$age · $via"
         }
     }
 

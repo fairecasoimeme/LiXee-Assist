@@ -18,7 +18,7 @@ object WidgetChart {
     private const val WIDTH_PX = 660
     private const val HEIGHT_PX = 150
 
-    /** Une barre sur trois porte son heure, sinon l'axe devient illisible. */
+    /** Une barre sur six porte son heure, sinon l'axe devient illisible. */
     private const val LABEL_EVERY = 6
 
     data class Point(val hour: Int, val wh: Int)
@@ -75,6 +75,14 @@ object WidgetChart {
             textSize = HEIGHT_PX * 0.19f
             textAlign = Paint.Align.CENTER
         }
+        // L'heure en cours est le repère le plus utile d'une fenêtre glissante :
+        // sans elle on lit « 10h · 16h · 22h » sans savoir où l'on se situe.
+        val nowLabel = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = ContextCompat.getColor(context, R.color.widget_accent)
+            textSize = HEIGHT_PX * 0.19f
+            textAlign = Paint.Align.CENTER
+            isFakeBoldText = true
+        }
 
         points.forEachIndexed { index, point ->
             val centerX = slot * index + slot / 2f
@@ -97,16 +105,20 @@ object WidgetChart {
                 }
             )
 
-            if (index % LABEL_EVERY == 0) {
+            // Compté depuis la fin : l'heure en cours est ainsi toujours
+            // étiquetée, et les repères restent régulièrement espacés.
+            if ((lastIndex - index) % LABEL_EVERY == 0) {
+                val isNow = index == lastIndex
+                val paint = if (isNow) nowLabel else label
                 val text = "%02dh".format(point.hour)
-                // Le libellé de la première barre déborderait à gauche : on le
-                // ramène dans le cadre plutôt que de le laisser rogner.
-                val half = label.measureText(text) / 2f
+                // Le libellé des barres extrêmes déborderait du cadre : on le
+                // ramène dedans plutôt que de le laisser rogner.
+                val half = paint.measureText(text) / 2f
                 canvas.drawText(
                     text,
                     centerX.coerceIn(half, WIDTH_PX - half),
                     HEIGHT_PX - labelHeight * 0.15f,
-                    label
+                    paint
                 )
             }
         }
