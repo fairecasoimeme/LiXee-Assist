@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Vignette du sélecteur de widgets.
+     Android rend l'aperçu depuis ce XML sans passer par le provider : les
+     libellés du thème doivent donc y figurer en dur, sinon les trois widgets
+     se ressemblent dans la liste. Volontairement réduit au texte — les
+     bitmaps de la jauge et du graphe restent vides en aperçu de toute façon,
+     et un layout complet par thème triplerait la maintenance. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/widget_background"
+    android:padding="12dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <ImageView
+            android:layout_width="14dp"
+            android:layout_height="14dp"
+            android:layout_marginEnd="6dp"
+            android:src="@drawable/ic_lixee_mark"
+            android:scaleType="fitCenter"
+            android:contentDescription="@string/widget_logo_description" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:text="LiXee-Box"
+            android:maxLines="1"
+            android:textSize="12sp"
+            android:textColor="@color/widget_text_secondary" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/widget_column_period"
+            android:textSize="12sp"
+            android:textColor="@color/widget_text_secondary" />
+    </LinearLayout>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:text="@string/widget_column_conso"
+        android:textSize="11sp"
+        android:textColor="@color/widget_text_secondary" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="⚡ 4,92 kWh"
+        android:maxLines="1"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:textColor="@color/widget_text_primary" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="🪙 1,41 €"
+        android:maxLines="1"
+        android:textSize="14sp"
+        android:textColor="@color/widget_text_primary" />
+</LinearLayout>

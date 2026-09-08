@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="widget_conso_label">LiXee — Consommation</string>
-    <string name="widget_conso_description">Puissance instantanée et index du compteur</string>
+    <string name="widget_conso_description">Puissance instantanée, consommation et coût sur 24 h</string>
 
     <string name="widget_no_device">Box non choisie</string>
     <string name="widget_tap_to_configure">Retirez et reposez le widget</string>
