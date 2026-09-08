@@ -3,6 +3,8 @@ package com.lixee.assist
 import android.content.Intent
 import android.os.Build
 import android.provider.Settings
+import android.util.Log
+import androidx.work.WorkManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -13,6 +15,8 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
+        unblockWidgetRefreshChain()
 
         // ✅ Channel existant pour le WiFi Force Binder
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, WIFI_BINDER_CHANNEL)
@@ -55,5 +59,37 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    /**
+     * Débloque le rafraîchissement du widget au clic.
+     *
+     * home_widget enfile son travail avec [ExistingWorkPolicy.APPEND] sous un
+     * nom unique. Or WorkManager marque comme échoué, sans jamais l'exécuter,
+     * tout travail ajouté derrière une chaîne déjà en échec : un seul échec —
+     * typiquement le tout premier appui, avant que le callback Dart ne soit
+     * enregistré — condamne définitivement tous les appuis suivants.
+     *
+     * Il faut annuler avant de purger : `pruneWork` ne supprime qu'un travail
+     * sans dépendants, or la tête de chaîne en garde tant que les suivants
+     * existent — purger seul la laisse en place et le problème persiste.
+     */
+    private fun unblockWidgetRefreshChain() {
+        try {
+            val workManager = WorkManager.getInstance(applicationContext)
+            workManager.cancelUniqueWork(WIDGET_REFRESH_WORK).result.addListener(
+                { workManager.pruneWork() },
+                { runnable -> runnable.run() }
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Déblocage du rafraîchissement widget impossible", e)
+        }
+    }
+
+    private companion object {
+        const val TAG = "LiXeeWidget"
+
+        /** Nom unique employé par home_widget pour son travail d'arrière-plan. */
+        const val WIDGET_REFRESH_WORK = "home_widget_background"
     }
 }

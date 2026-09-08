@@ -18,6 +18,7 @@ import 'services/session_manager.dart';
 import 'services/push_register_service.dart';
 import 'services/widget_data_service.dart';
 import 'services/home_widget_bridge.dart';
+import 'package:home_widget/home_widget.dart';
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
 
@@ -75,6 +76,24 @@ Future<void> refreshWidgetMetrics({bool closeSessions = false}) async {
   }
 }
 
+/// Appui sur la jauge d'un widget : relève et redessine, sans ouvrir l'app.
+///
+/// Doit être top-level et annoté `vm:entry-point` : l'appel arrive dans un
+/// isolate neuf, lancé par le receveur du plugin, où rien de l'app ne tourne.
+///
+/// C'est le seul rafraîchissement qui échappe aux limites de fréquence
+/// d'Android, puisque c'est l'utilisateur qui le demande.
+@pragma('vm:entry-point')
+Future<void> widgetInteractionCallback(Uri? uri) async {
+  if (uri?.host != 'refresh') return;
+  print('[WIDGET-DATA] Relevé demandé depuis le widget ($uri)');
+  try {
+    await refreshWidgetMetrics(closeSessions: true);
+  } catch (e) {
+    print('[WIDGET-DATA] Relevé sur appui échoué: $e');
+  }
+}
+
 @pragma('vm:entry-point')
 void callbackDispatcher() {
   Workmanager().executeTask((task, inputData) async {
@@ -123,6 +142,10 @@ void main() async {
   } catch (e) {
     print('[FCM] Token unavailable (pas de Play Services ?): $e');
   }
+
+  // Rend la jauge du widget cliquable : l'appui réveille un isolate qui
+  // exécute widgetInteractionCallback.
+  await HomeWidget.registerInteractivityCallback(widgetInteractionCallback);
 
   // Premier relevé au démarrage, sans bloquer l'UI : le widget dispose d'une
   // valeur fraîche sans attendre le prochain tour du worker (15 min).

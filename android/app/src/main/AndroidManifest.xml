@@ -54,6 +54,16 @@
             </intent-filter>
         </activity>
 
+        <!-- Réveille un isolate Dart quand on appuie sur la jauge du widget,
+             pour relever sans ouvrir l'app. Fourni par le plugin home_widget. -->
+        <receiver
+            android:name="es.antonborri.home_widget.HomeWidgetBackgroundReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="es.antonborri.home_widget.action.BACKGROUND" />
+            </intent-filter>
+        </receiver>
+
         <!-- Widget d'écran d'accueil : consommation instantanée + index -->
         <receiver
             android:name=".ConsoWidgetProvider"

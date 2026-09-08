@@ -26,6 +26,8 @@ object WidgetGauge {
      *   puissance souscrite est inconnue — l'arc n'est alors pas rempli.
      * @param maxLabel borne haute affichée sous l'arc ; `null` la masque.
      * @param centerValue valeur inscrite au cœur de l'arc, avec [centerUnit].
+     * @param stale relevé trop ancien : la valeur passe en gris pour cesser
+     *   d'avoir l'air d'une mesure en cours.
      */
     fun render(
         context: Context,
@@ -33,7 +35,8 @@ object WidgetGauge {
         minLabel: String? = null,
         maxLabel: String? = null,
         centerValue: String? = null,
-        centerUnit: String? = null
+        centerUnit: String? = null,
+        stale: Boolean = false
     ): Bitmap {
         val bitmap = Bitmap.createBitmap(SIZE_PX, SIZE_PX, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
@@ -68,7 +71,7 @@ object WidgetGauge {
             }
         }
 
-        drawCenter(context, canvas, bounds, centerValue, centerUnit)
+        drawCenter(context, canvas, bounds, centerValue, centerUnit, stale)
         drawBounds(context, canvas, bounds, minLabel, maxLabel)
         return bitmap
     }
@@ -79,12 +82,16 @@ object WidgetGauge {
         canvas: Canvas,
         bounds: RectF,
         value: String?,
-        unit: String?
+        unit: String?,
+        stale: Boolean
     ) {
         if (value == null) return
 
         val valuePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = ContextCompat.getColor(context, R.color.widget_accent)
+            color = ContextCompat.getColor(
+                context,
+                if (stale) R.color.widget_text_secondary else R.color.widget_accent
+            )
             textSize = SIZE_PX * 0.235f
             textAlign = Paint.Align.CENTER
             isFakeBoldText = true

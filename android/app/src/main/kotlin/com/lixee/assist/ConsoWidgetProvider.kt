@@ -3,9 +3,12 @@ package com.lixee.assist
 import android.appwidget.AppWidgetManager
 import android.content.Context
 import android.content.SharedPreferences
+import android.net.Uri
 import android.widget.RemoteViews
 import androidx.core.content.ContextCompat
 import androidx.core.os.ConfigurationCompat
+import es.antonborri.home_widget.HomeWidgetBackgroundIntent
+import es.antonborri.home_widget.HomeWidgetLaunchIntent
 import es.antonborri.home_widget.HomeWidgetProvider
 import java.util.Locale
 
@@ -22,6 +25,19 @@ import java.util.Locale
 class ConsoWidgetProvider : HomeWidgetProvider() {
 
     companion object {
+        /**
+         * Au-delà, le relevé est signalé comme vieillissant : le worker tourne
+         * toutes les 15 minutes, une heure sans nouvelle donnée veut dire que
+         * quatre cycles ont échoué.
+         */
+        private const val AGING_MS = 60 * 60 * 1000L
+
+        /**
+         * Au-delà, la valeur cesse d'être présentée comme une mesure en cours.
+         * Un chiffre faux qui a l'air frais est pire qu'un chiffre absent.
+         */
+        private const val STALE_MS = 6 * 60 * 60 * 1000L
+
         /**
          * Exposé pour que l'écran de configuration dessine immédiatement le
          * widget qu'il vient de lier, sans attendre le prochain relevé.
@@ -49,6 +65,7 @@ class ConsoWidgetProvider : HomeWidgetProvider() {
             device: String?
         ): RemoteViews {
             val views = RemoteViews(context.packageName, R.layout.widget_conso)
+            attachClicks(context, views, device)
 
             if (device == null) {
                 // Instance jamais configurée : ne rien inventer.
@@ -75,6 +92,16 @@ class ConsoWidgetProvider : HomeWidgetProvider() {
 
             views.setTextViewText(R.id.widget_device, device)
             views.setTextViewText(R.id.widget_footer, footer(context, timestamp, source))
+            // Un relevé qui vieillit doit se signaler : sans ça, une box
+            // injoignable laisse des chiffres périmés d'apparence normale.
+            views.setTextColor(
+                R.id.widget_footer,
+                ContextCompat.getColor(
+                    context,
+                    if (age(timestamp) > AGING_MS) R.color.widget_gauge_warn
+                    else R.color.widget_text_secondary
+                )
+            )
 
             // Sans puissance souscrite, l'arc reste vide plutôt que d'inventer
             // une échelle : mieux vaut ne rien montrer qu'induire en erreur.
@@ -101,7 +128,8 @@ class ConsoWidgetProvider : HomeWidgetProvider() {
                     },
                     centerValue = power?.let { format(context, it.toDouble(), 0) }
                         ?: context.getString(R.string.widget_placeholder),
-                    centerUnit = context.getString(R.string.widget_unit_power)
+                    centerUnit = context.getString(R.string.widget_unit_power),
+                    stale = age(timestamp) > STALE_MS
                 )
             )
 
@@ -130,6 +158,32 @@ class ConsoWidgetProvider : HomeWidgetProvider() {
                 )
             )
             return views
+        }
+
+        /**
+         * Appui sur la jauge : relevé immédiat, sans ouvrir l'app. Ailleurs :
+         * ouverture de l'app. C'est le seul rafraîchissement qui échappe aux
+         * limites de fréquence d'Android, puisque l'utilisateur le demande.
+         *
+         * Le plugin fixe le code de requête à 0 pour tous les PendingIntent.
+         * Ce n'est pas une collision : deux PendingIntent ne sont confondus que
+         * si leurs intents sont `filterEquals`, ce qui compare l'URI — d'où une
+         * URI distincte par box.
+         */
+        private fun attachClicks(context: Context, views: RemoteViews, device: String?) {
+            val suffix = device ?: "unconfigured"
+            views.setOnClickPendingIntent(
+                R.id.widget_gauge,
+                HomeWidgetBackgroundIntent.getBroadcast(
+                    context, Uri.parse("lixee://refresh/$suffix")
+                )
+            )
+            views.setOnClickPendingIntent(
+                R.id.widget_root,
+                HomeWidgetLaunchIntent.getActivity(
+                    context, MainActivity::class.java, Uri.parse("lixee://open/$suffix")
+                )
+            )
         }
 
         /**
@@ -169,6 +223,11 @@ class ConsoWidgetProvider : HomeWidgetProvider() {
             return String.format(locale, "%,.${decimals}f", value)
         }
 
+        /** Âge du relevé. `Long.MAX_VALUE` quand il n'y en a jamais eu. */
+        private fun age(timestamp: Long?): Long =
+            if (timestamp == null) Long.MAX_VALUE
+            else System.currentTimeMillis() - timestamp
+
         /**
          * Le lanceur redessine le widget sans que Dart tourne : l'âge doit être
          * recalculé ici, sinon il resterait figé à sa valeur d'écriture.
@@ -176,7 +235,8 @@ class ConsoWidgetProvider : HomeWidgetProvider() {
         private fun footer(context: Context, timestamp: Long?, source: String?): String {
             if (timestamp == null) return context.getString(R.string.widget_never_updated)
 
-            val minutes = (System.currentTimeMillis() - timestamp) / 60_000L
+            val elapsed = age(timestamp)
+            val minutes = elapsed / 60_000L
             val age = when {
                 minutes < 1L -> context.getString(R.string.widget_age_now)
                 minutes < 60L -> context.resources.getQuantityString(
