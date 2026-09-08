@@ -64,7 +64,9 @@
             </intent-filter>
         </receiver>
 
-        <!-- Widget d'écran d'accueil : consommation instantanée + index -->
+        <!-- Un receveur par thème : Android identifie un provider par son nom
+             de composant, c'est ce qui leur donne des entrées distinctes dans
+             le sélecteur. Tous partagent le même rendu et le même stockage. -->
         <receiver
             android:name=".ConsoWidgetProvider"
             android:label="@string/widget_conso_label"
@@ -75,6 +77,30 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/widget_conso_info" />
+        </receiver>
+
+        <receiver
+            android:name=".ProductionWidgetProvider"
+            android:label="@string/widget_production_label"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_production_info" />
+        </receiver>
+
+        <receiver
+            android:name=".BalanceWidgetProvider"
+            android:label="@string/widget_balance_label"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_balance_info" />
         </receiver>
 
         <meta-data

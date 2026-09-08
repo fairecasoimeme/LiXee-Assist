@@ -57,12 +57,14 @@
              bitmap : elle s'aligne ainsi sur « Conso » de la colonne voisine,
              et l'arc garde ses deux lignes centrales bien lisibles. -->
         <LinearLayout
+            android:id="@+id/widget_gauge_column"
             android:layout_width="0dp"
             android:layout_weight="5"
             android:layout_height="match_parent"
             android:orientation="vertical">
 
             <TextView
+                android:id="@+id/widget_gauge_label"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="@string/widget_gauge_label"
@@ -95,6 +97,7 @@
             <!-- Sans cette étiquette, « 5,05 kWh » ne dit pas ce qu'il mesure :
                  le « 24 h » de l'en-tête donne la période, pas la grandeur. -->
             <TextView
+                android:id="@+id/widget_column_label"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="@string/widget_column_conso"

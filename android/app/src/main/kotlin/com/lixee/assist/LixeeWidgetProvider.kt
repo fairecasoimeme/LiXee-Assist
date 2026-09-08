@@ -4,11 +4,13 @@ import android.appwidget.AppWidgetManager
 import android.content.Context
 import android.content.SharedPreferences
 import android.net.Uri
+import android.view.View
 import android.widget.RemoteViews
 import androidx.core.content.ContextCompat
 import androidx.core.os.ConfigurationCompat
 import es.antonborri.home_widget.HomeWidgetBackgroundIntent
 import es.antonborri.home_widget.HomeWidgetLaunchIntent
+import es.antonborri.home_widget.HomeWidgetPlugin
 import es.antonborri.home_widget.HomeWidgetProvider
 import java.util.Locale
 
@@ -19,10 +21,29 @@ import java.util.Locale
  * instantané horodaté par box, ce provider se contente de l'afficher. Il
  * s'exécute dans le processus du lanceur, où le moteur Flutter ne tourne pas.
  *
- * Chaque instance est liée à une box par [WidgetConfigActivity] : plusieurs
- * widgets peuvent coexister, un par box.
+ * Chaque instance est liée à une box par [WidgetConfigActivity], et à un thème
+ * par la sous-classe qui la déclare — d'où plusieurs entrées dans le sélecteur
+ * de widgets pour un seul rendu.
  */
-class ConsoWidgetProvider : HomeWidgetProvider() {
+abstract class LixeeWidgetProvider(private val theme: WidgetTheme) :
+    HomeWidgetProvider() {
+
+    override fun onUpdate(
+        context: Context,
+        appWidgetManager: AppWidgetManager,
+        appWidgetIds: IntArray,
+        widgetData: SharedPreferences
+    ) {
+        render(context, appWidgetManager, appWidgetIds, widgetData, theme)
+    }
+
+    /** Le widget retiré, son choix de box n'a plus lieu d'être conservé. */
+    override fun onDeleted(context: Context, appWidgetIds: IntArray) {
+        super.onDeleted(context, appWidgetIds)
+        val editor = HomeWidgetPlugin.getData(context).edit()
+        appWidgetIds.forEach { editor.remove(WidgetConfigActivity.deviceKeyFor(it)) }
+        editor.apply()
+    }
 
     companion object {
         /**
@@ -46,7 +67,8 @@ class ConsoWidgetProvider : HomeWidgetProvider() {
             context: Context,
             appWidgetManager: AppWidgetManager,
             appWidgetIds: IntArray,
-            widgetData: SharedPreferences
+            widgetData: SharedPreferences,
+            theme: WidgetTheme
         ) {
             appWidgetIds.forEach { widgetId ->
                 val device = widgetData.getString(
@@ -54,7 +76,7 @@ class ConsoWidgetProvider : HomeWidgetProvider() {
                 )
                 appWidgetManager.updateAppWidget(
                     widgetId,
-                    buildViews(context, widgetData, device)
+                    buildViews(context, widgetData, device, theme)
                 )
             }
         }
@@ -62,10 +84,19 @@ class ConsoWidgetProvider : HomeWidgetProvider() {
         private fun buildViews(
             context: Context,
             widgetData: SharedPreferences,
-            device: String?
+            device: String?,
+            theme: WidgetTheme
         ): RemoteViews {
             val views = RemoteViews(context.packageName, R.layout.widget_conso)
             attachClicks(context, views, device)
+            views.setTextViewText(R.id.widget_gauge_label,
+                context.getString(theme.gaugeLabelRes))
+            views.setTextViewText(R.id.widget_column_label,
+                context.getString(theme.columnLabelRes))
+            // Un solde n'a pas d'échelle de zéro à la puissance souscrite :
+            // masquer la jauge vaut mieux qu'en dessiner une qui ment.
+            val gaugeVisibility = if (theme.hasGauge) View.VISIBLE else View.GONE
+            views.setViewVisibility(R.id.widget_gauge_column, gaugeVisibility)
 
             if (device == null) {
                 // Instance jamais configurée : ne rien inventer.
@@ -85,10 +116,7 @@ class ConsoWidgetProvider : HomeWidgetProvider() {
                 return views
             }
 
-            val power = widgetData.getString("$device.power", null)?.toIntOrNull()
-            val maxPower = widgetData.getString("$device.maxpower", null)?.toIntOrNull()
             val timestamp = widgetData.getString("$device.ts", null)?.toLongOrNull()
-
             views.setTextViewText(R.id.widget_device, device)
             views.setTextViewText(R.id.widget_footer, footer(context, timestamp))
             // Un relevé qui vieillit doit se signaler : sans ça, une box
@@ -101,6 +129,33 @@ class ConsoWidgetProvider : HomeWidgetProvider() {
                     else R.color.widget_text_secondary
                 )
             )
+
+            if (theme.hasGauge) {
+                renderGauge(context, views, widgetData, device, theme, timestamp)
+            }
+            renderFigures(context, views, widgetData, device, theme)
+            renderTrend(context, views, widgetData.getString("$device.trend", null))
+            views.setImageViewBitmap(
+                R.id.widget_chart,
+                WidgetChart.render(
+                    context,
+                    WidgetChart.parse(widgetData.getString("$device.hourly", null)),
+                    theme.chartSeries
+                )
+            )
+            return views
+        }
+
+        private fun renderGauge(
+            context: Context,
+            views: RemoteViews,
+            widgetData: SharedPreferences,
+            device: String,
+            theme: WidgetTheme,
+            timestamp: Long?
+        ) {
+            val power = widgetData.getString("$device${theme.powerKey}", null)?.toIntOrNull()
+            val maxPower = widgetData.getString("$device.maxpower", null)?.toIntOrNull()
 
             // Sans puissance souscrite, l'arc reste vide plutôt que d'inventer
             // une échelle : mieux vaut ne rien montrer qu'induire en erreur.
@@ -116,7 +171,7 @@ class ConsoWidgetProvider : HomeWidgetProvider() {
                     context,
                     ratio,
                     minLabel = if (scaled) "0" else null,
-                    // En kVA : « 10,4 kVA » tient là où « 10 350 » déborderait.
+                    // En kVA : « 9,0 kVA » tient là où « 9 000 » déborderait.
                     maxLabel = if (scaled) {
                         context.getString(
                             R.string.widget_unit_max,
@@ -131,9 +186,18 @@ class ConsoWidgetProvider : HomeWidgetProvider() {
                     stale = age(timestamp) > STALE_MS
                 )
             )
+        }
 
-            val daily = widgetData.getString("$device.daily", null)?.toIntOrNull()
-            val cost = widgetData.getString("$device.cost", null)?.toDoubleOrNull()
+        private fun renderFigures(
+            context: Context,
+            views: RemoteViews,
+            widgetData: SharedPreferences,
+            device: String,
+            theme: WidgetTheme
+        ) {
+            val daily = widgetData.getString("$device${theme.dailyKey}", null)?.toIntOrNull()
+            val amount = widgetData.getString("$device${theme.amountKey}", null)?.toDoubleOrNull()
+
             views.setTextViewText(
                 R.id.widget_daily,
                 daily?.let {
@@ -142,21 +206,13 @@ class ConsoWidgetProvider : HomeWidgetProvider() {
                     )
                 } ?: context.getString(R.string.widget_placeholder)
             )
-            // Le coût n'est publié que si un tarif est paramétré sur la box.
+            // Le montant n'est publié que si un tarif est paramétré sur la box.
             views.setTextViewText(
                 R.id.widget_cost,
-                cost?.let {
+                amount?.let {
                     context.getString(R.string.widget_unit_cost, format(context, it, 2))
                 }.orEmpty()
             )
-            renderTrend(context, views, widgetData.getString("$device.trend", null))
-            views.setImageViewBitmap(
-                R.id.widget_chart,
-                WidgetChart.render(
-                    context, WidgetChart.parse(widgetData.getString("$device.hourly", null))
-                )
-            )
-            return views
         }
 
         /**
@@ -252,27 +308,13 @@ class ConsoWidgetProvider : HomeWidgetProvider() {
             }
         }
     }
-
-    override fun onUpdate(
-        context: Context,
-        appWidgetManager: AppWidgetManager,
-        appWidgetIds: IntArray,
-        widgetData: SharedPreferences
-    ) {
-        render(context, appWidgetManager, appWidgetIds, widgetData)
-    }
-
-    /** Le widget retiré, son choix de box n'a plus lieu d'être conservé. */
-    override fun onDeleted(context: Context, appWidgetIds: IntArray) {
-        super.onDeleted(context, appWidgetIds)
-        val editor = HomeWidgetPluginData.edit(context)
-        appWidgetIds.forEach { editor.remove(WidgetConfigActivity.deviceKeyFor(it)) }
-        editor.apply()
-    }
 }
 
-/** Petit accès nommé aux préférences du plugin, pour la lisibilité. */
-private object HomeWidgetPluginData {
-    fun edit(context: Context): SharedPreferences.Editor =
-        es.antonborri.home_widget.HomeWidgetPlugin.getData(context).edit()
-}
+/** Consommation soutirée : le thème d'origine. */
+class ConsoWidgetProvider : LixeeWidgetProvider(WidgetTheme.CONSUMPTION)
+
+/** Injection sur le réseau. Ne montre rien sans compteur de production. */
+class ProductionWidgetProvider : LixeeWidgetProvider(WidgetTheme.PRODUCTION)
+
+/** Solde entre soutirage et injection, et facture nette. */
+class BalanceWidgetProvider : LixeeWidgetProvider(WidgetTheme.BALANCE)

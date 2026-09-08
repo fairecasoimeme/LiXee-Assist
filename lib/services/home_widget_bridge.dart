@@ -16,8 +16,14 @@ import 'widget_data_service.dart';
 class HomeWidgetBridge {
   HomeWidgetBridge._();
 
-  /// Nom de la classe Kotlin, résolu par le plugin dans le package de l'app.
-  static const _androidProvider = 'ConsoWidgetProvider';
+  /// Classes Kotlin des providers, résolues par le plugin dans le package de
+  /// l'app. Chaque thème a la sienne pour apparaître séparément dans le
+  /// sélecteur de widgets ; toutes lisent le même stockage.
+  static const _androidProviders = [
+    'ConsoWidgetProvider',
+    'ProductionWidgetProvider',
+    'BalanceWidgetProvider',
+  ];
 
   /// Liste des box proposées par l'activité de configuration, en JSON.
   static const keyDeviceList = 'widget_device_list';
@@ -35,9 +41,10 @@ class HomeWidgetBridge {
   /// publie pas : le natif dessine alors la jauge sans repère.
   static const suffixMaxPower = '.maxpower';
 
-  /// Série horaire pour le graphe, en `heure:wh` séparés par des virgules
-  /// (`18:1741,19:4052,…`). Un format compact suffit et évite d'imposer un
-  /// parseur JSON au natif.
+  /// Série horaire pour le graphe, en `heure:conso:production` séparés par des
+  /// virgules (`18:1741:0,19:4052:1433,…`). Les deux grandeurs voyagent
+  /// ensemble : le solde s'en déduit côté natif, sans seconde clé à tenir
+  /// synchronisée.
   static const suffixHourly = '.hourly';
 
   /// Total des 24 heures, en Wh.
@@ -45,6 +52,14 @@ class HomeWidgetBridge {
 
   /// Coût des 24 heures, en euros. Vide si aucun tarif n'est paramétré.
   static const suffixCost = '.cost';
+
+  // Grandeurs de production et de bilan. Vides hors installation productrice,
+  // ce qui permet au natif de savoir qu'un thème n'a rien à montrer.
+  static const suffixProductionPower = '.prodpower';
+  static const suffixProduction = '.production';
+  static const suffixRevenue = '.revenue';
+  static const suffixNet = '.net';
+  static const suffixNetCost = '.netcost';
 
   /// Évolution entre les deux dernières heures complètes, en pourcentage
   /// signé. Vide si l'historique est trop court pour conclure.
@@ -78,6 +93,10 @@ class HomeWidgetBridge {
           snapshot.subscribedPowerVA?.toString() ?? '',
         ),
         HomeWidget.saveWidgetData<String>(
+          '$prefix$suffixProductionPower',
+          snapshot.productionPowerVA?.toString() ?? '',
+        ),
+        HomeWidget.saveWidgetData<String>(
           '$prefix$suffixTimestamp',
           snapshot.timestamp.millisecondsSinceEpoch.toString(),
         ),
@@ -94,7 +113,9 @@ class HomeWidgetBridge {
         await Future.wait([
           HomeWidget.saveWidgetData<String>(
             '$prefix$suffixHourly',
-            snapshot.hourly.map((s) => '${s.hour}:${s.wh}').join(','),
+            snapshot.hourly
+                .map((s) => '${s.hour}:${s.wh}:${s.productionWh}')
+                .join(','),
           ),
           HomeWidget.saveWidgetData<String>(
             '$prefix$suffixDaily',
@@ -105,6 +126,22 @@ class HomeWidgetBridge {
             snapshot.dailyCostEur?.toStringAsFixed(2) ?? '',
           ),
           HomeWidget.saveWidgetData<String>(
+            '$prefix$suffixProduction',
+            snapshot.dailyProductionWh?.toString() ?? '',
+          ),
+          HomeWidget.saveWidgetData<String>(
+            '$prefix$suffixRevenue',
+            snapshot.dailyRevenueEur?.toStringAsFixed(2) ?? '',
+          ),
+          HomeWidget.saveWidgetData<String>(
+            '$prefix$suffixNet',
+            snapshot.dailyNetWh?.toString() ?? '',
+          ),
+          HomeWidget.saveWidgetData<String>(
+            '$prefix$suffixNetCost',
+            snapshot.dailyNetCostEur?.toStringAsFixed(2) ?? '',
+          ),
+          HomeWidget.saveWidgetData<String>(
             '$prefix$suffixTrend',
             snapshot.hourlyTrendPct?.toStringAsFixed(0) ?? '',
           ),
@@ -112,6 +149,8 @@ class HomeWidgetBridge {
       }
     }
 
-    await HomeWidget.updateWidget(androidName: _androidProvider);
+    for (final provider in _androidProviders) {
+      await HomeWidget.updateWidget(androidName: provider);
+    }
   }
 }

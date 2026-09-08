@@ -76,6 +76,23 @@ class WidgetConfigActivity : Activity() {
         }.getOrDefault(emptyList())
     }
 
+    /**
+     * Thème du widget en cours de configuration.
+     *
+     * Un seul écran sert les trois thèmes : c'est la classe du provider qui
+     * les distingue, et le gestionnaire de widgets sait laquelle a été posée.
+     */
+    private fun themeOf(appWidgetId: Int): WidgetTheme {
+        val provider = AppWidgetManager.getInstance(this)
+            .getAppWidgetInfo(appWidgetId)?.provider?.className
+        return when {
+            provider == null -> WidgetTheme.CONSUMPTION
+            provider.endsWith("ProductionWidgetProvider") -> WidgetTheme.PRODUCTION
+            provider.endsWith("BalanceWidgetProvider") -> WidgetTheme.BALANCE
+            else -> WidgetTheme.CONSUMPTION
+        }
+    }
+
     private fun bind(deviceName: String) {
         HomeWidgetPlugin.getData(this).edit()
             .putString(deviceKeyFor(appWidgetId), deviceName)
@@ -83,11 +100,12 @@ class WidgetConfigActivity : Activity() {
 
         // Dessiner tout de suite : sans cela le widget resterait vide jusqu'au
         // prochain relevé, soit potentiellement 15 minutes.
-        ConsoWidgetProvider.render(
+        LixeeWidgetProvider.render(
             this,
             AppWidgetManager.getInstance(this),
             intArrayOf(appWidgetId),
-            HomeWidgetPlugin.getData(this)
+            HomeWidgetPlugin.getData(this),
+            themeOf(appWidgetId)
         )
 
         setResult(

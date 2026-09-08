@@ -21,8 +21,17 @@
          qu'ils mesurent. Tenues courtes : elles logent dans l'arc et dans une
          colonne étroite. -->
     <string name="widget_gauge_label">Puissance</string>
+    <string name="widget_gauge_label_production">Injection</string>
     <string name="widget_column_conso">Conso</string>
+    <string name="widget_column_production">Production</string>
+    <string name="widget_column_balance">Bilan</string>
     <string name="widget_column_period">24 h</string>
+
+    <!-- Libellés du sélecteur de widgets, un par thème. -->
+    <string name="widget_production_label">LiXee — Production</string>
+    <string name="widget_production_description">Injection solaire et revenu sur 24 h</string>
+    <string name="widget_balance_label">LiXee — Bilan</string>
+    <string name="widget_balance_description">Solde entre soutirage et injection, et facture nette</string>
 
     <!-- Vert = baisse : sur une facture, consommer moins est la bonne nouvelle. -->
     <string name="widget_trend_up">↑ %d %% vs h-1</string>
