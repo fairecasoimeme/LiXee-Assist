@@ -271,6 +271,66 @@ void main() {
       expect(samples.first.costEur, closeTo(0.32, 0.0001));
     });
 
+    // Installation productrice : 11 colonnes, avec « Production (Wh) » signée
+    // intercalée avant la consommation, puis production, revenu, net et
+    // facture nette. Relevé sur une box réelle.
+    const producerCsv = '﻿Periode;HC / EJPHN / BBRHCJB / EASF01 (Wh);'
+        'Production (Wh);Consommation totale (Wh);Conso - Energie (EUR);'
+        'Conso - Abonnement (EUR);Conso - Taxes (EUR);Conso - Cout total (EUR);'
+        'Production totale (Wh);Production - Revenu (EUR);Net (Wh);'
+        'Facture nette (EUR)\r\n'
+        '11H;935;-1433;935;0,14;0,03;0,03;0,20;1433;0,89;-498;-0,69\r\n'
+        '12H;960;-1662;960;0,14;0,03;0,03;0,20;1662;1,03;-702;-0,83\r\n';
+
+    test('décode la production et le revenu d\'un producteur', () {
+      final samples = WidgetDataService.parseHourlyCsv(producerCsv);
+      expect(samples.map((s) => s.wh), [935, 960]);
+      expect(samples.map((s) => s.productionWh), [1433, 1662]);
+      expect(samples.first.revenueEur, closeTo(0.89, 0.0001));
+    });
+
+    test('ne confond pas « Production » signée et « Production totale »', () {
+      // La colonne « Production (Wh) » vaut -1433 : la lire donnerait une
+      // injection négative. C'est « Production totale » qui porte la quantité.
+      final samples = WidgetDataService.parseHourlyCsv(producerCsv);
+      expect(samples.every((s) => s.productionWh > 0), isTrue);
+    });
+
+    test('le net se déduit et concorde avec la colonne de la box', () {
+      final samples = WidgetDataService.parseHourlyCsv(producerCsv);
+      // La box annonce -498 et -702 Wh, -0,69 et -0,83 €.
+      expect(samples.map((s) => s.netWh), [-498, -702]);
+      expect(samples.first.netCostEur, closeTo(-0.69, 0.0001));
+      expect(samples.last.netCostEur, closeTo(-0.83, 0.0001));
+    });
+
+    test('une box sans production n\'expose ni injection ni revenu', () {
+      final snapshot = LinkySnapshot(
+        deviceName: 'x',
+        timestamp: DateTime.now(),
+        source: LinkySource.local,
+        hourly: WidgetDataService.parseHourlyCsv(baseCsv),
+      );
+      expect(snapshot.produces, isFalse);
+      expect(snapshot.dailyProductionWh, isNull);
+      expect(snapshot.dailyRevenueEur, isNull);
+    });
+
+    test('totaux journaliers d\'un producteur', () {
+      final snapshot = LinkySnapshot(
+        deviceName: 'maison',
+        timestamp: DateTime.now(),
+        source: LinkySource.remote,
+        hourly: WidgetDataService.parseHourlyCsv(producerCsv),
+      );
+      expect(snapshot.produces, isTrue);
+      expect(snapshot.dailyTotalWh, 1895);
+      expect(snapshot.dailyProductionWh, 3095);
+      expect(snapshot.dailyRevenueEur, closeTo(1.92, 0.0001));
+      expect(snapshot.dailyNetWh, -1200);
+      expect(snapshot.dailyNetCostEur, closeTo(-1.52, 0.0001));
+    });
+
     test('le coût HP/HC vient de la box, pas d\'un recalcul', () {
       // La colonne « Conso - Cout total » applique déjà les tarifs de chaque
       // période : c'est elle qu'on lit, on ne réapplique aucun barème ici.

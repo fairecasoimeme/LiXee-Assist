@@ -69,14 +69,36 @@ class HourlySample {
   /// les tarifs HC/HP, rien n'est recalculé ici.
   final double costEur;
 
-  const HourlySample(this.hour, this.wh, [this.costEur = 0]);
+  /// Énergie injectée sur l'heure, en Wh. Vaut 0 hors installation productrice.
+  final int productionWh;
 
-  Map<String, dynamic> toJson() => {'h': hour, 'wh': wh, 'c': costEur};
+  /// Revenu de l'injection sur l'heure, en euros.
+  final double revenueEur;
+
+  const HourlySample(
+    this.hour,
+    this.wh, [
+    this.costEur = 0,
+    this.productionWh = 0,
+    this.revenueEur = 0,
+  ]);
+
+  /// Solde de l'heure : positif si l'on a tiré du réseau, négatif si l'on y a
+  /// injecté plus qu'on n'a consommé.
+  int get netWh => wh - productionWh;
+
+  /// Solde facturé. Négatif quand l'injection rapporte plus qu'elle ne coûte.
+  double get netCostEur => costEur - revenueEur;
+
+  Map<String, dynamic> toJson() =>
+      {'h': hour, 'wh': wh, 'c': costEur, 'p': productionWh, 'r': revenueEur};
 
   factory HourlySample.fromJson(Map<String, dynamic> json) => HourlySample(
         json['h'] as int? ?? 0,
         json['wh'] as int? ?? 0,
         (json['c'] as num?)?.toDouble() ?? 0,
+        json['p'] as int? ?? 0,
+        (json['r'] as num?)?.toDouble() ?? 0,
       );
 }
 
@@ -87,8 +109,12 @@ class HourlySample {
 class LinkySnapshot {
   final String deviceName;
 
-  /// Puissance apparente instantanée, en VA.
+  /// Puissance apparente instantanée soutirée, en VA.
   final int? apparentPowerVA;
+
+  /// Puissance apparente instantanée injectée, en VA. `null` hors installation
+  /// productrice. Sur un producteur, l'une des deux est nulle à tout instant.
+  final int? productionPowerVA;
 
   /// Index total, en Wh.
   final int? indexWh;
@@ -115,6 +141,7 @@ class LinkySnapshot {
     required this.timestamp,
     required this.source,
     this.apparentPowerVA,
+    this.productionPowerVA,
     this.indexWh,
     this.currentA,
     this.subscribedCurrentA,
@@ -155,6 +182,33 @@ class LinkySnapshot {
     final total = hourly.fold<double>(0, (sum, s) => sum + s.costEur);
     return total > 0 ? total : null;
   }
+
+  /// L'installation injecte-t-elle sur le réseau ? Détermine si les thèmes
+  /// production et bilan ont quelque chose à montrer.
+  bool get produces => hourly.any((s) => s.productionWh > 0);
+
+  /// Énergie injectée sur 24 h, en Wh. `null` hors installation productrice.
+  int? get dailyProductionWh => produces
+      ? hourly.fold<int>(0, (sum, s) => sum + s.productionWh)
+      : null;
+
+  /// Revenu de l'injection sur 24 h, en euros.
+  double? get dailyRevenueEur {
+    if (!produces) return null;
+    final total = hourly.fold<double>(0, (sum, s) => sum + s.revenueEur);
+    return total > 0 ? total : null;
+  }
+
+  /// Solde énergétique sur 24 h : positif si l'on a tiré du réseau, négatif si
+  /// l'installation a injecté plus qu'elle n'a consommé.
+  int? get dailyNetWh =>
+      hourly.isEmpty ? null : hourly.fold<int>(0, (sum, s) => sum + s.netWh);
+
+  /// Facture nette sur 24 h. Négative quand l'injection rapporte davantage
+  /// qu'elle ne coûte.
+  double? get dailyNetCostEur => hourly.isEmpty
+      ? null
+      : hourly.fold<double>(0, (sum, s) => sum + s.netCostEur);
 
   /// Puissance souscrite, en VA.
   ///
@@ -210,12 +264,18 @@ class LinkySnapshot {
     );
   }
 
-  /// L'export horaire arrive par une seconde requête : on l'attache après coup.
-  LinkySnapshot withHourly(List<HourlySample> samples) => LinkySnapshot(
+  /// L'export horaire et la production arrivent par des requêtes séparées :
+  /// on les attache après coup.
+  LinkySnapshot withHourly(
+    List<HourlySample> samples, {
+    int? productionPowerVA,
+  }) =>
+      LinkySnapshot(
         deviceName: deviceName,
         timestamp: timestamp,
         source: source,
         apparentPowerVA: apparentPowerVA,
+        productionPowerVA: productionPowerVA ?? this.productionPowerVA,
         indexWh: indexWh,
         currentA: currentA,
         subscribedCurrentA: subscribedCurrentA,
@@ -230,6 +290,7 @@ class LinkySnapshot {
         'deviceName': deviceName,
         'hourly': hourly.map((s) => s.toJson()).toList(),
         'apparentPowerVA': apparentPowerVA,
+        'productionPowerVA': productionPowerVA,
         'indexWh': indexWh,
         'currentA': currentA,
         'subscribedCurrentA': subscribedCurrentA,
@@ -245,6 +306,7 @@ class LinkySnapshot {
     return LinkySnapshot(
       deviceName: json['deviceName'] as String? ?? '',
       apparentPowerVA: _asInt(json['apparentPowerVA']),
+      productionPowerVA: _asInt(json['productionPowerVA']),
       indexWh: _asInt(json['indexWh']),
       currentA: _asInt(json['currentA']),
       subscribedCurrentA: _asInt(json['subscribedCurrentA']),
@@ -279,9 +341,16 @@ class LinkySnapshot {
   }
 
   @override
-  String toString() =>
-      'LinkySnapshot($deviceName, ${apparentPowerVA}VA, ${indexKWh?.toStringAsFixed(1)}kWh, '
-      '${hourly.length}h/${dailyTotalWh}Wh, ${source.name}, ${age.inSeconds}s)';
+  String toString() {
+    final injected =
+        productionPowerVA == null ? '' : ', +${productionPowerVA}VA injectés';
+    final production =
+        dailyProductionWh == null ? '' : '/${dailyProductionWh}Wh produits';
+    return 'LinkySnapshot($deviceName, ${apparentPowerVA}VA$injected, '
+        '${indexKWh?.toStringAsFixed(1)}kWh, '
+        '${hourly.length}h/${dailyTotalWh}Wh$production, '
+        '${source.name}, ${age.inSeconds}s)';
+  }
 }
 
 /// Entrée `saved_devices` décodée.
@@ -404,12 +473,21 @@ class WidgetDataService {
           source: source,
         );
 
-        // Complément facultatif : un échec ici ne doit pas perdre le relevé.
+        // Compléments facultatifs : un échec ici ne doit pas perdre le relevé.
         try {
           final hourly = await _fetchHourly(baseUrl, device, timeout, source);
-          if (hourly.isNotEmpty) snapshot = snapshot.withHourly(hourly);
+          // La découverte des compteurs a lieu dans _fetchHourly : la
+          // production ne peut être lue qu'ensuite.
+          final injected =
+              await _fetchProductionPower(baseUrl, device, timeout, source);
+          if (hourly.isNotEmpty || injected != null) {
+            snapshot = snapshot.withHourly(
+              hourly.isNotEmpty ? hourly : snapshot.hourly,
+              productionPowerVA: injected,
+            );
+          }
         } catch (e) {
-          print('[WIDGET-DATA] Export horaire indisponible: $e');
+          print('[WIDGET-DATA] Complément indisponible: $e');
         }
 
         print('[WIDGET-DATA] $snapshot');
@@ -551,6 +629,44 @@ class WidgetDataService {
   /// qui est bien plus lourd que l'export lui-même.
   static final Map<String, String> _linkyIeee = {};
 
+  /// IEEE du compteur de production, quand l'installation en a un.
+  static final Map<String, String> _productionIeee = {};
+
+  /// Puissance apparente injectée, cluster 0x0B04 attribut 0x0511.
+  ///
+  /// Symétrique de 0x050F pour la consommation : sur une installation
+  /// productrice, l'un est nul quand l'autre ne l'est pas. `/getLinky` ne
+  /// remonte qu'un seul compteur, d'où le passage par `/getDevice`.
+  static const _injectedPowerAttribute = '1297';
+
+  /// Relève la puissance injectée. `null` sans compteur de production.
+  static Future<int?> _fetchProductionPower(
+    String baseUrl,
+    _ParsedDevice device,
+    Duration timeout,
+    LinkySource source,
+  ) async {
+    final ieee = _productionIeee[device.key];
+    if (ieee == null) return null;
+
+    final body =
+        await _authGet(baseUrl, device, timeout, source, '/getDevice?id=$ieee');
+    if (body == null) return null;
+
+    try {
+      var decoded = jsonDecode(body);
+      // La réponse est tantôt l'objet direct, tantôt indexée par IEEE.
+      if (decoded is Map && decoded[ieee] is Map) decoded = decoded[ieee];
+      if (decoded is! Map) return null;
+      final electrical = decoded['0B04'];
+      if (electrical is! Map) return null;
+      return _fromHex(electrical[_injectedPowerAttribute]);
+    } catch (e) {
+      print('[WIDGET-DATA] /getDevice illisible: $e');
+      return null;
+    }
+  }
+
   /// Dernier export horaire réussi, par box. L'historique ne bouge qu'à
   /// l'heure : inutile de le retélécharger à chaque relevé.
   static final Map<String, DateTime> _lastHourlyFetch = {};
@@ -575,12 +691,17 @@ class WidgetDataService {
     if (ieee == null) {
       final body = await _authGet(baseUrl, device, timeout, source, '/getDevices');
       if (body == null) return const [];
-      ieee = _findLinkyIeee(body);
+      final meters = _discoverMeters(body);
+      ieee = meters.consumption;
       if (ieee == null) {
         print('[WIDGET-DATA] Aucun ZLinky trouvé sur ${device.name}');
         return const [];
       }
       _linkyIeee[device.key] = ieee;
+      if (meters.production != null) {
+        _productionIeee[device.key] = meters.production!;
+        print('[WIDGET-DATA] ${device.name}: compteur de production détecté');
+      }
     }
 
     final csv = await _authGet(
@@ -596,23 +717,49 @@ class WidgetDataService {
     return parseHourlyCsv(csv);
   }
 
-  /// Repère le ZLinky parmi les équipements Zigbee appairés.
-  static String? _findLinkyIeee(String devicesJson) {
+  /// Repère les ZLinky appairés et distingue celui de production.
+  ///
+  /// Une installation productrice en porte deux : le contrat du second est
+  /// annoncé `PRODUCTEUR` dans le cluster privé LiXee. On ne se fie pas au
+  /// `linkyMode`, dont les valeurs varient selon le firmware.
+  static ({String? consumption, String? production}) _discoverMeters(
+    String devicesJson,
+  ) {
+    String? consumption;
+    String? production;
     try {
       final decoded = jsonDecode(devicesJson);
-      if (decoded is! Map<String, dynamic>) return null;
+      if (decoded is! Map<String, dynamic>) return (consumption: null, production: null);
+
       for (final entry in decoded.entries) {
-        final value = entry.value;
-        if (value is! Map) continue;
-        final info = value['INFO'];
-        if (info is Map && (info['model']?.toString() ?? '').startsWith('ZLinky')) {
-          return entry.key;
+        final device = entry.value;
+        if (device is! Map) continue;
+        final info = device['INFO'];
+        if (info is! Map) continue;
+        if (!(info['model']?.toString() ?? '').startsWith('ZLinky')) continue;
+
+        final contract = (device['FF66'] as Map?)?['0']?.toString() ?? '';
+        if (contract.toUpperCase().contains('PRODUCTEUR')) {
+          production ??= entry.key;
+        } else {
+          consumption ??= entry.key;
         }
       }
     } catch (e) {
       print('[WIDGET-DATA] /getDevices illisible: $e');
     }
-    return null;
+    return (consumption: consumption, production: production);
+  }
+
+  /// Décode une valeur de `/getDevices`, donnée en hexadécimal signé
+  /// (`00E6`, `-0000005B4C05`) là où `/getLinky` renvoie des décimaux.
+  static int? _fromHex(Object? raw) {
+    var text = raw?.toString().trim() ?? '';
+    if (text.isEmpty) return null;
+    final negative = text.startsWith('-');
+    if (negative) text = text.substring(1);
+    final value = int.tryParse(text, radix: 16);
+    return value == null ? null : (negative ? -value : value);
   }
 
   /// Décode le CSV de `/exportEnergyChart`.
@@ -642,6 +789,16 @@ class WidgetDataService {
       (h) => h.toLowerCase().contains('cout total'),
     );
 
+    // Absentes hors installation productrice. « Production totale » et non
+    // « Production » tout court : la seconde porte la valeur signée, la
+    // première la quantité injectée.
+    final productionColumn = header.indexWhere(
+      (h) => h.toLowerCase().contains('production totale'),
+    );
+    final revenueColumn = header.indexWhere(
+      (h) => h.toLowerCase().contains('revenu'),
+    );
+
     final samples = <HourlySample>[];
     for (final line in lines.skip(1)) {
       final cells = line.split(';');
@@ -651,14 +808,23 @@ class WidgetDataService {
       final wh = int.tryParse(cells[column].trim());
       if (hour == null || wh == null) continue;
 
-      // Les montants arrivent avec une virgule décimale.
-      final cost = costColumn >= 0 && cells.length > costColumn
-          ? double.tryParse(cells[costColumn].trim().replaceAll(',', '.')) ?? 0
-          : 0.0;
-
-      samples.add(HourlySample(hour, wh, cost));
+      samples.add(HourlySample(
+        hour,
+        wh,
+        _cell(cells, costColumn),
+        _cell(cells, productionColumn).round(),
+        _cell(cells, revenueColumn),
+      ));
     }
     return samples;
+  }
+
+  /// Lit une cellule numérique. Les montants arrivent avec une virgule
+  /// décimale, et l'export laisse des cellules vides pour ce qui ne s'applique
+  /// pas à l'heure considérée.
+  static double _cell(List<String> cells, int column) {
+    if (column < 0 || cells.length <= column) return 0;
+    return double.tryParse(cells[column].trim().replaceAll(',', '.')) ?? 0;
   }
 
   static void _dropSession(String baseUrl, _ParsedDevice device) {
