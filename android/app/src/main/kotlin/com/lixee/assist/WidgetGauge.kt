@@ -92,29 +92,23 @@ object WidgetGauge {
                 context,
                 if (stale) R.color.widget_text_secondary else R.color.widget_accent
             )
-            textSize = SIZE_PX * 0.21f
+            textSize = SIZE_PX * 0.235f
             textAlign = Paint.Align.CENTER
             isFakeBoldText = true
         }
-        val captionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        val unitPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = ContextCompat.getColor(context, R.color.widget_text_secondary)
-            textSize = SIZE_PX * 0.10f
+            textSize = SIZE_PX * 0.105f
             textAlign = Paint.Align.CENTER
         }
 
-        // Trois lignes serrées dans l'ouverture de l'arc : la grandeur mesurée
-        // au-dessus, la valeur au centre optique, l'unité dessous.
+        // Centre optique : la valeur légèrement au-dessus, l'unité dessous.
+        // La grandeur mesurée est étiquetée par le layout, au-dessus de l'arc.
         val cx = bounds.centerX()
         val cy = bounds.centerY()
-        canvas.drawText(
-            context.getString(R.string.widget_gauge_label),
-            cx,
-            cy - valuePaint.textSize * 0.52f,
-            captionPaint
-        )
-        canvas.drawText(value, cx, cy + valuePaint.textSize * 0.32f, valuePaint)
+        canvas.drawText(value, cx, cy + valuePaint.textSize * 0.22f, valuePaint)
         unit?.let {
-            canvas.drawText(it, cx, cy + valuePaint.textSize * 1.12f, captionPaint)
+            canvas.drawText(it, cx, cy + valuePaint.textSize * 0.95f, unitPaint)
         }
     }
 
