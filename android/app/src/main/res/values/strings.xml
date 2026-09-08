@@ -14,7 +14,12 @@
     <string name="widget_unit_energy">⚡ %s kWh</string>
     <string name="widget_unit_cost">💶 %s €</string>
     <string name="widget_unit_max">%s kVA</string>
-    <string name="widget_period_24h">24 h</string>
+    <!-- Sans ces étiquettes, « 470 VA » et « 5,05 kWh » ne disent pas ce
+         qu'ils mesurent. Tenues courtes : elles logent dans l'arc et dans une
+         colonne étroite. -->
+    <string name="widget_gauge_label">Puissance</string>
+    <string name="widget_column_conso">Conso</string>
+    <string name="widget_column_period">24 h</string>
 
     <!-- Vert = baisse : sur une facture, consommer moins est la bonne nouvelle. -->
     <string name="widget_trend_up">↑ %d %% vs h-1</string>

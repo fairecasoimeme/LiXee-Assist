@@ -38,7 +38,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/widget_period_24h"
+            android:text="@string/widget_column_period"
             android:maxLines="1"
             android:textSize="12sp"
             android:textColor="@color/widget_text_secondary" />
@@ -71,6 +71,16 @@
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
             android:orientation="vertical">
+
+            <!-- Sans cette étiquette, « 5,05 kWh » ne dit pas ce qu'il mesure :
+                 le « 24 h » de l'en-tête donne la période, pas la grandeur. -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/widget_column_conso"
+                android:maxLines="1"
+                android:textSize="11sp"
+                android:textColor="@color/widget_text_secondary" />
 
             <TextView
                 android:id="@+id/widget_daily"
