@@ -11,8 +11,11 @@
     <string name="widget_config_empty">Aucune box enregistrée. Ajoutez-en une dans LiXee-Assist, puis reposez le widget.</string>
     <string name="widget_placeholder">—</string>
     <string name="widget_unit_power">VA</string>
+    <!-- Deux symboles de même nature, lisibles à petite taille : l'éclair et la
+         pièce sont des silhouettes simples, là où le billet 💶 était une scène
+         détaillée qui se lisait comme une tache. -->
     <string name="widget_unit_energy">⚡ %s kWh</string>
-    <string name="widget_unit_cost">💶 %s €</string>
+    <string name="widget_unit_cost">🪙 %s €</string>
     <string name="widget_unit_max">%s kVA</string>
     <!-- Sans ces étiquettes, « 470 VA » et « 5,05 kWh » ne disent pas ce
          qu'ils mesurent. Tenues courtes : elles logent dans l'arc et dans une

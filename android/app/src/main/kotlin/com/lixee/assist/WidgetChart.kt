@@ -37,9 +37,16 @@ object WidgetChart {
         }
     }
 
-    private fun paint(context: Context, colorRes: Int) =
+    /** Opacités des barres : pleine pour le pic, moyenne au fil de l'eau,
+     *  faible pour le creux. Un dégradé d'intensité, pas de teinte. */
+    private const val ALPHA_PEAK = 255
+    private const val ALPHA_NORMAL = 115
+    private const val ALPHA_TROUGH = 55
+
+    private fun paint(context: Context, colorRes: Int, alpha: Int = 255) =
         Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = ContextCompat.getColor(context, colorRes)
+            this.alpha = alpha
         }
 
     fun render(context: Context, points: List<Point>): Bitmap {
@@ -67,9 +74,14 @@ object WidgetChart {
         val barWidth = slot * 0.62f
         val radius = barWidth / 2f
 
-        val bar = paint(context, R.color.widget_accent)
-        val peakBar = paint(context, R.color.widget_gauge_warn)
-        val troughBar = paint(context, R.color.widget_positive)
+        // Les extrêmes sont marqués par l'intensité, pas par la teinte : une
+        // heure de pointe n'est pas une alerte et une heure creuse n'est pas
+        // une bonne nouvelle, ce sont des maxima. L'orange et le vert restent
+        // réservés à la limite d'abonnement et à la tendance, où ils portent
+        // un jugement.
+        val bar = paint(context, R.color.widget_accent, ALPHA_NORMAL)
+        val peakBar = paint(context, R.color.widget_accent, ALPHA_PEAK)
+        val troughBar = paint(context, R.color.widget_accent, ALPHA_TROUGH)
         val label = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = ContextCompat.getColor(context, R.color.widget_text_secondary)
             textSize = HEIGHT_PX * 0.19f
