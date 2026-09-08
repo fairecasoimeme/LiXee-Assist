@@ -102,9 +102,12 @@
                 android:textSize="11sp"
                 android:textColor="@color/widget_text_secondary" />
 
+            <!-- Une ligne d'écart sous le titre : les trois chiffres se
+                 centrent ainsi face à l'arc plutôt que de flotter en haut. -->
             <TextView
                 android:id="@+id/widget_daily"
                 android:text="⚡ 4,92 kWh"
+                android:layout_marginTop="14dp"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:maxLines="1"
