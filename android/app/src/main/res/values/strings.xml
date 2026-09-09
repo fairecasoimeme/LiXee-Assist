@@ -89,4 +89,30 @@
     <string name="widget_action_title">%1$s ?</string>
     <string name="widget_action_message">Envoyer « %1$s » à « %2$s » ?</string>
     <string name="widget_action_confirm">Envoyer</string>
+
+    <!-- Widget de groupe d'actions. -->
+    <string name="widget_group_label">LiXee — Groupe d\'actions</string>
+    <string name="widget_group_description">Un bouton qui déclenche un groupe d\'actions configuré sur la box</string>
+    <string name="widget_group_config_title">Quel groupe d\'actions ?</string>
+    <string name="widget_group_config_group">Quel groupe sur « %1$s » ?</string>
+    <string name="widget_group_config_empty">Aucun groupe d\'actions trouvé. Créez-en un sur la box (config → Groupes d\'actions), ouvrez LiXee-Assist une fois, puis reposez le widget.</string>
+    <string name="widget_group_running">Envoi…</string>
+    <string name="widget_group_failed">Échec</string>
+    <!-- Ce que le dernier appui a donné : le nombre compte, un groupe peut
+         n'envoyer qu'une partie de ses actions. -->
+    <string name="widget_group_sent" formatted="false">%1$d envoyée(s) · %2$s</string>
+    <plurals name="widget_group_actions">
+        <item quantity="one">%d action</item>
+        <item quantity="other">%d actions</item>
+    </plurals>
+    <plurals name="widget_group_count">
+        <item quantity="one">%d groupe</item>
+        <item quantity="other">%d groupes</item>
+    </plurals>
+    <plurals name="widget_group_confirm">
+        <item quantity="one">Envoyer %d action ?</item>
+        <item quantity="other">Envoyer %d actions ?</item>
+    </plurals>
+    <string name="widget_group_confirm_unknown">Déclencher ce groupe ?</string>
+    <string name="widget_group_confirm_run">Déclencher</string>
 </resources>

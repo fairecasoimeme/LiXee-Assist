@@ -267,6 +267,45 @@ class SessionManager {
     _sessionCookie = newCookie;
   }
 
+  /// POST authentifié, en `application/x-www-form-urlencoded`.
+  ///
+  /// Même politique que [authenticatedGet] face à une session expirée : on
+  /// rejoue la requête après re-login. Rejouer un POST n'est anodin que parce
+  /// que la première tentative a été refusée sans rien exécuter — la box a
+  /// renvoyé sa page de login, pas un résultat.
+  Future<AuthenticatedResponse> authenticatedPost(
+    String path,
+    Map<String, String> fields,
+  ) async {
+    final cookie = await getSessionCookie();
+    final uri = Uri.parse(targetBaseUrl).resolve(path);
+    final payload = fields.entries
+        .map((e) =>
+            '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value)}')
+        .join('&');
+
+    Future<HttpClientResponse> send(String? withCookie) async {
+      final request = await httpClient.postUrl(uri);
+      request.headers.set('Content-Type', 'application/x-www-form-urlencoded');
+      if (withCookie != null) request.headers.set('Cookie', withCookie);
+      request.followRedirects = false;
+      request.add(utf8.encode(payload));
+      return request.close();
+    }
+
+    var response = await send(cookie);
+    var body = await response.transform(utf8.decoder).join();
+
+    if (isLoginPage(response.statusCode, body, response.headers.value('location'))) {
+      _sessionCookie = null;
+      if (await login()) {
+        response = await send(_sessionCookie);
+        body = await response.transform(utf8.decoder).join();
+      }
+    }
+    return AuthenticatedResponse(response.statusCode, body);
+  }
+
   /// GET authentifié avec re-login automatique si session expirée.
   Future<AuthenticatedResponse> authenticatedGet(String path) async {
     final cookie = await getSessionCookie();

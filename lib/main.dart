@@ -18,6 +18,7 @@ import 'services/session_manager.dart';
 import 'services/session_pool.dart';
 import 'services/push_register_service.dart';
 import 'services/widget_data_service.dart';
+import 'services/action_group_service.dart';
 import 'services/device_control_service.dart';
 import 'services/home_widget_bridge.dart';
 import 'package:home_widget/home_widget.dart';
@@ -151,6 +152,63 @@ Future<void> refreshDeviceMetrics({
   }
 }
 
+/// Relève les groupes d'actions de chaque box et les publie pour les widgets.
+Future<void> refreshActionGroups({bool closeSessions = false}) async {
+  try {
+    await SessionPool.loadPersisted();
+    final catalogue = <ActionGroup>[];
+    final refreshed = <String>{};
+
+    for (final box in await DeviceControlService.savedBoxes()) {
+      final groups = await ActionGroupService.fetchAll(
+        box,
+        mdnsResolver: resolveMdnsIP,
+      );
+      // Une box muette et une box sans groupe se ressemblent : dans le doute
+      // on ne touche pas à son catalogue.
+      if (groups.isEmpty) continue;
+      refreshed.add(box.name);
+      catalogue.addAll(groups);
+      for (final group in groups) {
+        await HomeWidgetBridge.pushGroup(group);
+      }
+    }
+
+    await HomeWidgetBridge.publishGroupCatalog(catalogue, refreshed);
+    print('[GROUPES] ${catalogue.length} groupe(s) relevé(s)');
+  } finally {
+    if (closeSessions) WidgetDataService.disposeAll();
+  }
+}
+
+/// Déclenche un groupe d'actions depuis son widget.
+Future<void> _runActionGroup(String groupKey) async {
+  await SessionPool.loadPersisted();
+  final boxName = groupKey.split('#').first;
+  final groupName = groupKey.substring(boxName.length + 1);
+
+  final boxes = await DeviceControlService.savedBoxes();
+  final box = boxes.where((b) => b.name == boxName).firstOrNull;
+  if (box == null) {
+    print('[GROUPES] Box inconnue: $boxName');
+    await HomeWidgetBridge.pushGroupFailure(groupKey);
+    return;
+  }
+
+  final result = await ActionGroupService.run(
+    box,
+    groupName,
+    mdnsResolver: resolveMdnsIP,
+  );
+  if (result.ok) {
+    print('[GROUPES] $groupName: ${result.sent} action(s) envoyée(s)');
+    await HomeWidgetBridge.pushGroupResult(groupKey, result.sent);
+  } else {
+    print('[GROUPES] $groupName échoué: ${result.error}');
+    await HomeWidgetBridge.pushGroupFailure(groupKey);
+  }
+}
+
 /// Envoie une action sur un appareil, puis relit son état.
 ///
 /// La box se contente d'empiler la trame Zigbee : elle répond avant que
@@ -246,6 +304,13 @@ Future<void> widgetInteractionCallback(Uri? uri) async {
       case 'devaction':
         if (uri.pathSegments.length < 2) return;
         await _runDeviceAction(uri);
+
+      case 'groupaction':
+        if (uri.pathSegments.isEmpty) return;
+        await _runActionGroup(uri.pathSegments.first);
+
+      case 'grouprefresh':
+        await refreshActionGroups();
     }
   } finally {
     WidgetDataService.disposeAll();
@@ -267,9 +332,14 @@ void callbackDispatcher() {
       print('[WIDGET-DATA] Relevé échoué dans le worker: $e');
     }
     try {
-      await refreshDeviceMetrics(closeSessions: true);
+      await refreshDeviceMetrics();
     } catch (e) {
       print('[DEVICES] Relevé échoué dans le worker: $e');
+    }
+    try {
+      await refreshActionGroups(closeSessions: true);
+    } catch (e) {
+      print('[GROUPES] Relevé échoué dans le worker: $e');
     }
     return Future.value(true);
   });
@@ -325,6 +395,11 @@ void main() async {
       await refreshDeviceMetrics();
     } catch (e) {
       print('[DEVICES] Relevé initial échoué: $e');
+    }
+    try {
+      await refreshActionGroups();
+    } catch (e) {
+      print('[GROUPES] Relevé initial échoué: $e');
     }
   }();
 

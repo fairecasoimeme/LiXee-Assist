@@ -109,6 +109,37 @@
                 android:resource="@xml/widget_device_info" />
         </receiver>
 
+        <activity
+            android:name=".WidgetGroupConfirmActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.DeviceDefault.Light.Dialog.Alert" />
+
+        <!-- Exportée à dessein, comme les autres écrans de configuration :
+             c'est le lanceur qui les démarre au dépôt du widget. -->
+        <activity
+            android:name=".ActionGroupWidgetConfigActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.DeviceDefault.Light.Dialog.NoActionBar">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+
+        <receiver
+            android:name=".ActionGroupWidgetProvider"
+            android:label="@string/widget_group_label"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_group_info" />
+        </receiver>
+
         <!-- Un receveur par thème : Android identifie un provider par son nom
              de composant, c'est ce qui leur donne des entrées distinctes dans
              le sélecteur. Tous partagent le même rendu et le même stockage. -->

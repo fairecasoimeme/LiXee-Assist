@@ -181,6 +181,76 @@ class BoxClient {
         : rawGet('${route.baseUrl}$path', route.timeout, authHeader: basic);
   }
 
+  /// POST authentifié, en formulaire. Retourne `null` si rien n'aboutit.
+  ///
+  /// Le corps est identique quel que soit le mode d'authentification : seule
+  /// la façon de prouver son identité change.
+  static Future<String?> post(
+    BoxRoute route,
+    String path,
+    Map<String, String> fields,
+  ) async {
+    final device = route.device;
+    if (device.hasAuth && route.source != LinkySource.local) {
+      // Le tunnel impose le formulaire : passer par la session évite un aller
+      // simple en Basic qui serait refusé.
+      final mode =
+          await SessionPool.authMode(route.baseUrl, timeout: route.timeout);
+      if (mode == AuthMode.form) {
+        final session =
+            SessionPool.session(route.baseUrl, device.login!, device.password!);
+        final result =
+            await session.authenticatedPost(path, fields).timeout(route.timeout);
+        return result.statusCode == 200 ? result.body : null;
+      }
+    }
+
+    final basic = device.hasAuth
+        ? 'Basic ${base64Encode(utf8.encode('${device.login}:${device.password}'))}'
+        : null;
+    final body = await _rawPost(
+      '${route.baseUrl}$path',
+      fields,
+      route.timeout,
+      authHeader: basic,
+    );
+    if (body != null || !device.hasAuth) return body;
+
+    // Le Basic a été refusé : la box attend le formulaire, même en LAN.
+    final session =
+        SessionPool.session(route.baseUrl, device.login!, device.password!);
+    final result =
+        await session.authenticatedPost(path, fields).timeout(route.timeout);
+    return result.statusCode == 200 ? result.body : null;
+  }
+
+  static Future<String?> _rawPost(
+    String url,
+    Map<String, String> fields,
+    Duration timeout, {
+    String? authHeader,
+  }) async {
+    final client = HttpClient()
+      ..badCertificateCallback = ((cert, host, port) => true)
+      ..connectionTimeout = timeout;
+    try {
+      final request = await client.postUrl(Uri.parse(url));
+      request.headers.set('Content-Type', 'application/x-www-form-urlencoded');
+      request.headers.set('Accept', 'application/json');
+      if (authHeader != null) request.headers.set('Authorization', authHeader);
+      request.followRedirects = false;
+      request.add(utf8.encode(fields.entries
+          .map((e) =>
+              '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value)}')
+          .join('&')));
+      final response = await request.close().timeout(timeout);
+      final body = await response.transform(utf8.decoder).join();
+      return response.statusCode == 200 && body.isNotEmpty ? body : null;
+    } finally {
+      client.close(force: true);
+    }
+  }
+
   /// Oublie la session d'une box dont une requête vient d'échouer.
   static void dropSession(BoxRoute route) {
     final login = route.device.login;

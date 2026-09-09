@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:home_widget/home_widget.dart';
 
+import 'action_group_service.dart';
 import 'device_control_service.dart';
 import 'widget_data_service.dart';
 
@@ -296,4 +297,99 @@ class HomeWidgetBridge {
 
   static Future<void> notifyDeviceWidgets() =>
       HomeWidget.updateWidget(androidName: _deviceProvider);
+
+  // --- Widgets de groupe d'actions -----------------------------------------
+
+  static const _groupProvider = 'ActionGroupWidgetProvider';
+
+  /// Catalogue proposé par l'écran de configuration.
+  static const keyGroupCatalog = 'widget_group_catalog';
+
+  /// Description d'un groupe, en JSON.
+  static const suffixGroup = '.group';
+
+  /// Nombre d'actions émises au dernier déclenchement, ou vide.
+  static const suffixSent = '.sent';
+
+  static Future<void> publishGroupCatalog(
+    List<ActionGroup> groups,
+    Set<String> refreshedBoxes,
+  ) async {
+    final entries = <String, Map<String, String>>{};
+
+    // Même prudence que pour les appareils : une box muette garde ses groupes,
+    // sinon un widget devient impossible à reposer le temps qu'elle revienne.
+    final previous = await HomeWidget.getWidgetData<String>(keyGroupCatalog);
+    if (previous != null && previous.isNotEmpty) {
+      try {
+        for (final raw in jsonDecode(previous) as List) {
+          final entry = Map<String, String>.from(
+            (raw as Map).map((k, v) => MapEntry('$k', '$v')),
+          );
+          final key = entry['key'];
+          if (key != null && !refreshedBoxes.contains(entry['box'])) {
+            entries[key] = entry;
+          }
+        }
+      } catch (e) {
+        print('[GROUPES] Catalogue précédent illisible: $e');
+      }
+    }
+
+    for (final g in groups) {
+      entries[g.key] = {
+        'key': g.key,
+        'box': g.boxName,
+        'name': g.name,
+        'icon': g.icon,
+        'count': g.actionCount.toString(),
+      };
+    }
+
+    await HomeWidget.saveWidgetData<String>(
+      keyGroupCatalog,
+      jsonEncode(entries.values.toList()),
+    );
+  }
+
+  /// Écrit la description d'un groupe et redessine.
+  static Future<void> pushGroup(ActionGroup group) async {
+    await HomeWidget.saveWidgetData<String>('${group.key}$suffixFailedAt', '');
+    await HomeWidget.saveWidgetData<String>(
+      '${group.key}$suffixGroup',
+      jsonEncode({
+        'name': group.name,
+        'icon': group.icon,
+        'color': group.color,
+        'count': group.actionCount,
+        'enabled': group.enabled,
+      }),
+    );
+    await notifyGroupWidgets();
+  }
+
+  /// Note le résultat d'un déclenchement : combien d'actions sont parties.
+  static Future<void> pushGroupResult(String groupKey, int sent) async {
+    await HomeWidget.saveWidgetData<String>('$groupKey$suffixFailedAt', '');
+    await HomeWidget.saveWidgetData<String>(
+      '$groupKey$suffixSent',
+      sent.toString(),
+    );
+    await HomeWidget.saveWidgetData<String>(
+      '$groupKey$suffixTimestamp',
+      DateTime.now().millisecondsSinceEpoch.toString(),
+    );
+    await notifyGroupWidgets();
+  }
+
+  static Future<void> pushGroupFailure(String groupKey) async {
+    await HomeWidget.saveWidgetData<String>(
+      '$groupKey$suffixFailedAt',
+      DateTime.now().millisecondsSinceEpoch.toString(),
+    );
+    await notifyGroupWidgets();
+  }
+
+  static Future<void> notifyGroupWidgets() =>
+      HomeWidget.updateWidget(androidName: _groupProvider);
 }
