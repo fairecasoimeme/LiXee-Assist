@@ -115,4 +115,25 @@
     </plurals>
     <string name="widget_group_confirm_unknown">Déclencher ce groupe ?</string>
     <string name="widget_group_confirm_run">Déclencher</string>
+
+    <!-- Widget de thermostat virtuel. -->
+    <string name="widget_thermo_label">LiXee — Thermostat</string>
+    <string name="widget_thermo_description">Consigne, mesure et forçage d\'une zone du thermostat de la box</string>
+    <string name="widget_thermo_config_title">Quelle zone de thermostat ?</string>
+    <string name="widget_thermo_config_zone">Quelle zone sur « %1$s » ?</string>
+    <string name="widget_thermo_config_empty">Aucune zone de thermostat trouvée. Créez-en une sur la box, ouvrez LiXee-Assist une fois, puis reposez le widget.</string>
+    <string name="widget_thermo_setpoint">%1$s °C</string>
+    <!-- La sonde ne répond pas : la consigne ne régule alors rien, et
+         afficher une mesure périmée laisserait croire le contraire. -->
+    <string name="widget_thermo_no_sensor">Pas de sonde</string>
+    <string name="widget_thermo_auto">Auto</string>
+    <string name="widget_thermo_on">Marche</string>
+    <string name="widget_thermo_off">Arrêt</string>
+    <string name="widget_thermo_heat">Chaud</string>
+    <string name="widget_thermo_cool">Froid</string>
+    <string name="widget_thermo_frost">Hors-gel</string>
+    <plurals name="widget_thermo_count">
+        <item quantity="one">%d zone</item>
+        <item quantity="other">%d zones</item>
+    </plurals>
 </resources>

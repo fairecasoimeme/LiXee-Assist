@@ -20,6 +20,7 @@ import 'services/push_register_service.dart';
 import 'services/widget_data_service.dart';
 import 'services/action_group_service.dart';
 import 'services/device_control_service.dart';
+import 'services/thermostat_service.dart';
 import 'services/home_widget_bridge.dart';
 import 'package:home_widget/home_widget.dart';
 
@@ -181,6 +182,69 @@ Future<void> refreshActionGroups({bool closeSessions = false}) async {
   }
 }
 
+/// Relève les thermostats virtuels de chaque box.
+Future<void> refreshThermostats({bool closeSessions = false}) async {
+  try {
+    await SessionPool.loadPersisted();
+    final catalogue = <ThermostatZone>[];
+    final refreshed = <String>{};
+
+    for (final box in await DeviceControlService.savedBoxes()) {
+      final zones = await ThermostatService.fetchAll(
+        box,
+        mdnsResolver: resolveMdnsIP,
+      );
+      if (zones.isEmpty) continue;
+      refreshed.add(box.name);
+      catalogue.addAll(zones);
+      for (final zone in zones) {
+        await HomeWidgetBridge.pushThermostat(zone);
+      }
+    }
+
+    await HomeWidgetBridge.publishThermostatCatalog(catalogue, refreshed);
+    print('[THERMO] ${catalogue.length} zone(s) relevée(s)');
+  } finally {
+    if (closeSessions) WidgetDataService.disposeAll();
+  }
+}
+
+/// Applique une commande de thermostat venue d'un widget.
+Future<void> _runThermostatCommand(Uri uri) async {
+  await SessionPool.loadPersisted();
+  final key = uri.pathSegments.first;
+  final boxName = key.split('~').first;
+  final zoneName = key.substring(boxName.length + 1);
+
+  final boxes = await DeviceControlService.savedBoxes();
+  final box = boxes.where((b) => b.name == boxName).firstOrNull;
+  if (box == null) {
+    print('[THERMO] Box inconnue: $boxName');
+    await HomeWidgetBridge.pushThermostatFailure(key);
+    return;
+  }
+
+  final q = uri.queryParameters;
+  final ok = await ThermostatService.command(
+    box,
+    zoneName,
+    delta: double.tryParse(q['d'] ?? ''),
+    forceMode: int.tryParse(q['f'] ?? ''),
+    heat: q['h'] == null ? null : q['h'] == '1',
+    toggleFrost: q['g'] == '1',
+    mdnsResolver: resolveMdnsIP,
+  );
+  if (!ok) {
+    await HomeWidgetBridge.pushThermostatFailure(key);
+    return;
+  }
+
+  // La box régule en continu : relire tout de suite donnerait la consigne
+  // d'avant. Un court délai suffit, l'actionneur n'est pas dans la boucle.
+  await Future<void>.delayed(const Duration(seconds: 2));
+  await refreshThermostats();
+}
+
 /// Déclenche un groupe d'actions depuis son widget.
 Future<void> _runActionGroup(String groupKey) async {
   await SessionPool.loadPersisted();
@@ -311,6 +375,13 @@ Future<void> widgetInteractionCallback(Uri? uri) async {
 
       case 'grouprefresh':
         await refreshActionGroups();
+
+      case 'thermo':
+        if (uri.pathSegments.isEmpty) return;
+        await _runThermostatCommand(uri);
+
+      case 'thermorefresh':
+        await refreshThermostats();
     }
   } finally {
     WidgetDataService.disposeAll();
@@ -337,9 +408,14 @@ void callbackDispatcher() {
       print('[DEVICES] Relevé échoué dans le worker: $e');
     }
     try {
-      await refreshActionGroups(closeSessions: true);
+      await refreshActionGroups();
     } catch (e) {
       print('[GROUPES] Relevé échoué dans le worker: $e');
+    }
+    try {
+      await refreshThermostats(closeSessions: true);
+    } catch (e) {
+      print('[THERMO] Relevé échoué dans le worker: $e');
     }
     return Future.value(true);
   });
@@ -400,6 +476,11 @@ void main() async {
       await refreshActionGroups();
     } catch (e) {
       print('[GROUPES] Relevé initial échoué: $e');
+    }
+    try {
+      await refreshThermostats();
+    } catch (e) {
+      print('[THERMO] Relevé initial échoué: $e');
     }
   }();
 

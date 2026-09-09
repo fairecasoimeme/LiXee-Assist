@@ -4,6 +4,7 @@ import 'package:home_widget/home_widget.dart';
 
 import 'action_group_service.dart';
 import 'device_control_service.dart';
+import 'thermostat_service.dart';
 import 'widget_data_service.dart';
 
 /// Pousse les relevés vers les widgets d'écran d'accueil natifs.
@@ -392,4 +393,82 @@ class HomeWidgetBridge {
 
   static Future<void> notifyGroupWidgets() =>
       HomeWidget.updateWidget(androidName: _groupProvider);
+
+  // --- Widgets de thermostat -----------------------------------------------
+
+  static const _thermostatProvider = 'ThermostatWidgetProvider';
+
+  static const keyThermostatCatalog = 'widget_thermostat_catalog';
+  static const suffixThermostat = '.thermo';
+
+  static Future<void> publishThermostatCatalog(
+    List<ThermostatZone> zones,
+    Set<String> refreshedBoxes,
+  ) async {
+    final entries = <String, Map<String, String>>{};
+
+    final previous =
+        await HomeWidget.getWidgetData<String>(keyThermostatCatalog);
+    if (previous != null && previous.isNotEmpty) {
+      try {
+        for (final raw in jsonDecode(previous) as List) {
+          final entry = Map<String, String>.from(
+            (raw as Map).map((k, v) => MapEntry('$k', '$v')),
+          );
+          final key = entry['key'];
+          if (key != null && !refreshedBoxes.contains(entry['box'])) {
+            entries[key] = entry;
+          }
+        }
+      } catch (e) {
+        print('[THERMO] Catalogue précédent illisible: $e');
+      }
+    }
+
+    for (final z in zones) {
+      entries[z.key] = {
+        'key': z.key,
+        'box': z.boxName,
+        'name': z.name,
+      };
+    }
+
+    await HomeWidget.saveWidgetData<String>(
+      keyThermostatCatalog,
+      jsonEncode(entries.values.toList()),
+    );
+  }
+
+  static Future<void> pushThermostat(ThermostatZone zone) async {
+    await HomeWidget.saveWidgetData<String>('${zone.key}$suffixFailedAt', '');
+    await HomeWidget.saveWidgetData<String>(
+      '${zone.key}$suffixThermostat',
+      jsonEncode({
+        'name': zone.name,
+        'setpoint': zone.setpoint,
+        if (zone.temperature != null) 'temp': zone.temperature,
+        'heating': zone.heating,
+        'reversible': zone.reversible,
+        'active': zone.active,
+        'force': zone.forceMode,
+        'frost': zone.frost,
+      }),
+    );
+    await HomeWidget.saveWidgetData<String>(
+      '${zone.key}$suffixTimestamp',
+      DateTime.now().millisecondsSinceEpoch.toString(),
+    );
+    await notifyThermostatWidgets();
+  }
+
+  static Future<void> pushThermostatFailure(String zoneKey) async {
+    await HomeWidget.saveWidgetData<String>(
+      '$zoneKey$suffixFailedAt',
+      DateTime.now().millisecondsSinceEpoch.toString(),
+    );
+    await notifyThermostatWidgets();
+  }
+
+  static Future<void> notifyThermostatWidgets() =>
+      HomeWidget.updateWidget(androidName: _thermostatProvider);
 }

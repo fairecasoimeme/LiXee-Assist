@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:initialLayout="@layout/widget_thermostat"
+    android:previewLayout="@layout/widget_thermostat"
+    android:description="@string/widget_thermo_description"
+    android:configure="com.lixee.assist.ThermostatWidgetConfigActivity"
+    android:minWidth="180dp"
+    android:minHeight="140dp"
+    android:targetCellWidth="3"
+    android:targetCellHeight="3"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen"
+    android:updatePeriodMillis="1800000" />

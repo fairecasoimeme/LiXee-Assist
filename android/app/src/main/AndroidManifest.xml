@@ -140,6 +140,28 @@
                 android:resource="@xml/widget_group_info" />
         </receiver>
 
+        <activity
+            android:name=".ThermostatWidgetConfigActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.DeviceDefault.Light.Dialog.NoActionBar">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+
+        <receiver
+            android:name=".ThermostatWidgetProvider"
+            android:label="@string/widget_thermo_label"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_thermostat_info" />
+        </receiver>
+
         <!-- Un receveur par thème : Android identifie un provider par son nom
              de composant, c'est ce qui leur donne des entrées distinctes dans
              le sélecteur. Tous partagent le même rendu et le même stockage. -->
