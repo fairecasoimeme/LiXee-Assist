@@ -6,6 +6,7 @@
     <color name="widget_accent">#5EA9E4</color>
     <color name="widget_text_primary">#F2F2F2</color>
     <color name="widget_text_secondary">#A0A0A0</color>
+    <color name="widget_accent_production">#5FC98A</color>
     <color name="widget_gauge_track">#33383D</color>
     <color name="widget_gauge_ok">#5EA9E4</color>
     <color name="widget_gauge_warn">#F0A85A</color>

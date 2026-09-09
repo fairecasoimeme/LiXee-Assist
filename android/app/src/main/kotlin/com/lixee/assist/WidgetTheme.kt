@@ -19,6 +19,21 @@ enum class WidgetTheme(
     val columnLabelRes: Int,
     /** Grandeur tracée par le graphe. */
     val chartSeries: WidgetChart.Series,
+    /** Teinte du thème : jauge, barres et repère de l'heure en cours. */
+    val accentColorRes: Int,
+    /**
+     * Une valeur qui monte est-elle une bonne nouvelle ?
+     *
+     * Consommer plus coûte, produire plus rapporte : la tendance ne peut pas
+     * peindre toute hausse en rouge sans se tromper la moitié du temps.
+     */
+    val risingIsGood: Boolean,
+    /**
+     * Classe du provider, par son nom plutôt que par référence : une constante
+     * d'enum qui pointerait sur une classe dont elle est elle-même le
+     * paramètre créerait un cycle à l'initialisation.
+     */
+    val providerClassName: String,
 ) {
     CONSUMPTION(
         powerKey = ".power",
@@ -27,6 +42,9 @@ enum class WidgetTheme(
         gaugeLabelRes = R.string.widget_gauge_label,
         columnLabelRes = R.string.widget_column_conso,
         chartSeries = WidgetChart.Series.DRAWN,
+        accentColorRes = R.color.widget_accent,
+        risingIsGood = false,
+        providerClassName = "com.lixee.assist.ConsoWidgetProvider",
     ),
 
     PRODUCTION(
@@ -36,6 +54,9 @@ enum class WidgetTheme(
         gaugeLabelRes = R.string.widget_gauge_label_production,
         columnLabelRes = R.string.widget_column_production,
         chartSeries = WidgetChart.Series.INJECTED,
+        accentColorRes = R.color.widget_accent_production,
+        risingIsGood = true,
+        providerClassName = "com.lixee.assist.ProductionWidgetProvider",
     ),
 
     /**
@@ -51,6 +72,10 @@ enum class WidgetTheme(
         gaugeLabelRes = R.string.widget_gauge_label,
         columnLabelRes = R.string.widget_column_balance,
         chartSeries = WidgetChart.Series.NET,
+        accentColorRes = R.color.widget_accent,
+        // Un solde qui monte, c'est tirer davantage du reseau.
+        risingIsGood = false,
+        providerClassName = "com.lixee.assist.BalanceWidgetProvider",
     );
 
     val hasGauge: Boolean get() = powerKey != null

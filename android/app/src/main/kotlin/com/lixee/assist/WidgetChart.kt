@@ -78,7 +78,8 @@ object WidgetChart {
     fun render(
         context: Context,
         points: List<Point>,
-        series: Series = Series.DRAWN
+        series: Series = Series.DRAWN,
+        accentColorRes: Int = R.color.widget_accent
     ): Bitmap {
         val bitmap = Bitmap.createBitmap(WIDTH_PX, HEIGHT_PX, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
@@ -91,11 +92,11 @@ object WidgetChart {
         val radius = barWidth / 2f
 
         if (series == Series.NET) {
-            drawSigned(context, canvas, points, plotHeight, slot, barWidth, radius)
+            drawSigned(context, canvas, points, plotHeight, slot, barWidth, radius, accentColorRes)
         } else {
-            drawStacked(context, canvas, points, series, plotHeight, slot, barWidth, radius)
+            drawStacked(context, canvas, points, series, plotHeight, slot, barWidth, radius, accentColorRes)
         }
-        drawHourLabels(context, canvas, points, slot, labelHeight)
+        drawHourLabels(context, canvas, points, slot, labelHeight, accentColorRes)
         return bitmap
     }
 
@@ -108,7 +109,8 @@ object WidgetChart {
         plotHeight: Float,
         slot: Float,
         barWidth: Float,
-        radius: Float
+        radius: Float,
+        accentColorRes: Int
     ) {
         // La dernière heure est en cours, donc partielle : elle serait presque
         // toujours le minimum. On la dessine, mais on l'écarte du calcul du
@@ -126,9 +128,9 @@ object WidgetChart {
         // Les extrêmes sont marqués par l'intensité, pas par la teinte : une
         // heure de pointe n'est pas une alerte et une heure creuse n'est pas
         // une bonne nouvelle, ce sont des maxima.
-        val bar = paint(context, R.color.widget_accent, ALPHA_NORMAL)
-        val peakBar = paint(context, R.color.widget_accent, ALPHA_PEAK)
-        val troughBar = paint(context, R.color.widget_accent, ALPHA_TROUGH)
+        val bar = paint(context, accentColorRes, ALPHA_NORMAL)
+        val peakBar = paint(context, accentColorRes, ALPHA_PEAK)
+        val troughBar = paint(context, accentColorRes, ALPHA_TROUGH)
 
         points.forEachIndexed { index, point ->
             val centerX = slot * index + slot / 2f
@@ -157,9 +159,9 @@ object WidgetChart {
     /**
      * Solde de part et d'autre d'une ligne zéro.
      *
-     * La position porte la distinction — soutiré au-dessus, injecté en-dessous
-     * — donc la couleur n'a pas à la répéter : les barres gardent la teinte
-     * neutre, l'orange et le vert restant réservés à ce qui porte un jugement.
+     * Passer sous zéro, c'est avoir injecté plus qu'on n'a tiré : le vert y
+     * porte donc le même sens que pour la tendance — une bonne nouvelle — et
+     * non une catégorie. Au-dessus, la teinte du thème reste neutre.
      *
      * La ligne zéro est placée au prorata des extrêmes plutôt qu'au milieu :
      * une journée presque toujours consommatrice ne doit pas gaspiller la
@@ -172,14 +174,16 @@ object WidgetChart {
         plotHeight: Float,
         slot: Float,
         barWidth: Float,
-        radius: Float
+        radius: Float,
+        accentColorRes: Int
     ) {
         val maxDrawn = max(0, points.maxOfOrNull { it.netWh } ?: 0)
         val maxInjected = max(0, -(points.minOfOrNull { it.netWh } ?: 0))
         val span = (maxDrawn + maxInjected).coerceAtLeast(1)
         val zeroY = plotHeight * maxDrawn / span
 
-        val bar = paint(context, R.color.widget_accent, ALPHA_NORMAL)
+        val drawnBar = paint(context, accentColorRes, ALPHA_NORMAL)
+        val injectedBar = paint(context, R.color.widget_accent_production, ALPHA_PEAK)
         val zeroLine = paint(context, R.color.widget_text_secondary, 90).apply {
             strokeWidth = 2f
         }
@@ -188,7 +192,8 @@ object WidgetChart {
             val centerX = slot * index + slot / 2f
             val height =
                 (abs(point.netWh).toFloat() / span * plotHeight).coerceAtLeast(2f)
-            val top = if (point.netWh >= 0) zeroY - height else zeroY
+            val injecting = point.netWh < 0
+            val top = if (injecting) zeroY else zeroY - height
             canvas.drawRoundRect(
                 centerX - barWidth / 2f,
                 top,
@@ -196,7 +201,7 @@ object WidgetChart {
                 top + height,
                 radius,
                 radius,
-                bar
+                if (injecting) injectedBar else drawnBar
             )
         }
 
@@ -209,7 +214,8 @@ object WidgetChart {
         canvas: Canvas,
         points: List<Point>,
         slot: Float,
-        labelHeight: Float
+        labelHeight: Float,
+        accentColorRes: Int
     ) {
         val label = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = ContextCompat.getColor(context, R.color.widget_text_secondary)
@@ -219,7 +225,7 @@ object WidgetChart {
         // L'heure en cours est le repère le plus utile d'une fenêtre glissante :
         // sans elle on lit « 10h · 16h · 22h » sans savoir où l'on se situe.
         val nowLabel = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = ContextCompat.getColor(context, R.color.widget_accent)
+            color = ContextCompat.getColor(context, accentColorRes)
             textSize = HEIGHT_PX * 0.19f
             textAlign = Paint.Align.CENTER
             isFakeBoldText = true

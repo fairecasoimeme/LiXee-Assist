@@ -8,6 +8,9 @@
     <color name="widget_accent">#1B75BC</color>
     <color name="widget_text_primary">#1A1A1A</color>
     <color name="widget_text_secondary">#6B6B6B</color>
+    <!-- Le solaire se lit en vert : la teinte distingue le widget de
+         production d'un coup d'œil, sans avoir à lire son titre. -->
+    <color name="widget_accent_production">#2E9E5B</color>
     <color name="widget_gauge_track">#E4E8EC</color>
     <color name="widget_gauge_ok">#1B75BC</color>
     <color name="widget_gauge_warn">#E8912D</color>

@@ -36,7 +36,8 @@ object WidgetGauge {
         maxLabel: String? = null,
         centerValue: String? = null,
         centerUnit: String? = null,
-        stale: Boolean = false
+        stale: Boolean = false,
+        accentColorRes: Int = R.color.widget_accent
     ): Bitmap {
         val bitmap = Bitmap.createBitmap(SIZE_PX, SIZE_PX, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
@@ -63,7 +64,7 @@ object WidgetGauge {
                 style = Paint.Style.STROKE
                 strokeWidth = stroke
                 strokeCap = Paint.Cap.ROUND
-                color = ContextCompat.getColor(context, colorFor(clamped))
+                color = ContextCompat.getColor(context, colorFor(clamped, accentColorRes))
             }
             // Un ratio nul ne doit pas dessiner un point isolé dû au cap rond.
             if (clamped > 0.002f) {
@@ -71,7 +72,7 @@ object WidgetGauge {
             }
         }
 
-        drawCenter(context, canvas, bounds, centerValue, centerUnit, stale)
+        drawCenter(context, canvas, bounds, centerValue, centerUnit, stale, accentColorRes)
         drawBounds(context, canvas, bounds, minLabel, maxLabel)
         return bitmap
     }
@@ -83,14 +84,15 @@ object WidgetGauge {
         bounds: RectF,
         value: String?,
         unit: String?,
-        stale: Boolean
+        stale: Boolean,
+        accentColorRes: Int
     ) {
         if (value == null) return
 
         val valuePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = ContextCompat.getColor(
                 context,
-                if (stale) R.color.widget_text_secondary else R.color.widget_accent
+                if (stale) R.color.widget_text_secondary else accentColorRes
             )
             textSize = SIZE_PX * 0.235f
             textAlign = Paint.Align.CENTER
@@ -141,9 +143,10 @@ object WidgetGauge {
         }
     }
 
-    /** Vert tant qu'on est loin du contrat, orange puis rouge en approchant. */
-    private fun colorFor(ratio: Float) = when {
-        ratio < 0.6f -> R.color.widget_gauge_ok
+    /** Teinte du theme tant qu'on est loin du contrat, orange puis rouge en
+     *  approchant : seule l'escalade porte un jugement, la base identifie. */
+    private fun colorFor(ratio: Float, accentColorRes: Int) = when {
+        ratio < 0.6f -> accentColorRes
         ratio < 0.85f -> R.color.widget_gauge_warn
         else -> R.color.widget_gauge_alert
     }
