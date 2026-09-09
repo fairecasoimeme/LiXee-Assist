@@ -1,15 +1,16 @@
 package com.lixee.assist
 
+import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
+import android.content.Intent
 import android.content.Context
 import android.content.SharedPreferences
 import android.net.Uri
+import android.os.Build
 import android.view.View
 import android.widget.RemoteViews
 import androidx.core.content.ContextCompat
 import androidx.core.os.ConfigurationCompat
-import es.antonborri.home_widget.HomeWidgetBackgroundIntent
-import es.antonborri.home_widget.HomeWidgetLaunchIntent
 import es.antonborri.home_widget.HomeWidgetPlugin
 import es.antonborri.home_widget.HomeWidgetProvider
 import java.util.Locale
@@ -27,6 +28,21 @@ import java.util.Locale
  */
 abstract class LixeeWidgetProvider(private val theme: WidgetTheme) :
     HomeWidgetProvider() {
+
+    /**
+     * Le rafraîchissement d'arrière-plan met plusieurs secondes et ne change
+     * parfois rien de visible : sans accusé de réception, l'appui semble
+     * n'avoir aucun effet. On passe donc d'abord ici pour marquer le pied de
+     * page, avant de relayer vers le travail qui fera le relevé.
+     */
+    override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action == ACTION_REFRESH) {
+            acknowledgeTap(context, intent, theme)
+            WidgetRefreshWorker.enqueue(context, intent.data?.toString())
+            return
+        }
+        super.onReceive(context, intent)
+    }
 
     override fun onUpdate(
         context: Context,
@@ -59,6 +75,37 @@ abstract class LixeeWidgetProvider(private val theme: WidgetTheme) :
          */
         private const val STALE_MS = 6 * 60 * 60 * 1000L
 
+        /** Appui sur la jauge, reçu par nos propres providers. */
+        const val ACTION_REFRESH = "com.lixee.assist.action.REFRESH_WIDGET"
+
+        /**
+         * Marque le pied de page comme « mise à jour… », sans toucher au reste.
+         *
+         * `partiallyUpdateAppWidget` applique les seules opérations demandées
+         * par-dessus l'affichage existant : la jauge et le graphe ne sont pas
+         * redessinés, et rien n'a besoin d'être relu.
+         *
+         * L'état se résorbe seul : le relevé se termine par une mise à jour
+         * complète, qu'il ait abouti ou échoué.
+         */
+        private fun acknowledgeTap(context: Context, intent: Intent, theme: WidgetTheme) {
+            val widgetId = intent.getIntExtra(
+                AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID
+            )
+            if (widgetId == AppWidgetManager.INVALID_APPWIDGET_ID) return
+
+            val views = RemoteViews(context.packageName, R.layout.widget_conso)
+            views.setTextViewText(
+                R.id.widget_footer, context.getString(R.string.widget_refreshing)
+            )
+            views.setTextColor(
+                R.id.widget_footer,
+                ContextCompat.getColor(context, theme.accentColorRes)
+            )
+            AppWidgetManager.getInstance(context)
+                .partiallyUpdateAppWidget(widgetId, views)
+        }
+
         /**
          * Exposé pour que l'écran de configuration dessine immédiatement le
          * widget qu'il vient de lier, sans attendre le prochain relevé.
@@ -76,7 +123,7 @@ abstract class LixeeWidgetProvider(private val theme: WidgetTheme) :
                 )
                 appWidgetManager.updateAppWidget(
                     widgetId,
-                    buildViews(context, widgetData, device, theme)
+                    buildViews(context, widgetData, device, theme, widgetId)
                 )
             }
         }
@@ -85,10 +132,11 @@ abstract class LixeeWidgetProvider(private val theme: WidgetTheme) :
             context: Context,
             widgetData: SharedPreferences,
             device: String?,
-            theme: WidgetTheme
+            theme: WidgetTheme,
+            widgetId: Int
         ): RemoteViews {
             val views = RemoteViews(context.packageName, R.layout.widget_conso)
-            attachClicks(context, views, device)
+            attachClicks(context, views, device, theme, widgetId)
             views.setTextViewText(R.id.widget_gauge_label,
                 context.getString(theme.gaugeLabelRes))
             views.setTextViewText(R.id.widget_column_label,
@@ -117,15 +165,21 @@ abstract class LixeeWidgetProvider(private val theme: WidgetTheme) :
             }
 
             val timestamp = widgetData.getString("$device.ts", null)?.toLongOrNull()
+            val failedAt = widgetData.getString("$device.failedat", null)?.toLongOrNull()
+            // La box a cesse de repondre depuis le dernier relevé abouti.
+            val unreachable = failedAt != null && (timestamp == null || failedAt > timestamp)
+
             views.setTextViewText(R.id.widget_device, device)
-            views.setTextViewText(R.id.widget_footer, footer(context, timestamp))
+            views.setTextViewText(
+                R.id.widget_footer, footer(context, timestamp, unreachable)
+            )
             // Un relevé qui vieillit doit se signaler : sans ça, une box
             // injoignable laisse des chiffres périmés d'apparence normale.
             views.setTextColor(
                 R.id.widget_footer,
                 ContextCompat.getColor(
                     context,
-                    if (age(timestamp) > AGING_MS) R.color.widget_gauge_warn
+                    if (unreachable || age(timestamp) > AGING_MS) R.color.widget_gauge_warn
                     else R.color.widget_text_secondary
                 )
             )
@@ -134,13 +188,14 @@ abstract class LixeeWidgetProvider(private val theme: WidgetTheme) :
                 renderGauge(context, views, widgetData, device, theme, timestamp)
             }
             renderFigures(context, views, widgetData, device, theme)
-            renderTrend(context, views, widgetData.getString("$device.trend", null))
+            renderTrend(context, views, widgetData.getString("$device.trend", null), theme)
             views.setImageViewBitmap(
                 R.id.widget_chart,
                 WidgetChart.render(
                     context,
                     WidgetChart.parse(widgetData.getString("$device.hourly", null)),
-                    theme.chartSeries
+                    theme.chartSeries,
+                    theme.accentColorRes
                 )
             )
             return views
@@ -183,7 +238,8 @@ abstract class LixeeWidgetProvider(private val theme: WidgetTheme) :
                     centerValue = power?.let { format(context, it.toDouble(), 0) }
                         ?: context.getString(R.string.widget_placeholder),
                     centerUnit = context.getString(R.string.widget_unit_power),
-                    stale = age(timestamp) > STALE_MS
+                    stale = age(timestamp) > STALE_MS,
+                    accentColorRes = theme.accentColorRes
                 )
             )
         }
@@ -225,20 +281,65 @@ abstract class LixeeWidgetProvider(private val theme: WidgetTheme) :
          * si leurs intents sont `filterEquals`, ce qui compare l'URI — d'où une
          * URI distincte par box.
          */
-        private fun attachClicks(context: Context, views: RemoteViews, device: String?) {
-            val suffix = device ?: "unconfigured"
+        private fun attachClicks(
+            context: Context,
+            views: RemoteViews,
+            device: String?,
+            theme: WidgetTheme,
+            widgetId: Int
+        ) {
+            // Encodé : un nom de box est libre et peut contenir espaces ou
+            // accents, qui casseraient l'URI — et donc la distinction entre
+            // les PendingIntent de deux widgets.
+            val suffix = Uri.encode(device ?: "unconfigured")
+            // Vers notre propre receveur, pas directement vers celui du
+            // plugin : il faut accuser réception avant de relayer.
             views.setOnClickPendingIntent(
                 R.id.widget_gauge,
-                HomeWidgetBackgroundIntent.getBroadcast(
-                    context, Uri.parse("lixee://refresh/$suffix")
-                )
+                refreshIntent(context, Uri.parse("lixee://refresh/$suffix"), theme, widgetId)
             )
+            // Vers l'écran de confirmation, pas vers l'app : refuser doit
+            // laisser l'utilisateur sur son bureau, sans rien avoir lancé.
             views.setOnClickPendingIntent(
                 R.id.widget_root,
-                HomeWidgetLaunchIntent.getActivity(
-                    context, MainActivity::class.java, Uri.parse("lixee://open/$suffix")
-                )
+                confirmIntent(context, Uri.parse("lixee://open/$suffix"))
             )
+        }
+
+        /**
+         * L'URI distingue les widgets entre eux : deux PendingIntent ne sont
+         * confondus que si leurs intents sont `filterEquals`, ce qui la compare.
+         */
+        /**
+         * Vise le provider du theme par son nom : un Intent explicite evite de
+         * dependre d'un filtre, et l'URI distincte par box garde les
+         * PendingIntent separes.
+         */
+        private fun refreshIntent(
+            context: Context,
+            target: Uri,
+            theme: WidgetTheme,
+            widgetId: Int
+        ): PendingIntent {
+            val intent = Intent(ACTION_REFRESH)
+                .setClassName(context.packageName, theme.providerClassName)
+                .setData(target)
+                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
+            var flags = PendingIntent.FLAG_UPDATE_CURRENT
+            if (Build.VERSION.SDK_INT >= 23) {
+                flags = flags or PendingIntent.FLAG_IMMUTABLE
+            }
+            return PendingIntent.getBroadcast(context, widgetId, intent, flags)
+        }
+
+        private fun confirmIntent(context: Context, target: Uri): PendingIntent {
+            val intent = Intent(context, WidgetLaunchConfirmActivity::class.java)
+                .setData(target)
+            var flags = PendingIntent.FLAG_UPDATE_CURRENT
+            if (Build.VERSION.SDK_INT >= 23) {
+                flags = flags or PendingIntent.FLAG_IMMUTABLE
+            }
+            return PendingIntent.getActivity(context, 0, intent, flags)
         }
 
         /**
@@ -247,18 +348,28 @@ abstract class LixeeWidgetProvider(private val theme: WidgetTheme) :
          * Le vert marque une baisse : sur une facture d'électricité, consommer
          * moins est la bonne nouvelle — l'inverse des conventions boursières.
          */
-        private fun renderTrend(context: Context, views: RemoteViews, raw: String?) {
+        private fun renderTrend(
+            context: Context,
+            views: RemoteViews,
+            raw: String?,
+            theme: WidgetTheme
+        ) {
             val pct = raw?.toIntOrNull()
             if (pct == null) {
                 views.setTextViewText(R.id.widget_trend, "")
                 return
             }
 
+            // Consommer plus coute, produire plus rapporte : la meme hausse
+            // est une mauvaise nouvelle dans un cas et une bonne dans l'autre.
+            val goodNews = R.color.widget_positive
+            val badNews = R.color.widget_negative
+            val rising = if (theme.risingIsGood) goodNews else badNews
+            val falling = if (theme.risingIsGood) badNews else goodNews
+
             val (text, color) = when {
-                pct > 2 -> context.getString(R.string.widget_trend_up, pct) to
-                    R.color.widget_negative
-                pct < -2 -> context.getString(R.string.widget_trend_down, -pct) to
-                    R.color.widget_positive
+                pct > 2 -> context.getString(R.string.widget_trend_up, pct) to rising
+                pct < -2 -> context.getString(R.string.widget_trend_down, -pct) to falling
                 // Sous 2 %, l'écart relève du bruit de mesure.
                 else -> context.getString(R.string.widget_trend_flat) to
                     R.color.widget_text_secondary
@@ -287,14 +398,23 @@ abstract class LixeeWidgetProvider(private val theme: WidgetTheme) :
          * Le lanceur redessine le widget sans que Dart tourne : l'âge doit être
          * recalculé ici, sinon il resterait figé à sa valeur d'écriture.
          */
-        private fun footer(context: Context, timestamp: Long?): String {
-            if (timestamp == null) return context.getString(R.string.widget_never_updated)
+        private fun footer(
+            context: Context,
+            timestamp: Long?,
+            unreachable: Boolean
+        ): String {
+            if (timestamp == null) {
+                return context.getString(
+                    if (unreachable) R.string.widget_unreachable_never
+                    else R.string.widget_never_updated
+                )
+            }
 
             // La voie employée — tunnel ou LAN — n'est plus affichée : c'est
             // une information de diagnostic, sans intérêt pour qui regarde son
             // écran d'accueil, et elle pesait autant que la fraîcheur.
             val minutes = age(timestamp) / 60_000L
-            return when {
+            val ageText = when {
                 minutes < 1L -> context.getString(R.string.widget_age_now)
                 minutes < 60L -> context.resources.getQuantityString(
                     R.plurals.widget_age_minutes, minutes.toInt(), minutes.toInt()
@@ -305,6 +425,13 @@ abstract class LixeeWidgetProvider(private val theme: WidgetTheme) :
                         R.plurals.widget_age_hours, hours, hours
                     )
                 }
+            }
+            // Dire les deux : l'utilisateur veut savoir que sa demande a bien
+            // ete prise en compte, et de quand datent les chiffres affiches.
+            return if (unreachable) {
+                context.getString(R.string.widget_unreachable, ageText)
+            } else {
+                ageText
             }
         }
     }

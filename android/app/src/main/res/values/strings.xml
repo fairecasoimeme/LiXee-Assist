@@ -11,6 +11,13 @@
     <string name="widget_no_device">Box non choisie</string>
     <string name="widget_tap_to_configure">Retirez et reposez le widget</string>
     <string name="widget_never_updated">Jamais relevé</string>
+    <!-- La box n'a pas répondu à la dernière tentative. On garde l'âge des
+         chiffres affichés : sans lui, on ne sait pas ce qu'on regarde. -->
+    <string name="widget_unreachable">Injoignable · %1$s</string>
+    <string name="widget_unreachable_never">Injoignable</string>
+    <!-- Accusé de réception de l'appui : le relevé prend plusieurs secondes
+         et ne change parfois rien de visible. -->
+    <string name="widget_refreshing">Mise à jour…</string>
 
     <string name="widget_config_title">Quelle LiXee-Box afficher ?</string>
     <string name="widget_config_empty">Aucune box enregistrée. Ajoutez-en une dans LiXee-Assist, puis reposez le widget.</string>
