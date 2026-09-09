@@ -125,6 +125,14 @@ class DeviceSnapshot {
       '${actions.length} action(s))';
 }
 
+extension _KeyPart on String {
+  /// Partie IEEE d'une clé `box/IEEE`.
+  String substringAfterSlash() {
+    final slash = indexOf('/');
+    return slash < 0 ? this : substring(slash + 1);
+  }
+}
+
 /// Lit et commande les appareils Zigbee d'une box.
 ///
 /// Ne connaît aucun type d'appareil : ce que la box décrit dans ses gabarits
@@ -155,6 +163,27 @@ class DeviceControlService {
   /// firmware : le relire à chaque réveil d'isolate serait du gaspillage, et
   /// l'isolate d'arrière-plan repart de zéro à chaque appui.
   static const _templatePrefix = 'device_template_';
+
+  /// Instantané réduit à ce qu'exige l'émission d'une commande.
+  ///
+  /// [send] n'a besoin que de l'adresse courte et du libellé pour la trace :
+  /// exiger un relevé complet obligerait à relire tout l'inventaire de la box
+  /// avant chaque appui sur un bouton de widget.
+  static DeviceSnapshot stub({
+    required String boxName,
+    required String key,
+    required int shortAddr,
+    required int endpoint,
+  }) =>
+      DeviceSnapshot(
+        boxName: boxName,
+        ieee: key.substringAfterSlash(),
+        label: key,
+        model: '',
+        shortAddr: shortAddr,
+        endpoint: endpoint,
+        timestamp: DateTime.now(),
+      );
 
   /// Relève tous les appareils d'une box.
   static Future<List<DeviceSnapshot>> fetchAll(

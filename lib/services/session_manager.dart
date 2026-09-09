@@ -102,6 +102,28 @@ class SessionManager {
 
   String? get sessionCookie => _sessionCookie;
 
+  /// Noms des champs du formulaire, une fois détectés. Exposés pour pouvoir
+  /// les conserver d'un isolate à l'autre : les redétecter coûte un aller-retour
+  /// avant même de pouvoir tenter le login.
+  String? get userField => _userField;
+  String? get passField => _passField;
+
+  /// Rétablit une session obtenue ailleurs — typiquement lors d'un passage
+  /// précédent de l'app, avant que cet isolate n'existe.
+  ///
+  /// Sans garantie de validité : le cookie vit 24 h côté box, mais peut avoir
+  /// été révoqué. [authenticatedGet] reconnaît la page de login et refait le
+  /// trajet complet, ce qui ramène simplement au comportement d'avant.
+  void restore({String? cookie, String? userField, String? passField}) {
+    if (cookie != null && cookie.isNotEmpty) _sessionCookie = cookie;
+    if (userField != null) _userField = userField;
+    if (passField != null) _passField = passField;
+  }
+
+  /// Appelé après chaque login abouti, pour que l'appelant puisse conserver le
+  /// cookie au-delà de la vie de cet objet.
+  void Function(SessionManager session)? onAuthenticated;
+
   /// Détecte les noms des champs du formulaire de login depuis le HTML.
   Future<void> _detectFormFields() async {
     if (_userField != null) return; // déjà détecté
@@ -191,6 +213,7 @@ class SessionManager {
         if (cookieParts.isNotEmpty) {
           _sessionCookie = cookieParts.join('; ');
           print('[SESSION] Login OK, cookie=$_sessionCookie');
+          onAuthenticated?.call(this);
           _loginCompleter!.complete(true);
           _loginCompleter = null;
           return true;

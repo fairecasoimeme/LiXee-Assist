@@ -1,3 +1,5 @@
+import 'package:shared_preferences/shared_preferences.dart';
+
 import 'session_manager.dart';
 
 /// Registre partagé des sessions authentifiées, par box.
@@ -16,6 +18,66 @@ class SessionPool {
   /// concurrents partagent la même détection au lieu d'émettre deux requêtes.
   static final Map<String, Future<AuthMode>> _authModes = {};
 
+  /// Sessions retenues d'un passage précédent de l'app, lues au démarrage.
+  ///
+  /// Un isolate d'arrière-plan naît sans rien : sans ce report, chaque appui
+  /// sur un widget refaisait détection du mode, détection des champs du
+  /// formulaire et POST /login — trois allers-retours avant la première
+  /// requête utile, soit deux secondes de plus sur un tunnel.
+  static Map<String, String> _persisted = const {};
+
+  static const _cookiePrefix = 'session_cookie_';
+  static const _fieldsPrefix = 'session_fields_';
+  static const _modePrefix = 'session_mode_';
+
+  /// Recharge les sessions conservées. Sans effet si déjà fait.
+  ///
+  /// À appeler au début d'un point d'entrée d'arrière-plan, avant la première
+  /// requête : après, il serait trop tard pour éviter le login.
+  static Future<void> loadPersisted() async {
+    if (_persisted.isNotEmpty) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.reload();
+      _persisted = {
+        for (final key in prefs.getKeys())
+          if (key.startsWith(_cookiePrefix) ||
+              key.startsWith(_fieldsPrefix) ||
+              key.startsWith(_modePrefix))
+            key: prefs.getString(key) ?? '',
+      };
+
+      // Le mode d'authentification est une propriété de l'endpoint : le
+      // reprendre tel quel évite un GET / dont la réponse ne change jamais.
+      for (final entry in _persisted.entries) {
+        if (!entry.key.startsWith(_modePrefix)) continue;
+        final baseUrl = entry.key.substring(_modePrefix.length);
+        final mode = AuthMode.values
+            .where((m) => m.name == entry.value)
+            .firstOrNull;
+        if (mode != null) _authModes[baseUrl] = Future.value(mode);
+      }
+    } catch (e) {
+      print('[SESSION] Sessions conservées illisibles: $e');
+    }
+  }
+
+  static Future<void> _remember(SessionManager session) async {
+    final key = _key(session.targetBaseUrl, session.username);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('$_cookiePrefix$key', session.sessionCookie ?? '');
+      await prefs.setString(
+        '$_fieldsPrefix$key',
+        '${session.userField ?? ''}|${session.passField ?? ''}',
+      );
+      await prefs.setString('$_modePrefix${session.targetBaseUrl}',
+          AuthMode.form.name);
+    } catch (e) {
+      print('[SESSION] Session non conservée: $e');
+    }
+  }
+
   /// La clé inclut l'hôte : un cookie obtenu via le tunnel n'est pas valable
   /// sur l'IP locale, les deux voies ont donc leur session propre.
   static String _key(String baseUrl, String username) => '$baseUrl|$username';
@@ -26,14 +88,22 @@ class SessionPool {
     String username,
     String password,
   ) {
-    return _sessions.putIfAbsent(
-      _key(baseUrl, username),
-      () => SessionManager(
+    return _sessions.putIfAbsent(_key(baseUrl, username), () {
+      final manager = SessionManager(
         targetBaseUrl: baseUrl,
         username: username,
         password: password,
-      ),
-    );
+      );
+      final key = _key(baseUrl, username);
+      final fields = (_persisted['$_fieldsPrefix$key'] ?? '').split('|');
+      manager.restore(
+        cookie: _persisted['$_cookiePrefix$key'],
+        userField: fields.length == 2 && fields[0].isNotEmpty ? fields[0] : null,
+        passField: fields.length == 2 && fields[1].isNotEmpty ? fields[1] : null,
+      );
+      manager.onAuthenticated = (s) => _remember(s);
+      return manager;
+    });
   }
 
   /// Mode d'authentification de cette box, détecté une seule fois.

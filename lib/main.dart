@@ -15,6 +15,7 @@ import 'dart:convert';
 import 'screens/wifi_provision_screen.dart';
 import 'screens/home_screen.dart';
 import 'services/session_manager.dart';
+import 'services/session_pool.dart';
 import 'services/push_register_service.dart';
 import 'services/widget_data_service.dart';
 import 'services/device_control_service.dart';
@@ -63,6 +64,8 @@ Future<void> refreshWidgetMetrics({
   String? only,
 }) async {
   try {
+    await SessionPool.loadPersisted();
+
     // Publier la liste d'abord : l'utilisateur peut poser un widget et le
     // configurer avant qu'un seul relevé ait abouti.
     await HomeWidgetBridge.publishDeviceList(
@@ -98,8 +101,10 @@ Future<void> refreshWidgetMetrics({
 Future<void> refreshDeviceMetrics({
   bool closeSessions = false,
   String? only,
+  bool forceRead = false,
 }) async {
   try {
+    await SessionPool.loadPersisted();
     final catalogue = <DeviceSnapshot>[];
     final refreshed = <String>{};
     for (final box in await DeviceControlService.savedBoxes()) {
@@ -117,6 +122,21 @@ Future<void> refreshDeviceMetrics({
       }
       refreshed.add(box.name);
       catalogue.addAll(devices);
+
+      // Après une action, la box sert encore la dernière valeur *rapportée*.
+      // Sans ce rappel, un volet en mouvement affiche sa position de départ.
+      if (forceRead) {
+        for (final device in devices.where((d) => d.key == only)) {
+          for (final reading in device.readings) {
+            await DeviceControlService.forceRead(
+              box,
+              device,
+              reading,
+              mdnsResolver: resolveMdnsIP,
+            );
+          }
+        }
+      }
       for (final device in devices) {
         if (only == null || device.key == only) {
           await HomeWidgetBridge.pushDevice(device);
@@ -137,8 +157,12 @@ Future<void> refreshDeviceMetrics({
 /// l'appareil ait bougé. On relit donc après coup — et plusieurs fois, car un
 /// volet met une vingtaine de secondes à arriver et ne rapporte sa position
 /// qu'à intervalles grossiers.
-Future<void> _runDeviceAction(String deviceKey, String actionName) async {
+Future<void> _runDeviceAction(Uri uri) async {
+  final deviceKey = uri.pathSegments[0];
+  final actionName = uri.pathSegments[1];
   final boxName = deviceKey.split('/').first;
+
+  await SessionPool.loadPersisted();
   final boxes = await DeviceControlService.savedBoxes();
   final box = boxes.where((b) => b.name == boxName).firstOrNull;
   if (box == null) {
@@ -146,20 +170,25 @@ Future<void> _runDeviceAction(String deviceKey, String actionName) async {
     return;
   }
 
-  final devices = await DeviceControlService.fetchAll(
-    box,
-    mdnsResolver: resolveMdnsIP,
+  // Tout ce qu'il faut pour émettre la commande était déjà affiché : le widget
+  // le renvoie dans l'URI. Relire l'inventaire de la box d'abord coûtait
+  // plusieurs secondes avant que le volet ne bouge.
+  final device = DeviceControlService.stub(
+    boxName: boxName,
+    key: deviceKey,
+    shortAddr: int.tryParse(uri.queryParameters['sa'] ?? '') ?? 0,
+    endpoint: int.tryParse(uri.queryParameters['e'] ?? '') ?? 1,
   );
-  final device = devices.where((d) => d.key == deviceKey).firstOrNull;
-  if (device == null) {
-    print('[DEVICES] Appareil introuvable: $deviceKey');
-    await HomeWidgetBridge.pushDeviceFailure(deviceKey);
-    return;
-  }
-
-  final action = device.actions.where((a) => a.name == actionName).firstOrNull;
-  if (action == null) {
-    print('[DEVICES] Action inconnue: $actionName');
+  final action = DeviceAction(
+    name: actionName,
+    command: int.tryParse(uri.queryParameters['c'] ?? '') ?? 0,
+    endpoint: device.endpoint,
+    value: int.tryParse(uri.queryParameters['v'] ?? '') ?? 0,
+    cluster: int.tryParse(uri.queryParameters['cl'] ?? ''),
+    manufacturerCode: int.tryParse(uri.queryParameters['m'] ?? ''),
+  );
+  if (device.shortAddr == 0 || action.command == 0) {
+    print('[DEVICES] Commande incomplète: $uri');
     return;
   }
 
@@ -179,15 +208,7 @@ Future<void> _runDeviceAction(String deviceKey, String actionName) async {
   // valeur d'avant l'appui, ce qui ressemblerait à une commande sans effet.
   for (final delay in const [Duration(seconds: 4), Duration(seconds: 12)]) {
     await Future<void>.delayed(delay);
-    for (final reading in device.readings) {
-      await DeviceControlService.forceRead(
-        box,
-        device,
-        reading,
-        mdnsResolver: resolveMdnsIP,
-      );
-    }
-    await refreshDeviceMetrics(only: deviceKey);
+    await refreshDeviceMetrics(only: deviceKey, forceRead: true);
   }
 }
 
@@ -224,7 +245,7 @@ Future<void> widgetInteractionCallback(Uri? uri) async {
 
       case 'devaction':
         if (uri.pathSegments.length < 2) return;
-        await _runDeviceAction(uri.pathSegments[0], uri.pathSegments[1]);
+        await _runDeviceAction(uri);
     }
   } finally {
     WidgetDataService.disposeAll();

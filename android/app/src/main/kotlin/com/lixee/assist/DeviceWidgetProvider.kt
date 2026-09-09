@@ -192,12 +192,19 @@ class DeviceWidgetProvider : HomeWidgetProvider() {
             val actions = device.optJSONArray("actions")
             val count = minOf(actions?.length() ?: 0, MAX_BUTTONS)
             for (i in 0 until count) {
-                val name = actions!!.getJSONObject(i).optString("name")
+                val action = actions!!.getJSONObject(i)
                 views.setViewVisibility(buttonId(i), View.VISIBLE)
-                views.setTextViewText(buttonId(i), name)
+                views.setTextViewText(buttonId(i), action.optString("name"))
                 views.setOnClickPendingIntent(
                     buttonId(i),
-                    confirmIntent(context, key, name, device.optString("label"), widgetId)
+                    confirmIntent(
+                        context,
+                        key,
+                        action,
+                        device.optString("label"),
+                        device.optInt("short"),
+                        widgetId
+                    )
                 )
             }
             hideButtonsFrom(views, count)
@@ -304,23 +311,40 @@ class DeviceWidgetProvider : HomeWidgetProvider() {
         private fun confirmIntent(
             context: Context,
             key: String,
-            action: String,
+            action: JSONObject,
             label: String,
+            shortAddr: Int,
             widgetId: Int
         ): PendingIntent {
+            val name = action.optString("name")
+            // L'URI porte les paramètres de la commande, pas seulement son nom :
+            // sans eux, l'app devait relire tout l'inventaire de la box avant
+            // de pouvoir l'émettre — plusieurs secondes de plus par appui.
+            val target = Uri.parse("lixee://devaction/${Uri.encode(key)}/${Uri.encode(name)}")
+                .buildUpon()
+                .appendQueryParameter("sa", shortAddr.toString())
+                .appendQueryParameter("c", action.optInt("command").toString())
+                .appendQueryParameter("e", action.optInt("endpoint", 1).toString())
+                .appendQueryParameter("v", action.optInt("value").toString())
+                .apply {
+                    if (action.has("cluster")) {
+                        appendQueryParameter("cl", action.optInt("cluster").toString())
+                    }
+                    if (action.has("mfr")) {
+                        appendQueryParameter("m", action.optInt("mfr").toString())
+                    }
+                }
+                .build()
+
             val intent = Intent(context, WidgetActionConfirmActivity::class.java)
-                .setData(
-                    Uri.parse(
-                        "lixee://devaction/${Uri.encode(key)}/${Uri.encode(action)}"
-                    )
-                )
+                .setData(target)
                 .putExtra(WidgetActionConfirmActivity.EXTRA_LABEL, label)
                 .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
             // Le code de requête distingue les boutons d'un même widget : leurs
             // URI diffèrent déjà, mais s'en remettre à cela seul rendrait tout
             // renommage d'action silencieusement ambigu.
             return PendingIntent.getActivity(
-                context, widgetId * 16 + action.hashCode().and(0xF), intent, flags()
+                context, widgetId * 16 + name.hashCode().and(0xF), intent, flags()
             )
         }
 

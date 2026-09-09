@@ -262,8 +262,19 @@ class HomeWidgetBridge {
               if (r.gaugeKind != null) 'gauge': r.gaugeKind,
             },
         ],
+        // Les paramètres voyagent avec le bouton, et pas seulement son nom :
+        // le natif les renvoie tels quels à l'appui, ce qui évite de relire
+        // tout l'inventaire de la box avant d'émettre la commande.
         'actions': [
-          for (final a in device.actions) {'name': a.name},
+          for (final a in device.actions)
+            {
+              'name': a.name,
+              'command': a.command,
+              'endpoint': a.endpoint,
+              'value': a.value,
+              if (a.cluster != null) 'cluster': a.cluster,
+              if (a.manufacturerCode != null) 'mfr': a.manufacturerCode,
+            },
         ],
       }),
     );
