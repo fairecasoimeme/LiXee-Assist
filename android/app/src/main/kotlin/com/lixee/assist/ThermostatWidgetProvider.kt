@@ -90,6 +90,7 @@ class ThermostatWidgetProvider : HomeWidgetProvider() {
                     R.id.thermo_name, context.getString(R.string.widget_no_device)
                 )
                 views.setTextViewText(R.id.thermo_temp, "")
+                views.setTextViewText(R.id.thermo_state, "")
                 views.setTextViewText(R.id.thermo_setpoint, "")
                 views.setTextViewText(
                     R.id.thermo_footer,
@@ -109,6 +110,7 @@ class ThermostatWidgetProvider : HomeWidgetProvider() {
             if (payload.isNullOrEmpty()) {
                 views.setTextViewText(R.id.thermo_name, fallbackName)
                 views.setTextViewText(R.id.thermo_temp, "")
+                views.setTextViewText(R.id.thermo_state, "")
                 views.setTextViewText(R.id.thermo_setpoint, "")
                 views.setTextViewText(
                     R.id.thermo_footer, footer(context, null, unreachable)
@@ -127,21 +129,22 @@ class ThermostatWidgetProvider : HomeWidgetProvider() {
             )
 
             // Sans sonde valide, la consigne ne régule rien : le dire vaut
-            // mieux qu'afficher une température qui n'existe plus.
+            // mieux que de laisser croire à une mesure. La jauge affiche alors
+            // un tiret en son centre, et cette ligne l'explique.
             views.setTextViewText(
                 R.id.thermo_temp,
-                if (zone.has("temp")) {
-                    String.format(locale, "%.1f °C", zone.optDouble("temp"))
-                } else {
-                    context.getString(R.string.widget_thermo_no_sensor)
-                }
+                if (zone.has("temp")) ""
+                else context.getString(R.string.widget_thermo_no_sensor)
             )
-            views.setTextColor(
-                R.id.thermo_temp,
-                ContextCompat.getColor(
+            views.setImageViewBitmap(
+                R.id.thermo_gauge,
+                ThermostatGauge.render(
                     context,
-                    if (zone.has("temp")) R.color.widget_text_primary
-                    else R.color.widget_text_secondary
+                    setpoint = zone.optDouble("setpoint").toFloat(),
+                    temperature =
+                        if (zone.has("temp")) zone.optDouble("temp").toFloat() else null,
+                    heating = zone.optBoolean("heating"),
+                    active = zone.optBoolean("active")
                 )
             )
 
@@ -162,7 +165,14 @@ class ThermostatWidgetProvider : HomeWidgetProvider() {
                 )
             )
 
+            views.setTextViewText(R.id.thermo_state, state(context, zone))
+            views.setTextColor(
+                R.id.thermo_state,
+                ContextCompat.getColor(context, stateColour(zone))
+            )
+
             attachClicks(context, views, key, zone, widgetId)
+            markSelection(context, views, zone)
 
             views.setTextViewText(
                 R.id.thermo_footer, footer(context, timestamp, unreachable)
@@ -176,6 +186,96 @@ class ThermostatWidgetProvider : HomeWidgetProvider() {
                 )
             )
             return views
+        }
+
+        /**
+         * Décrit l'état en toutes lettres : mode, forçage, hors-gel, et si
+         * l'actionneur marche à cet instant.
+         *
+         * La page de la box porte la même information par la teinte de sa
+         * carte. Sur un écran d'accueil, à côté d'autres widgets et sous un
+         * fond d'écran quelconque, une couleur seule se lit mal.
+         */
+        private fun state(context: Context, zone: JSONObject): String {
+            val parts = mutableListOf<String>()
+            parts.add(
+                context.getString(
+                    if (zone.optBoolean("heating")) R.string.widget_thermo_heat
+                    else R.string.widget_thermo_cool
+                )
+            )
+            when (zone.optInt("force")) {
+                1 -> parts.add(context.getString(R.string.widget_thermo_forced_on))
+                2 -> parts.add(context.getString(R.string.widget_thermo_forced_off))
+                else -> parts.add(context.getString(R.string.widget_thermo_auto))
+            }
+            if (zone.optBoolean("frost")) {
+                parts.add(context.getString(R.string.widget_thermo_frost))
+            }
+            parts.add(
+                context.getString(
+                    if (zone.optBoolean("active")) R.string.widget_thermo_regulating
+                    else R.string.widget_thermo_idle
+                )
+            )
+            return parts.joinToString(context.getString(R.string.widget_thermo_separator))
+        }
+
+        /** Actif : la teinte du mode. Au repos : gris, comme la box. */
+        private fun stateColour(zone: JSONObject): Int = when {
+            !zone.optBoolean("active") -> R.color.widget_text_secondary
+            zone.optBoolean("heating") -> R.color.widget_gauge_warn
+            else -> R.color.widget_accent
+        }
+
+        /**
+         * Colore le bouton correspondant à l'état courant.
+         *
+         * RemoteViews n'a pas de notion de sélection : on échange le fond par
+         * `setBackgroundResource`, seule voie télécommandable pour cela.
+         */
+        private fun markSelection(
+            context: Context,
+            views: RemoteViews,
+            zone: JSONObject
+        ) {
+            val force = zone.optInt("force")
+            select(context, views, R.id.thermo_auto, force == 0,
+                R.drawable.widget_action_button_on)
+            select(context, views, R.id.thermo_on, force == 1,
+                R.drawable.widget_action_button_on)
+            select(context, views, R.id.thermo_off, force == 2,
+                R.drawable.widget_action_button_on)
+
+            val heating = zone.optBoolean("heating")
+            select(context, views, R.id.thermo_heat, heating,
+                R.drawable.widget_action_button_heat)
+            select(context, views, R.id.thermo_cool, !heating,
+                R.drawable.widget_action_button_cool)
+            select(context, views, R.id.thermo_frost, zone.optBoolean("frost"),
+                R.drawable.widget_action_button_frost)
+        }
+
+        private fun select(
+            context: Context,
+            views: RemoteViews,
+            viewId: Int,
+            selected: Boolean,
+            selectedBackground: Int
+        ) {
+            views.setInt(
+                viewId,
+                "setBackgroundResource",
+                if (selected) selectedBackground else R.drawable.widget_action_button
+            )
+            views.setTextColor(
+                viewId,
+                ContextCompat.getColor(
+                    context,
+                    if (selected) R.color.widget_on_accent
+                    else R.color.widget_text_primary
+                )
+            )
         }
 
         private fun attachClicks(

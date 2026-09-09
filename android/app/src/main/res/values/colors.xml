@@ -19,4 +19,13 @@
     <color name="widget_positive">#2E9E5B</color>
     <color name="widget_negative">#D3452F</color>
     <color name="widget_action_background">#E9EEF4</color>
+    <!-- Teintes d'état, reprises de la page thermostat de la box. -->
+    <color name="widget_frost">#5DADE2</color>
+    <color name="widget_on_accent">#FFFFFF</color>
+    <!-- Jauge du thermostat, teintes reprises de la page de la box :
+         vif quand l'actionneur marche, pâle quand il est au repos. -->
+    <color name="widget_thermo_heat_on">#E74C3C</color>
+    <color name="widget_thermo_heat_off">#F1948A</color>
+    <color name="widget_thermo_cool_on">#2980B9</color>
+    <color name="widget_thermo_cool_off">#AED6F1</color>
 </resources>

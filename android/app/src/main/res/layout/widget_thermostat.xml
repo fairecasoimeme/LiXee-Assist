@@ -52,20 +52,9 @@
             android:text="@string/widget_never_updated" />
     </LinearLayout>
 
-    <!-- Mesure de la sonde : la grandeur qu'on lit de loin. -->
-    <TextView
-        android:id="@+id/thermo_temp"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:paddingTop="2dp"
-        android:maxLines="1"
-        android:ellipsize="end"
-        android:textSize="22sp"
-        android:textStyle="bold"
-        android:textColor="@color/widget_text_primary"
-        android:text="@string/widget_placeholder" />
-
-    <!-- Consigne, encadrée de ses deux boutons. -->
+    <!-- La jauge porte la mesure en son centre et se remplit jusqu'à la
+         consigne, comme celle de la box. À sa droite, l'état en toutes
+         lettres et les deux boutons de consigne. -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -73,43 +62,93 @@
         android:baselineAligned="false"
         android:paddingTop="2dp">
 
-        <Button
-            android:id="@+id/thermo_minus"
-            android:layout_width="46dp"
-            android:layout_height="38dp"
-            android:padding="0dp"
-            android:minWidth="0dp"
-            android:minHeight="0dp"
-            android:textSize="18sp"
-            android:background="@drawable/widget_action_button"
-            android:textColor="@color/widget_text_primary"
-            android:text="−" />
+        <ImageView
+            android:id="@+id/thermo_gauge"
+            android:layout_width="86dp"
+            android:layout_height="86dp"
+            android:layout_marginEnd="8dp"
+            android:scaleType="fitCenter"
+            android:contentDescription="@string/widget_thermo_gauge_description" />
 
-        <TextView
-            android:id="@+id/thermo_setpoint"
+        <LinearLayout
             android:layout_width="0dp"
             android:layout_weight="1"
-            android:layout_height="38dp"
-            android:gravity="center"
-            android:maxLines="1"
-            android:ellipsize="end"
-            android:textSize="16sp"
-            android:textStyle="bold"
-            android:textColor="@color/widget_accent"
-            android:text="@string/widget_placeholder" />
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center_vertical">
 
-        <Button
-            android:id="@+id/thermo_plus"
-            android:layout_width="46dp"
-            android:layout_height="38dp"
-            android:padding="0dp"
-            android:minWidth="0dp"
-            android:minHeight="0dp"
-            android:textSize="18sp"
-            android:background="@drawable/widget_action_button"
-            android:textColor="@color/widget_text_primary"
-            android:text="+" />
+            <!-- Ce que fait la zone : chaud ou froid, forçage, hors-gel, et si
+                 l'actionneur marche. La jauge le dit par sa teinte ; sur un
+                 écran d'accueil, un mot est plus sûr qu'une couleur. -->
+            <TextView
+                android:id="@+id/thermo_state"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:maxLines="3"
+                android:ellipsize="end"
+                android:textSize="11sp"
+                android:textColor="@color/widget_text_secondary"
+                android:text="" />
+
+            <TextView
+                android:id="@+id/thermo_temp"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:textSize="11sp"
+                android:textColor="@color/widget_text_secondary"
+                android:text="" />
+
+        </LinearLayout>
     </LinearLayout>
+
+        <!-- Consigne, encadrée de ses deux boutons. -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:baselineAligned="false"
+            android:paddingTop="2dp">
+
+    <Button
+        android:id="@+id/thermo_minus"
+        android:layout_width="46dp"
+        android:layout_height="38dp"
+        android:padding="0dp"
+        android:minWidth="0dp"
+        android:minHeight="0dp"
+        android:textSize="18sp"
+        android:background="@drawable/widget_action_button"
+        android:textColor="@color/widget_text_primary"
+        android:text="−" />
+
+    <TextView
+        android:id="@+id/thermo_setpoint"
+        android:layout_width="0dp"
+        android:layout_weight="1"
+        android:layout_height="38dp"
+        android:gravity="center"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        android:textColor="@color/widget_accent"
+        android:text="@string/widget_placeholder" />
+
+    <Button
+        android:id="@+id/thermo_plus"
+        android:layout_width="46dp"
+        android:layout_height="38dp"
+        android:padding="0dp"
+        android:minWidth="0dp"
+        android:minHeight="0dp"
+        android:textSize="18sp"
+        android:background="@drawable/widget_action_button"
+        android:textColor="@color/widget_text_primary"
+        android:text="+" />
+    </LinearLayout>
+
 
     <LinearLayout
         android:layout_width="match_parent"
