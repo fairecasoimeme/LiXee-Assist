@@ -139,6 +139,18 @@ class DeviceControlService {
   /// gabarit d'un seul type, 3 ko, et il n'en faut qu'une poignée.
   static final Map<String, Map<String, dynamic>> _templates = {};
 
+  /// Unités que les gabarits omettent mais que la spécification Zigbee fixe.
+  ///
+  /// Clé `cluster/attribut`, cluster en hexadécimal comme dans le gabarit.
+  /// `0x0102` attribut 8 est `CurrentPositionLiftPercentage` : un pourcentage
+  /// par définition, et l'afficher nu laissait un « 92 » sans échelle.
+  ///
+  /// Volontairement indexé sur l'attribut et non sur le modèle : c'est une
+  /// propriété du standard, vraie pour tout volet, pas une supposition sur un
+  /// matériel donné. Le gabarit garde le dernier mot — il n'est complété que
+  /// là où il se tait.
+  static const impliedUnits = <String, String>{'0102/8': '%'};
+
   /// Préfixe du cache persistant. Un gabarit ne change qu'à une mise à jour du
   /// firmware : le relire à chaque réveil d'isolate serait du gaspillage, et
   /// l'isolate d'arrière-plan repart de zéro à chaque appui.
@@ -376,7 +388,7 @@ class DeviceControlService {
         name: raw['name']?.toString() ?? attribute,
         cluster: cluster,
         attribute: int.tryParse(attribute) ?? 0,
-        unit: raw['unit']?.toString(),
+        unit: raw['unit']?.toString() ?? impliedUnits['$cluster/$attribute'],
         value: decoded == null ? null : decoded * coefficient,
         min: (raw['min'] as num?)?.toDouble(),
         max: (raw['max'] as num?)?.toDouble(),

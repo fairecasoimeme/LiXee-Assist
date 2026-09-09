@@ -129,6 +129,17 @@ void main() {
       expect(capteur.reading('battery')?.value, 100);
     });
 
+    test('la position hérite du pourcentage que le gabarit omet', () {
+      // 0x0102 attribut 8 est CurrentPositionLiftPercentage : la
+      // spécification en fait un pourcentage, le gabarit ne le dit pas.
+      expect(byLabel('volet salon 1').reading('current_position')?.unit, '%');
+    });
+
+    test("le gabarit garde le dernier mot sur l'unité", () {
+      // L'unité déduite ne doit compléter que là où le gabarit se tait.
+      expect(byLabel('temp').reading('temperature')?.unit, '°C');
+    });
+
     test('unité et bornes de jauge viennent du gabarit', () {
       final temperature = byLabel('temp').reading('temperature')!;
       expect(temperature.unit, '°C');
