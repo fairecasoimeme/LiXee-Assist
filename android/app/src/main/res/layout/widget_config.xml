@@ -6,6 +6,7 @@
     android:padding="20dp">
 
     <TextView
+        android:id="@+id/config_title"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="@string/widget_config_title"
@@ -18,10 +19,14 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:paddingTop="8dp"
-        android:textSize="15sp" />
+        android:textSize="15sp"
+        android:visibility="gone" />
 
     <ListView
         android:id="@+id/config_list"
         android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:divider="?android:attr/listDivider"
+        android:dividerHeight="1dp" />
 </LinearLayout>

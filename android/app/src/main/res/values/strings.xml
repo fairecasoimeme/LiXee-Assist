@@ -65,4 +65,21 @@
 
     <!-- Valeur d'aperçu du sélecteur de widgets, remplacée au premier rendu. -->
     <string name="widget_preview_footer">il y a 2 min</string>
+
+    <!-- Widget par appareil Zigbee. -->
+    <string name="widget_device_label">LiXee — Appareil</string>
+    <string name="widget_device_description">Valeurs et commandes d\'un appareil appairé (volet, prise, capteur)</string>
+    <string name="widget_device_config_title">Quel appareil afficher ?</string>
+    <string name="widget_device_config_box">Sur quelle LiXee-Box ?</string>
+    <string name="widget_device_config_device">Quel appareil sur « %1$s » ?</string>
+    <plurals name="widget_device_count">
+        <item quantity="one">%d appareil</item>
+        <item quantity="other">%d appareils</item>
+    </plurals>
+    <string name="widget_device_config_empty">Aucun appareil relevé pour l\'instant. Ouvrez LiXee-Assist une fois, puis reposez le widget.</string>
+    <!-- Confirmation avant d'agir : un volet qui descend par mégarde ne se
+         rattrape pas d'un retour arrière. -->
+    <string name="widget_action_title">%1$s ?</string>
+    <string name="widget_action_message">Envoyer « %1$s » à « %2$s » ?</string>
+    <string name="widget_action_confirm">Envoyer</string>
 </resources>

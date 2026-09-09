@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Widget d'un appareil Zigbee.
+
+  Le contenu n'est pas connu d'avance : c'est le gabarit de la box qui dit
+  combien de grandeurs afficher et combien de boutons proposer. La mise en page
+  prévoit donc trois lignes de valeur et trois boutons, et masque ce qui n'est
+  pas rempli — RemoteViews ne sait pas créer de vues à la volée.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/device_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/widget_background"
+    android:padding="10dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:baselineAligned="false">
+
+        <ImageView
+            android:layout_width="14dp"
+            android:layout_height="14dp"
+            android:layout_marginEnd="6dp"
+            android:src="@drawable/ic_lixee_mark"
+            android:scaleType="fitCenter"
+            android:contentDescription="@string/widget_logo_description" />
+
+        <TextView
+            android:id="@+id/device_label"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="@color/widget_text_primary"
+            android:text="@string/widget_placeholder" />
+    </LinearLayout>
+
+    <!-- Grandeur principale, en gros : c'est elle qu'on lit de loin. -->
+    <TextView
+        android:id="@+id/device_primary"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingTop="2dp"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:textSize="22sp"
+        android:textStyle="bold"
+        android:textColor="@color/widget_text_primary"
+        android:text="@string/widget_placeholder" />
+
+    <TextView
+        android:id="@+id/device_secondary"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:maxLines="2"
+        android:ellipsize="end"
+        android:textSize="12sp"
+        android:textColor="@color/widget_text_secondary"
+        android:text="" />
+
+    <!-- Pousse les boutons en bas quel que soit le nombre de grandeurs. -->
+    <Space
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1" />
+
+    <LinearLayout
+        android:id="@+id/device_actions"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingTop="6dp">
+
+        <Button
+            android:id="@+id/device_action_0"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="40dp"
+            android:layout_marginEnd="4dp"
+            android:padding="0dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:textSize="13sp"
+            android:background="@drawable/widget_action_button"
+            android:textColor="@color/widget_text_primary"
+            android:text="@string/widget_placeholder" />
+
+        <Button
+            android:id="@+id/device_action_1"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="40dp"
+            android:layout_marginEnd="4dp"
+            android:padding="0dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:textSize="13sp"
+            android:background="@drawable/widget_action_button"
+            android:textColor="@color/widget_text_primary"
+            android:text="@string/widget_placeholder" />
+
+        <Button
+            android:id="@+id/device_action_2"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="40dp"
+            android:padding="0dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:textSize="13sp"
+            android:background="@drawable/widget_action_button"
+            android:textColor="@color/widget_text_primary"
+            android:text="@string/widget_placeholder" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/device_footer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingTop="4dp"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:textSize="10sp"
+        android:textColor="@color/widget_text_secondary"
+        android:text="@string/widget_never_updated" />
+</LinearLayout>

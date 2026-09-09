@@ -17,6 +17,7 @@ import 'screens/home_screen.dart';
 import 'services/session_manager.dart';
 import 'services/push_register_service.dart';
 import 'services/widget_data_service.dart';
+import 'services/device_control_service.dart';
 import 'services/home_widget_bridge.dart';
 import 'package:home_widget/home_widget.dart';
 
@@ -90,7 +91,107 @@ Future<void> refreshWidgetMetrics({
   }
 }
 
-/// Appui sur la jauge d'un widget : relève et redessine, sans ouvrir l'app.
+/// Relève les appareils Zigbee appairés et les publie pour leurs widgets.
+///
+/// [only] restreint le relevé à un appareil, désigné par sa clé
+/// `box/IEEE` : sur un appui, c'est le seul qui intéresse l'utilisateur.
+Future<void> refreshDeviceMetrics({
+  bool closeSessions = false,
+  String? only,
+}) async {
+  try {
+    final catalogue = <DeviceSnapshot>[];
+    final refreshed = <String>{};
+    for (final box in await DeviceControlService.savedBoxes()) {
+      if (only != null && !only.startsWith('${box.name}/')) continue;
+
+      final devices = await DeviceControlService.fetchAll(
+        box,
+        mdnsResolver: resolveMdnsIP,
+      );
+      if (devices.isEmpty) {
+        // Une box muette n'a pas « zéro appareil » : on ne touche pas à son
+        // catalogue, et seul le widget qui attendait une réponse le signale.
+        if (only != null) await HomeWidgetBridge.pushDeviceFailure(only);
+        continue;
+      }
+      refreshed.add(box.name);
+      catalogue.addAll(devices);
+      for (final device in devices) {
+        if (only == null || device.key == only) {
+          await HomeWidgetBridge.pushDevice(device);
+        }
+      }
+    }
+
+    await HomeWidgetBridge.publishDeviceCatalog(catalogue, refreshed);
+    print('[DEVICES] ${catalogue.length} appareil(s) relevé(s)');
+  } finally {
+    if (closeSessions) WidgetDataService.disposeAll();
+  }
+}
+
+/// Envoie une action sur un appareil, puis relit son état.
+///
+/// La box se contente d'empiler la trame Zigbee : elle répond avant que
+/// l'appareil ait bougé. On relit donc après coup — et plusieurs fois, car un
+/// volet met une vingtaine de secondes à arriver et ne rapporte sa position
+/// qu'à intervalles grossiers.
+Future<void> _runDeviceAction(String deviceKey, String actionName) async {
+  final boxName = deviceKey.split('/').first;
+  final boxes = await DeviceControlService.savedBoxes();
+  final box = boxes.where((b) => b.name == boxName).firstOrNull;
+  if (box == null) {
+    print('[DEVICES] Box inconnue: $boxName');
+    return;
+  }
+
+  final devices = await DeviceControlService.fetchAll(
+    box,
+    mdnsResolver: resolveMdnsIP,
+  );
+  final device = devices.where((d) => d.key == deviceKey).firstOrNull;
+  if (device == null) {
+    print('[DEVICES] Appareil introuvable: $deviceKey');
+    await HomeWidgetBridge.pushDeviceFailure(deviceKey);
+    return;
+  }
+
+  final action = device.actions.where((a) => a.name == actionName).firstOrNull;
+  if (action == null) {
+    print('[DEVICES] Action inconnue: $actionName');
+    return;
+  }
+
+  final sent = await DeviceControlService.send(
+    box,
+    device,
+    action,
+    mdnsResolver: resolveMdnsIP,
+  );
+  if (!sent) {
+    await HomeWidgetBridge.pushDeviceFailure(deviceKey);
+    return;
+  }
+
+  // Relectures espacées : la première attrape les mouvements courts, la
+  // dernière la position d'arrivée. S'arrêter à la première afficherait la
+  // valeur d'avant l'appui, ce qui ressemblerait à une commande sans effet.
+  for (final delay in const [Duration(seconds: 4), Duration(seconds: 12)]) {
+    await Future<void>.delayed(delay);
+    for (final reading in device.readings) {
+      await DeviceControlService.forceRead(
+        box,
+        device,
+        reading,
+        mdnsResolver: resolveMdnsIP,
+      );
+    }
+    await refreshDeviceMetrics(only: deviceKey);
+  }
+}
+
+/// Appui sur un widget : relève et redessine, sans ouvrir l'app.
 ///
 /// Doit être top-level et annoté `vm:entry-point` : l'appel arrive dans un
 /// isolate neuf, lancé par le receveur du plugin, où rien de l'app ne tourne.
@@ -99,17 +200,34 @@ Future<void> refreshWidgetMetrics({
 /// d'Android, puisque c'est l'utilisateur qui le demande.
 @pragma('vm:entry-point')
 Future<void> widgetInteractionCallback(Uri? uri) async {
-  if (uri?.host != 'refresh') return;
-  // L'URI porte la box du widget touché. Balayer les autres n'apporterait
-  // rien à l'écran et ferait durer l'attente de plusieurs secondes par box
-  // muette — assez pour que le système tue le processus avant la fin.
-  final device = uri!.pathSegments.isEmpty ? null : uri.pathSegments.first;
-  print('[WIDGET-DATA] Relevé demandé depuis le widget ($uri)');
+  if (uri == null) return;
+  print('[WIDGET-DATA] Appui widget ($uri)');
+
   try {
-    await refreshWidgetMetrics(closeSessions: true, only: device);
-  } catch (e) {
-    print('[WIDGET-DATA] Relevé sur appui échoué: $e');
-    if (device != null) await HomeWidgetBridge.pushFailure(device);
+    switch (uri.host) {
+      case 'refresh':
+        // L'URI porte la box du widget touché. Balayer les autres n'apporterait
+        // rien à l'écran et ferait durer l'attente de plusieurs secondes par
+        // box muette — assez pour que le système tue le processus avant la fin.
+        final device =
+            uri.pathSegments.isEmpty ? null : uri.pathSegments.first;
+        try {
+          await refreshWidgetMetrics(closeSessions: true, only: device);
+        } catch (e) {
+          print('[WIDGET-DATA] Relevé sur appui échoué: $e');
+          if (device != null) await HomeWidgetBridge.pushFailure(device);
+        }
+
+      case 'devrefresh':
+        final key = uri.pathSegments.isEmpty ? null : uri.pathSegments.first;
+        await refreshDeviceMetrics(closeSessions: true, only: key);
+
+      case 'devaction':
+        if (uri.pathSegments.length < 2) return;
+        await _runDeviceAction(uri.pathSegments[0], uri.pathSegments[1]);
+    }
+  } finally {
+    WidgetDataService.disposeAll();
   }
 }
 
@@ -123,9 +241,14 @@ void callbackDispatcher() {
     }
     try {
       // Isolate éphémère : refermer les sessions HTTP en sortant.
-      await refreshWidgetMetrics(closeSessions: true);
+      await refreshWidgetMetrics();
     } catch (e) {
       print('[WIDGET-DATA] Relevé échoué dans le worker: $e');
+    }
+    try {
+      await refreshDeviceMetrics(closeSessions: true);
+    } catch (e) {
+      print('[DEVICES] Relevé échoué dans le worker: $e');
     }
     return Future.value(true);
   });
@@ -173,6 +296,14 @@ void main() async {
       await refreshWidgetMetrics();
     } catch (e) {
       print('[WIDGET-DATA] Relevé initial échoué: $e');
+    }
+    // Après le Linky : c'est le relevé des appareils qui alimente le catalogue
+    // de l'écran de configuration, sans lequel aucun widget d'appareil ne peut
+    // être posé.
+    try {
+      await refreshDeviceMetrics();
+    } catch (e) {
+      print('[DEVICES] Relevé initial échoué: $e');
     }
   }();
 

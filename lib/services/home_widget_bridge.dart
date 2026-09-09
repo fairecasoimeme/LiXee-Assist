@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:home_widget/home_widget.dart';
 
+import 'device_control_service.dart';
 import 'widget_data_service.dart';
 
 /// Pousse les relevés vers les widgets d'écran d'accueil natifs.
@@ -178,4 +179,110 @@ class HomeWidgetBridge {
       await HomeWidget.updateWidget(androidName: provider);
     }
   }
+
+  // --- Widgets par appareil Zigbee -----------------------------------------
+
+  static const _deviceProvider = 'DeviceWidgetProvider';
+
+  /// Catalogue proposé par l'écran de configuration : un objet par appareil,
+  /// toutes box confondues.
+  static const keyDeviceCatalog = 'widget_device_catalog';
+
+  /// État d'un appareil, en JSON.
+  ///
+  /// Contrairement aux relevés Linky, dont chaque grandeur a sa clé, un
+  /// appareil n'a pas de forme connue d'avance : le gabarit de la box dicte
+  /// combien de valeurs et combien de boutons. Un objet structuré évite
+  /// d'inventer un encodage maison pour une liste de longueur variable.
+  static const suffixDevice = '.device';
+
+  /// Publie le catalogue des appareils, pour l'écran de configuration.
+  ///
+  /// [refreshedBoxes] nomme les box effectivement relevées. Celles qui n'ont
+  /// pas répondu gardent leurs appareils de la fois précédente : les effacer
+  /// ferait disparaître un volet de la liste parce que le Wi-Fi a hoqueté, et
+  /// interdirait de reposer son widget jusqu'au retour de la box.
+  static Future<void> publishDeviceCatalog(
+    List<DeviceSnapshot> devices,
+    Set<String> refreshedBoxes,
+  ) async {
+    final entries = <String, Map<String, String>>{};
+
+    final previous = await HomeWidget.getWidgetData<String>(keyDeviceCatalog);
+    if (previous != null && previous.isNotEmpty) {
+      try {
+        for (final raw in jsonDecode(previous) as List) {
+          final entry = Map<String, String>.from(
+            (raw as Map).map((k, v) => MapEntry('$k', '$v')),
+          );
+          final key = entry['key'];
+          if (key != null && !refreshedBoxes.contains(entry['box'])) {
+            entries[key] = entry;
+          }
+        }
+      } catch (e) {
+        print('[DEVICES] Catalogue précédent illisible: $e');
+      }
+    }
+
+    for (final d in devices) {
+      entries[d.key] = {
+        'key': d.key,
+        'box': d.boxName,
+        'label': d.label,
+        'model': d.model,
+      };
+    }
+
+    await HomeWidget.saveWidgetData<String>(
+      keyDeviceCatalog,
+      jsonEncode(entries.values.toList()),
+    );
+  }
+
+  /// Écrit l'état d'un appareil et redessine les widgets qui le montrent.
+  static Future<void> pushDevice(DeviceSnapshot device) async {
+    final prefix = device.key;
+    await HomeWidget.saveWidgetData<String>('$prefix$suffixFailedAt', '');
+    await HomeWidget.saveWidgetData<String>(
+      '$prefix$suffixDevice',
+      jsonEncode({
+        'label': device.label,
+        'model': device.model,
+        'short': device.shortAddr,
+        'endpoint': device.endpoint,
+        'readings': [
+          for (final r in device.readings)
+            {
+              'name': r.name,
+              if (r.value != null) 'value': r.value,
+              if (r.unit != null) 'unit': r.unit,
+              if (r.min != null) 'min': r.min,
+              if (r.max != null) 'max': r.max,
+              if (r.gaugeKind != null) 'gauge': r.gaugeKind,
+            },
+        ],
+        'actions': [
+          for (final a in device.actions) {'name': a.name},
+        ],
+      }),
+    );
+    await HomeWidget.saveWidgetData<String>(
+      '$prefix$suffixTimestamp',
+      device.timestamp.millisecondsSinceEpoch.toString(),
+    );
+    await notifyDeviceWidgets();
+  }
+
+  /// Note un appareil qu'on n'a pas su joindre, puis redessine.
+  static Future<void> pushDeviceFailure(String deviceKey) async {
+    await HomeWidget.saveWidgetData<String>(
+      '$deviceKey$suffixFailedAt',
+      DateTime.now().millisecondsSinceEpoch.toString(),
+    );
+    await notifyDeviceWidgets();
+  }
+
+  static Future<void> notifyDeviceWidgets() =>
+      HomeWidget.updateWidget(androidName: _deviceProvider);
 }

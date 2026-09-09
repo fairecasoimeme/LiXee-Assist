@@ -13,4 +13,5 @@
     <color name="widget_gauge_alert">#E86B57</color>
     <color name="widget_positive">#5FC98A</color>
     <color name="widget_negative">#E86B57</color>
+    <color name="widget_action_background">#2A3138</color>
 </resources>

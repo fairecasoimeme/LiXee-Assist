@@ -18,4 +18,5 @@
     <!-- Vert = consommation en baisse ou heure la plus creuse. -->
     <color name="widget_positive">#2E9E5B</color>
     <color name="widget_negative">#D3452F</color>
+    <color name="widget_action_background">#E9EEF4</color>
 </resources>

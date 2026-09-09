@@ -15,6 +15,12 @@ class DeviceReading {
   final String? unit;
   final double? value;
 
+  /// D'où vient la valeur, tel qu'écrit par le gabarit : cluster en
+  /// hexadécimal, attribut en décimal. Conservés pour pouvoir demander à la
+  /// box de relire cet attribut sur l'appareil après une action.
+  final String cluster;
+  final int attribute;
+
   /// Bornes de jauge, quand le gabarit en propose une.
   final double? min;
   final double? max;
@@ -25,6 +31,8 @@ class DeviceReading {
 
   const DeviceReading({
     required this.name,
+    required this.cluster,
+    required this.attribute,
     this.unit,
     this.value,
     this.min,
@@ -124,9 +132,17 @@ class DeviceSnapshot {
 class DeviceControlService {
   DeviceControlService._();
 
-  /// Gabarits par box. Ils pèsent ~150 ko et ne changent qu'au gré des mises à
-  /// jour du firmware : les relire à chaque relevé serait absurde.
+  /// Gabarits déjà lus, par box et par type d'appareil.
+  ///
+  /// On ne charge **pas** `/getTemplates` : ses 146 ko n'arrivent pas au bout
+  /// à travers le tunnel, qui coupe en cours de corps. `/readFile` livre le
+  /// gabarit d'un seul type, 3 ko, et il n'en faut qu'une poignée.
   static final Map<String, Map<String, dynamic>> _templates = {};
+
+  /// Préfixe du cache persistant. Un gabarit ne change qu'à une mise à jour du
+  /// firmware : le relire à chaque réveil d'isolate serait du gaspillage, et
+  /// l'isolate d'arrière-plan repart de zéro à chaque appui.
+  static const _templatePrefix = 'device_template_';
 
   /// Relève tous les appareils d'une box.
   static Future<List<DeviceSnapshot>> fetchAll(
@@ -151,7 +167,7 @@ class DeviceControlService {
           continue;
         }
 
-        final templates = await _templatesFor(route);
+        final templates = await _templatesFor(route, devices);
         BoxClient.remember(box, candidate);
         return parseDevices(box.name, devices, templates);
       } catch (e) {
@@ -212,13 +228,12 @@ class DeviceControlService {
   static Future<void> forceRead(
     BoxDevice box,
     DeviceSnapshot device,
-    String clusterHex,
-    int attribute, {
+    DeviceReading reading, {
     Future<String?> Function(String deviceName)? mdnsResolver,
     Duration localTimeout = BoxClient.defaultLocalTimeout,
     Duration remoteTimeout = BoxClient.defaultRemoteTimeout,
   }) async {
-    final cluster = int.tryParse(clusterHex, radix: 16);
+    final cluster = int.tryParse(reading.cluster, radix: 16);
     if (cluster == null) return;
 
     final routes = BoxClient.routes(
@@ -232,7 +247,8 @@ class DeviceControlService {
         await BoxClient.get(
           route,
           '/ZigbeeSendRequest?shortaddr=${device.shortAddr}'
-          '&endpoint=${device.endpoint}&cluster=$cluster&attribute=$attribute',
+          '&endpoint=${device.endpoint}&cluster=$cluster'
+          '&attribute=${reading.attribute}',
         );
         return;
       } catch (e) {
@@ -358,6 +374,8 @@ class DeviceControlService {
 
       readings.add(DeviceReading(
         name: raw['name']?.toString() ?? attribute,
+        cluster: cluster,
+        attribute: int.tryParse(attribute) ?? 0,
         unit: raw['unit']?.toString(),
         value: decoded == null ? null : decoded * coefficient,
         min: (raw['min'] as num?)?.toDouble(),
@@ -406,15 +424,79 @@ class DeviceControlService {
     );
   }
 
-  static Future<Map<String, dynamic>> _templatesFor(BoxRoute route) async {
-    final cached = _templates[route.device.key];
-    if (cached != null) return cached;
+  /// Charge les gabarits des seuls types présents sur la box.
+  ///
+  /// Un échec sur l'un d'eux n'empêche pas les autres : l'appareil concerné
+  /// s'affichera sans valeur ni bouton, ce qui vaut mieux que de perdre toute
+  /// la liste.
+  static Future<Map<String, dynamic>> _templatesFor(
+    BoxRoute route,
+    String devicesJson,
+  ) async {
+    final ids = <String>{};
+    final decoded = jsonDecode(devicesJson);
+    if (decoded is Map) {
+      for (final device in decoded.values) {
+        final id = (device is Map ? device['INFO'] : null) is Map
+            ? (device as Map)['INFO']['device_id']?.toString()
+            : null;
+        if (id != null && id.isNotEmpty) ids.add(id);
+      }
+    }
 
-    final body = await BoxClient.get(route, '/getTemplates');
-    if (body == null) return const {};
-    final decoded = jsonDecode(body);
-    if (decoded is! Map<String, dynamic>) return const {};
-    _templates[route.device.key] = decoded;
+    final prefs = await SharedPreferences.getInstance();
+    final result = <String, dynamic>{};
+    for (final id in ids) {
+      try {
+        final template = await _template(route, id, prefs);
+        if (template != null) result['$id.json'] = template;
+      } catch (e) {
+        // Un gabarit manquant coûte un appareil sans valeur ni bouton ; laisser
+        // l'exception remonter coûterait la liste entière.
+        print('[DEVICES] Gabarit $id indisponible: $e');
+      }
+    }
+    return result;
+  }
+
+  static Future<Map<String, dynamic>?> _template(
+    BoxRoute route,
+    String deviceId,
+    SharedPreferences prefs,
+  ) async {
+    final cacheKey = '$_templatePrefix${route.device.key}|$deviceId';
+    final memory = _templates[cacheKey];
+    if (memory != null) return memory;
+
+    final stored = prefs.getString(cacheKey);
+    if (stored != null) {
+      final decoded = _decodeTemplate(stored);
+      if (decoded != null) {
+        _templates[cacheKey] = decoded;
+        return decoded;
+      }
+    }
+
+    final body = await BoxClient.get(
+      route,
+      '/readFile?rep=tp&file=$deviceId.json',
+    );
+    if (body == null) return null;
+    final decoded = _decodeTemplate(body);
+    if (decoded == null) return null;
+
+    _templates[cacheKey] = decoded;
+    await prefs.setString(cacheKey, body);
     return decoded;
+  }
+
+  static Map<String, dynamic>? _decodeTemplate(String body) {
+    try {
+      final decoded = jsonDecode(body);
+      return decoded is Map<String, dynamic> ? decoded : null;
+    } catch (e) {
+      print('[DEVICES] Gabarit illisible: $e');
+      return null;
+    }
   }
 }

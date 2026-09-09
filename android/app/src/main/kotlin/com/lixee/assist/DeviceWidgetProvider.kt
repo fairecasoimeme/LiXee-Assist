@@ -1,0 +1,339 @@
+package com.lixee.assist
+
+import android.app.PendingIntent
+import android.appwidget.AppWidgetManager
+import android.content.Context
+import android.content.Intent
+import android.content.SharedPreferences
+import android.net.Uri
+import android.os.Build
+import android.view.View
+import android.widget.RemoteViews
+import androidx.core.content.ContextCompat
+import androidx.core.os.ConfigurationCompat
+import es.antonborri.home_widget.HomeWidgetPlugin
+import es.antonborri.home_widget.HomeWidgetProvider
+import org.json.JSONObject
+import java.util.Locale
+
+/**
+ * Widget d'un appareil Zigbee appairé : ses valeurs et ses boutons.
+ *
+ * Ne connaît aucun type de matériel. Le côté Dart publie un objet décrivant ce
+ * qu'il faut montrer — libellés, unités, boutons — d'après le gabarit que la
+ * box tient pour cet appareil. Un modèle inconnu de l'app s'affiche donc
+ * correctement dès que la box le connaît, sans mise à jour de l'app.
+ *
+ * RemoteViews ne sait pas créer de vues à la volée : la mise en page prévoit
+ * trois boutons et masque ceux qui ne servent pas.
+ */
+class DeviceWidgetProvider : HomeWidgetProvider() {
+
+    override fun onReceive(context: Context, intent: Intent) {
+        when (intent.action) {
+            ACTION_DEVICE_REFRESH, ACTION_DEVICE_COMMAND -> {
+                acknowledge(context, intent)
+                WidgetRefreshWorker.enqueue(context, intent.data?.toString())
+                return
+            }
+        }
+        super.onReceive(context, intent)
+    }
+
+    override fun onUpdate(
+        context: Context,
+        appWidgetManager: AppWidgetManager,
+        appWidgetIds: IntArray,
+        widgetData: SharedPreferences
+    ) {
+        appWidgetIds.forEach { id ->
+            appWidgetManager.updateAppWidget(id, build(context, widgetData, id))
+        }
+    }
+
+    override fun onDeleted(context: Context, appWidgetIds: IntArray) {
+        super.onDeleted(context, appWidgetIds)
+        val editor = HomeWidgetPlugin.getData(context).edit()
+        appWidgetIds.forEach { editor.remove(bindingKeyFor(it)) }
+        editor.apply()
+    }
+
+    companion object {
+        /** Appui sur le corps du widget : relève, sans rien commander. */
+        const val ACTION_DEVICE_REFRESH = "com.lixee.assist.action.DEVICE_REFRESH"
+
+        /** Appui confirmé sur un bouton d'action. */
+        const val ACTION_DEVICE_COMMAND = "com.lixee.assist.action.DEVICE_COMMAND"
+
+        private const val AGING_MS = 60 * 60 * 1000L
+        private const val MAX_BUTTONS = 3
+
+        /** Clé du choix d'appareil, propre à une instance de widget. */
+        fun bindingKeyFor(appWidgetId: Int) = "device_binding_$appWidgetId"
+
+        /**
+         * Marque le pied de page pendant que le relevé court.
+         *
+         * La box répond avant que l'appareil ait bougé, et un volet met une
+         * vingtaine de secondes à arriver : sans ce retour, l'appui semble
+         * n'avoir aucun effet et l'utilisateur appuie une seconde fois.
+         */
+        private fun acknowledge(context: Context, intent: Intent) {
+            val widgetId = intent.getIntExtra(
+                AppWidgetManager.EXTRA_APPWIDGET_ID,
+                AppWidgetManager.INVALID_APPWIDGET_ID
+            )
+            if (widgetId == AppWidgetManager.INVALID_APPWIDGET_ID) return
+
+            val views = RemoteViews(context.packageName, R.layout.widget_device)
+            views.setTextViewText(
+                R.id.device_footer, context.getString(R.string.widget_refreshing)
+            )
+            views.setTextColor(
+                R.id.device_footer,
+                ContextCompat.getColor(context, R.color.widget_accent)
+            )
+            AppWidgetManager.getInstance(context)
+                .partiallyUpdateAppWidget(widgetId, views)
+        }
+
+        /**
+         * Exposé pour que l'écran de configuration dessine immédiatement le
+         * widget qu'il vient de lier, sans attendre le prochain relevé.
+         */
+        fun build(
+            context: Context,
+            widgetData: SharedPreferences,
+            widgetId: Int
+        ): RemoteViews {
+            val views = RemoteViews(context.packageName, R.layout.widget_device)
+            val key = widgetData.getString(bindingKeyFor(widgetId), null)
+
+            if (key == null) {
+                views.setTextViewText(
+                    R.id.device_label, context.getString(R.string.widget_no_device)
+                )
+                views.setTextViewText(R.id.device_primary, "")
+                views.setTextViewText(R.id.device_secondary, "")
+                views.setTextViewText(
+                    R.id.device_footer,
+                    context.getString(R.string.widget_tap_to_configure)
+                )
+                hideButtonsFrom(views, 0)
+                return views
+            }
+
+            views.setOnClickPendingIntent(
+                R.id.device_root,
+                refreshIntent(context, key, widgetId)
+            )
+
+            val timestamp = widgetData.getString("$key.ts", null)?.toLongOrNull()
+            val failedAt =
+                widgetData.getString("$key.failedat", null)?.toLongOrNull()
+            val unreachable =
+                failedAt != null && (timestamp == null || failedAt > timestamp)
+
+            val payload = widgetData.getString("$key.device", null)
+            if (payload.isNullOrEmpty()) {
+                // Lié mais jamais relevé : ne rien inventer, et surtout ne pas
+                // proposer de boutons dont on ignore encore les intitulés.
+                views.setTextViewText(R.id.device_label, key.substringAfter('/'))
+                views.setTextViewText(R.id.device_primary, "")
+                views.setTextViewText(R.id.device_secondary, "")
+                views.setTextViewText(R.id.device_footer, footer(context, null, unreachable))
+                hideButtonsFrom(views, 0)
+                return views
+            }
+
+            val device = JSONObject(payload)
+            views.setTextViewText(
+                R.id.device_label,
+                device.optString("label").ifEmpty { key.substringAfter('/') }
+            )
+
+            val readings = device.optJSONArray("readings")
+            val locale = ConfigurationCompat.getLocales(context.resources.configuration)
+                .get(0) ?: Locale.getDefault()
+
+            // La première grandeur porte le widget ; les suivantes se serrent
+            // sur une ligne, en plus petit.
+            views.setTextViewText(
+                R.id.device_primary,
+                if (readings == null || readings.length() == 0) {
+                    context.getString(R.string.widget_placeholder)
+                } else {
+                    format(readings.getJSONObject(0), locale, context)
+                }
+            )
+            val extras = buildString {
+                for (i in 1 until (readings?.length() ?: 0)) {
+                    if (isNotEmpty()) append("   ")
+                    append(readings!!.getJSONObject(i).optString("name"))
+                    append(' ')
+                    append(format(readings.getJSONObject(i), locale, context))
+                }
+            }
+            views.setTextViewText(R.id.device_secondary, extras)
+
+            val actions = device.optJSONArray("actions")
+            val count = minOf(actions?.length() ?: 0, MAX_BUTTONS)
+            for (i in 0 until count) {
+                val name = actions!!.getJSONObject(i).optString("name")
+                views.setViewVisibility(buttonId(i), View.VISIBLE)
+                views.setTextViewText(buttonId(i), name)
+                views.setOnClickPendingIntent(
+                    buttonId(i),
+                    confirmIntent(context, key, name, device.optString("label"), widgetId)
+                )
+            }
+            hideButtonsFrom(views, count)
+            views.setViewVisibility(
+                R.id.device_actions,
+                if (count == 0) View.GONE else View.VISIBLE
+            )
+
+            views.setTextViewText(
+                R.id.device_footer, footer(context, timestamp, unreachable)
+            )
+            views.setTextColor(
+                R.id.device_footer,
+                ContextCompat.getColor(
+                    context,
+                    if (unreachable || age(timestamp) > AGING_MS) R.color.widget_gauge_warn
+                    else R.color.widget_text_secondary
+                )
+            )
+            return views
+        }
+
+        private fun buttonId(index: Int) = when (index) {
+            0 -> R.id.device_action_0
+            1 -> R.id.device_action_1
+            else -> R.id.device_action_2
+        }
+
+        private fun hideButtonsFrom(views: RemoteViews, first: Int) {
+            for (i in first until MAX_BUTTONS) {
+                views.setViewVisibility(buttonId(i), View.GONE)
+            }
+            if (first == 0) views.setViewVisibility(R.id.device_actions, View.GONE)
+        }
+
+        /**
+         * Met en forme une grandeur selon la locale de l'appareil.
+         *
+         * Le côté Dart envoie un nombre brut à séparateur invariant : lui faire
+         * porter la virgule décimale aurait figé le format français dans le
+         * stockage.
+         */
+        private fun format(
+            reading: JSONObject,
+            locale: Locale,
+            context: Context
+        ): String {
+            if (!reading.has("value")) {
+                return context.getString(R.string.widget_placeholder)
+            }
+            val value = reading.optDouble("value")
+            val unit = reading.optString("unit")
+            // Les valeurs entières se lisent mieux sans décimale inutile :
+            // « 100 % » plutôt que « 100,0 % ».
+            val text = if (value == Math.floor(value) && !value.isInfinite()) {
+                String.format(locale, "%.0f", value)
+            } else {
+                String.format(locale, "%.1f", value)
+            }
+            return if (unit.isEmpty()) text else "$text $unit"
+        }
+
+        /**
+         * L'URI distingue les widgets entre eux : deux PendingIntent ne sont
+         * confondus que si leurs intents sont `filterEquals`, ce qui la compare.
+         */
+        private fun refreshIntent(
+            context: Context,
+            key: String,
+            widgetId: Int
+        ): PendingIntent {
+            val intent = Intent(ACTION_DEVICE_REFRESH)
+                .setClassName(context.packageName, DeviceWidgetProvider::class.java.name)
+                .setData(Uri.parse("lixee://devrefresh/${Uri.encode(key)}"))
+                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
+            return PendingIntent.getBroadcast(context, widgetId, intent, flags())
+        }
+
+        /**
+         * Un bouton d'action passe par une confirmation, jamais directement.
+         *
+         * Un volet qui descend parce que le téléphone était en poche ne se
+         * rattrape pas d'un appui sur « annuler » : le coût d'une fausse
+         * manœuvre n'est pas le même que pour un simple rafraîchissement.
+         */
+        private fun confirmIntent(
+            context: Context,
+            key: String,
+            action: String,
+            label: String,
+            widgetId: Int
+        ): PendingIntent {
+            val intent = Intent(context, WidgetActionConfirmActivity::class.java)
+                .setData(
+                    Uri.parse(
+                        "lixee://devaction/${Uri.encode(key)}/${Uri.encode(action)}"
+                    )
+                )
+                .putExtra(WidgetActionConfirmActivity.EXTRA_LABEL, label)
+                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
+            // Le code de requête distingue les boutons d'un même widget : leurs
+            // URI diffèrent déjà, mais s'en remettre à cela seul rendrait tout
+            // renommage d'action silencieusement ambigu.
+            return PendingIntent.getActivity(
+                context, widgetId * 16 + action.hashCode().and(0xF), intent, flags()
+            )
+        }
+
+        private fun flags(): Int {
+            var flags = PendingIntent.FLAG_UPDATE_CURRENT
+            if (Build.VERSION.SDK_INT >= 23) {
+                flags = flags or PendingIntent.FLAG_IMMUTABLE
+            }
+            return flags
+        }
+
+        private fun age(timestamp: Long?) =
+            if (timestamp == null) Long.MAX_VALUE
+            else System.currentTimeMillis() - timestamp
+
+        private fun footer(
+            context: Context,
+            timestamp: Long?,
+            unreachable: Boolean
+        ): String {
+            if (timestamp == null) {
+                return context.getString(
+                    if (unreachable) R.string.widget_unreachable_never
+                    else R.string.widget_never_updated
+                )
+            }
+            val minutes = age(timestamp) / 60_000L
+            val ageText = when {
+                minutes < 1L -> context.getString(R.string.widget_age_now)
+                minutes < 60L -> context.resources.getQuantityString(
+                    R.plurals.widget_age_minutes, minutes.toInt(), minutes.toInt()
+                )
+                else -> {
+                    val hours = (minutes / 60L).toInt()
+                    context.resources.getQuantityString(
+                        R.plurals.widget_age_hours, hours, hours
+                    )
+                }
+            }
+            return if (unreachable) {
+                context.getString(R.string.widget_unreachable, ageText)
+            } else {
+                ageText
+            }
+        }
+    }
+}
