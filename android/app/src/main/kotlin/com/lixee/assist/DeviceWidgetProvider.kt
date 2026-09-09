@@ -113,6 +113,7 @@ class DeviceWidgetProvider : HomeWidgetProvider() {
                 views.setTextViewText(
                     R.id.device_label, context.getString(R.string.widget_no_device)
                 )
+                views.setTextViewText(R.id.device_primary_label, "")
                 views.setTextViewText(R.id.device_primary, "")
                 views.setTextViewText(R.id.device_secondary, "")
                 views.setTextViewText(
@@ -139,6 +140,7 @@ class DeviceWidgetProvider : HomeWidgetProvider() {
                 // Lié mais jamais relevé : ne rien inventer, et surtout ne pas
                 // proposer de boutons dont on ignore encore les intitulés.
                 views.setTextViewText(R.id.device_label, key.substringAfter('/'))
+                views.setTextViewText(R.id.device_primary_label, "")
                 views.setTextViewText(R.id.device_primary, "")
                 views.setTextViewText(R.id.device_secondary, "")
                 views.setTextViewText(R.id.device_footer, footer(context, null, unreachable))
@@ -156,22 +158,33 @@ class DeviceWidgetProvider : HomeWidgetProvider() {
             val locale = ConfigurationCompat.getLocales(context.resources.configuration)
                 .get(0) ?: Locale.getDefault()
 
-            // La première grandeur porte le widget ; les suivantes se serrent
-            // sur une ligne, en plus petit.
+            // La première grandeur porte le widget, avec son intitulé : « 100 »
+            // seul ne dit pas ce qu'il mesure.
+            val primary =
+                if (readings == null || readings.length() == 0) null
+                else readings.getJSONObject(0)
+            views.setTextViewText(
+                R.id.device_primary_label,
+                if (primary == null) "" else label(context, primary.optString("name"))
+            )
             views.setTextViewText(
                 R.id.device_primary,
-                if (readings == null || readings.length() == 0) {
-                    context.getString(R.string.widget_placeholder)
-                } else {
-                    format(readings.getJSONObject(0), locale, context)
-                }
+                if (primary == null) context.getString(R.string.widget_placeholder)
+                else format(primary, locale, context)
             )
+
+            // Les suivantes se serrent sur une ligne, et seulement si elles
+            // portent une unité : le gabarit décrit aussi des états de service
+            // — mouvement en cours, statut de calibration — qui encombrent un
+            // écran d'accueil sans rien apprendre à personne.
             val extras = buildString {
                 for (i in 1 until (readings?.length() ?: 0)) {
+                    val reading = readings!!.getJSONObject(i)
+                    if (reading.optString("unit").isEmpty()) continue
                     if (isNotEmpty()) append("   ")
-                    append(readings!!.getJSONObject(i).optString("name"))
+                    append(label(context, reading.optString("name")))
                     append(' ')
-                    append(format(readings.getJSONObject(i), locale, context))
+                    append(format(reading, locale, context))
                 }
             }
             views.setTextViewText(R.id.device_secondary, extras)
@@ -205,6 +218,24 @@ class DeviceWidgetProvider : HomeWidgetProvider() {
                 )
             )
             return views
+        }
+
+        /**
+         * Rend lisible le nom d'attribut du gabarit.
+         *
+         * Purement cosmétique : les noms non traduits retombent sur leur forme
+         * d'origine, dépouillée de ses tirets bas. Rien ici ne conditionne le
+         * comportement — reconnaître un nom ne donne aucun privilège à
+         * l'attribut, il s'affiche comme les autres.
+         */
+        private fun label(context: Context, name: String): String = when (name) {
+            "current_position" -> context.getString(R.string.widget_reading_position)
+            "temperature", "Temperature" ->
+                context.getString(R.string.widget_reading_temperature)
+            "humidity", "Humidity" ->
+                context.getString(R.string.widget_reading_humidity)
+            "battery", "Bat" -> context.getString(R.string.widget_reading_battery)
+            else -> name.replace('_', ' ').replaceFirstChar { it.uppercase() }
         }
 
         private fun buttonId(index: Int) = when (index) {

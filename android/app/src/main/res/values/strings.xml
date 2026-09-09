@@ -77,6 +77,13 @@
         <item quantity="other">%d appareils</item>
     </plurals>
     <string name="widget_device_config_empty">Aucun appareil relevé pour l\'instant. Ouvrez LiXee-Assist une fois, puis reposez le widget.</string>
+    <!-- Intitulés lisibles des grandeurs les plus courantes. Tout autre nom
+         s'affiche tel que le gabarit le donne. -->
+    <string name="widget_reading_position">Position</string>
+    <string name="widget_reading_temperature">Température</string>
+    <string name="widget_reading_humidity">Humidité</string>
+    <string name="widget_reading_battery">Batterie</string>
+
     <!-- Confirmation avant d'agir : un volet qui descend par mégarde ne se
          rattrape pas d'un retour arrière. -->
     <string name="widget_action_title">%1$s ?</string>

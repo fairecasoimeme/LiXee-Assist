@@ -42,12 +42,23 @@
             android:text="@string/widget_placeholder" />
     </LinearLayout>
 
+    <!-- Sans cette étiquette, « 100 » ne dit pas ce qu'il mesure. -->
+    <TextView
+        android:id="@+id/device_primary_label"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingTop="4dp"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:textSize="11sp"
+        android:textColor="@color/widget_text_secondary"
+        android:text="" />
+
     <!-- Grandeur principale, en gros : c'est elle qu'on lit de loin. -->
     <TextView
         android:id="@+id/device_primary"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:paddingTop="2dp"
         android:maxLines="1"
         android:ellipsize="end"
         android:textSize="22sp"
@@ -55,21 +66,20 @@
         android:textColor="@color/widget_text_primary"
         android:text="@string/widget_placeholder" />
 
+    <!-- Absorbe la hauteur restante, ce qui maintient les boutons en bas quel
+         que soit le nombre de grandeurs. Un Space aurait dit la même chose plus
+         clairement, mais RemoteViews refuse de l'inflater : sa liste blanche de
+         vues ne le contient pas, et le widget entier échouait à se charger. -->
     <TextView
         android:id="@+id/device_secondary"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="0dp"
+        android:layout_weight="1"
         android:maxLines="2"
         android:ellipsize="end"
         android:textSize="12sp"
         android:textColor="@color/widget_text_secondary"
         android:text="" />
-
-    <!-- Pousse les boutons en bas quel que soit le nombre de grandeurs. -->
-    <Space
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1" />
 
     <LinearLayout
         android:id="@+id/device_actions"
