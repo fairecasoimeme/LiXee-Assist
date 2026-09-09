@@ -75,15 +75,20 @@ class MainActivity : FlutterActivity() {
      * existent — purger seul la laisse en place et le problème persiste.
      */
     private fun unblockWidgetRefreshChain() {
-        try {
-            val workManager = WorkManager.getInstance(applicationContext)
-            workManager.cancelUniqueWork(WIDGET_REFRESH_WORK).result.addListener(
-                { workManager.pruneWork() },
-                { runnable -> runnable.run() }
-            )
-        } catch (e: Exception) {
-            Log.w(TAG, "Déblocage du rafraîchissement widget impossible", e)
-        }
+        // Hors du thread principal : initialiser WorkManager et attendre ses
+        // opérations pendant configureFlutterEngine faisait dépasser le délai
+        // de démarrage et déclenchait un ANR « failed to complete startup ».
+        Thread {
+            try {
+                val workManager = WorkManager.getInstance(applicationContext)
+                // L'annulation doit être terminée avant la purge : purger une
+                // chaîne qui a encore des dépendants en épargne la tête.
+                workManager.cancelUniqueWork(WIDGET_REFRESH_WORK).result.get()
+                workManager.pruneWork().result.get()
+            } catch (e: Exception) {
+                Log.w(TAG, "Déblocage du rafraîchissement widget impossible", e)
+            }
+        }.start()
     }
 
     private companion object {
