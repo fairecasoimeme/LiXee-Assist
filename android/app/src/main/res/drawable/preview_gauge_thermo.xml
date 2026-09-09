@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Jauge de thermostat pour la vignette du sélecteur.
+
+  Même géométrie que ThermostatGauge — arc de 270° ouvert en bas, échelle de
+  5 à 35 °C — mais figée : un aperçu est inflaté sans qu'aucun code ne tourne,
+  et le bitmap du rendu réel y laisserait un trou. L'exemple montre une zone en
+  chauffe active, la teinte la plus parlante.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="86dp"
+    android:height="86dp"
+    android:viewportWidth="100"
+    android:viewportHeight="100">
+
+    <path
+        android:pathData="M21.72,78.28 A40,40 0 1 1 78.28,78.28"
+        android:strokeColor="@color/widget_gauge_track"
+        android:strokeWidth="11"
+        android:strokeLineCap="round" />
+
+    <!-- Rempli jusqu'à la consigne, pas jusqu'à la mesure. -->
+    <path
+        android:pathData="M21.72,78.28 A40,40 0 0 1 50.00,10.00"
+        android:strokeColor="@color/widget_thermo_heat_on"
+        android:strokeWidth="11"
+        android:strokeLineCap="round" />
+
+    <!-- Curseur de la mesure, cerné du fond pour se détacher de l'arc. -->
+    <path
+        android:pathData="M40.66,6.01 a5.1,5.1 0 1 0 0.01,0 z"
+        android:fillColor="@color/widget_background" />
+    <path
+        android:pathData="M40.66,7.81 a3.3,3.3 0 1 0 0.01,0 z"
+        android:fillColor="@color/widget_text_primary" />
+</vector>

@@ -70,12 +70,15 @@
             android:scaleType="fitCenter"
             android:contentDescription="@string/widget_thermo_gauge_description" />
 
+        <!-- `layout_gravity` et non `gravity` : la colonne fait la hauteur de
+             son contenu, elle n'a donc aucun jeu à distribuer à ses enfants.
+             C'est elle qu'il faut centrer dans la rangée, en face de la jauge. -->
         <LinearLayout
             android:layout_width="0dp"
             android:layout_weight="1"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:gravity="center_vertical">
+            android:layout_gravity="center_vertical"
+            android:orientation="vertical">
 
             <!-- Ce que fait la zone : chaud ou froid, forçage, hors-gel, et si
                  l'actionneur marche. La jauge le dit par sa teinte ; sur un
