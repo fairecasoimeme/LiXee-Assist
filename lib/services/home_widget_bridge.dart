@@ -71,84 +71,109 @@ class HomeWidgetBridge {
     await HomeWidget.saveWidgetData<String>(keyDeviceList, jsonEncode(names));
   }
 
-  /// Écrit les relevés puis demande le redessin de tous les widgets posés.
+  /// Horodatage de la dernière tentative infructueuse. Comparé à celui du
+  /// relevé, il dit si la box a cessé de répondre depuis.
+  static const suffixFailedAt = '.failedat';
+
+  /// Note une box injoignable, puis redessine.
+  ///
+  /// Sans cette marque, le widget garderait ses chiffres avec le même aplomb
+  /// qu'un relevé abouti — et l'accusé de réception de l'appui resterait figé.
+  static Future<void> pushFailure(String deviceName) async {
+    await HomeWidget.saveWidgetData<String>(
+      '$deviceName$suffixFailedAt',
+      DateTime.now().millisecondsSinceEpoch.toString(),
+    );
+    await notifyWidgets();
+  }
+
+  /// Écrit un relevé puis demande le redessin de tous les widgets posés.
+  ///
+  /// Appelé box par box plutôt qu'en fin de balayage : le système tue
+  /// volontiers le processus d'arrière-plan au bout de quelques secondes, et
+  /// ce qui n'a pas encore été écrit à cet instant est perdu.
   ///
   /// Sans effet si aucun widget n'est présent sur l'écran d'accueil.
-  static Future<void> push(List<LinkySnapshot> snapshots) async {
-    for (final snapshot in snapshots) {
-      final prefix = snapshot.deviceName;
+  static Future<void> push(LinkySnapshot snapshot) async {
+    final prefix = snapshot.deviceName;
+    // Le relevé a abouti : on efface la marque d'échec précédente.
+    await HomeWidget.saveWidgetData<String>('$prefix$suffixFailedAt', '');
+    await Future.wait([
+      HomeWidget.saveWidgetData<String>(
+        '$prefix$suffixPower',
+        snapshot.apparentPowerVA?.toString() ?? '',
+      ),
+      // Nombre brut, séparateur décimal invariant : c'est le natif qui
+      // formate selon la locale de l'appareil.
+      HomeWidget.saveWidgetData<String>(
+        '$prefix$suffixIndex',
+        snapshot.indexKWh?.toStringAsFixed(1) ?? '',
+      ),
+      HomeWidget.saveWidgetData<String>(
+        '$prefix$suffixMaxPower',
+        snapshot.subscribedPowerVA?.toString() ?? '',
+      ),
+      HomeWidget.saveWidgetData<String>(
+        '$prefix$suffixProductionPower',
+        snapshot.productionPowerVA?.toString() ?? '',
+      ),
+      HomeWidget.saveWidgetData<String>(
+        '$prefix$suffixTimestamp',
+        snapshot.timestamp.millisecondsSinceEpoch.toString(),
+      ),
+      HomeWidget.saveWidgetData<String>(
+        '$prefix$suffixSource',
+        snapshot.source.name,
+      ),
+    ]);
+
+    // L'export horaire est throttlé : une série vide veut dire « pas de
+    // nouvelle donnée », pas « consommation nulle ». L'écrire quand même
+    // effacerait le graphe jusqu'au prochain export abouti.
+    if (snapshot.hourly.isNotEmpty) {
       await Future.wait([
         HomeWidget.saveWidgetData<String>(
-          '$prefix$suffixPower',
-          snapshot.apparentPowerVA?.toString() ?? '',
-        ),
-        // Nombre brut, séparateur décimal invariant : c'est le natif qui
-        // formate selon la locale de l'appareil.
-        HomeWidget.saveWidgetData<String>(
-          '$prefix$suffixIndex',
-          snapshot.indexKWh?.toStringAsFixed(1) ?? '',
+          '$prefix$suffixHourly',
+          snapshot.hourly
+              .map((s) => '${s.hour}:${s.wh}:${s.productionWh}')
+              .join(','),
         ),
         HomeWidget.saveWidgetData<String>(
-          '$prefix$suffixMaxPower',
-          snapshot.subscribedPowerVA?.toString() ?? '',
+          '$prefix$suffixDaily',
+          snapshot.dailyTotalWh?.toString() ?? '',
         ),
         HomeWidget.saveWidgetData<String>(
-          '$prefix$suffixProductionPower',
-          snapshot.productionPowerVA?.toString() ?? '',
+          '$prefix$suffixCost',
+          snapshot.dailyCostEur?.toStringAsFixed(2) ?? '',
         ),
         HomeWidget.saveWidgetData<String>(
-          '$prefix$suffixTimestamp',
-          snapshot.timestamp.millisecondsSinceEpoch.toString(),
+          '$prefix$suffixProduction',
+          snapshot.dailyProductionWh?.toString() ?? '',
         ),
         HomeWidget.saveWidgetData<String>(
-          '$prefix$suffixSource',
-          snapshot.source.name,
+          '$prefix$suffixRevenue',
+          snapshot.dailyRevenueEur?.toStringAsFixed(2) ?? '',
+        ),
+        HomeWidget.saveWidgetData<String>(
+          '$prefix$suffixNet',
+          snapshot.dailyNetWh?.toString() ?? '',
+        ),
+        HomeWidget.saveWidgetData<String>(
+          '$prefix$suffixNetCost',
+          snapshot.dailyNetCostEur?.toStringAsFixed(2) ?? '',
+        ),
+        HomeWidget.saveWidgetData<String>(
+          '$prefix$suffixTrend',
+          snapshot.hourlyTrendPct?.toStringAsFixed(0) ?? '',
         ),
       ]);
-
-      // L'export horaire est throttlé : une série vide veut dire « pas de
-      // nouvelle donnée », pas « consommation nulle ». L'écrire quand même
-      // effacerait le graphe jusqu'au prochain export abouti.
-      if (snapshot.hourly.isNotEmpty) {
-        await Future.wait([
-          HomeWidget.saveWidgetData<String>(
-            '$prefix$suffixHourly',
-            snapshot.hourly
-                .map((s) => '${s.hour}:${s.wh}:${s.productionWh}')
-                .join(','),
-          ),
-          HomeWidget.saveWidgetData<String>(
-            '$prefix$suffixDaily',
-            snapshot.dailyTotalWh?.toString() ?? '',
-          ),
-          HomeWidget.saveWidgetData<String>(
-            '$prefix$suffixCost',
-            snapshot.dailyCostEur?.toStringAsFixed(2) ?? '',
-          ),
-          HomeWidget.saveWidgetData<String>(
-            '$prefix$suffixProduction',
-            snapshot.dailyProductionWh?.toString() ?? '',
-          ),
-          HomeWidget.saveWidgetData<String>(
-            '$prefix$suffixRevenue',
-            snapshot.dailyRevenueEur?.toStringAsFixed(2) ?? '',
-          ),
-          HomeWidget.saveWidgetData<String>(
-            '$prefix$suffixNet',
-            snapshot.dailyNetWh?.toString() ?? '',
-          ),
-          HomeWidget.saveWidgetData<String>(
-            '$prefix$suffixNetCost',
-            snapshot.dailyNetCostEur?.toStringAsFixed(2) ?? '',
-          ),
-          HomeWidget.saveWidgetData<String>(
-            '$prefix$suffixTrend',
-            snapshot.hourlyTrendPct?.toStringAsFixed(0) ?? '',
-          ),
-        ]);
-      }
     }
 
+    await notifyWidgets();
+  }
+
+  /// Redemande le rendu de tous les widgets posés, quel que soit leur thème.
+  static Future<void> notifyWidgets() async {
     for (final provider in _androidProviders) {
       await HomeWidget.updateWidget(androidName: provider);
     }

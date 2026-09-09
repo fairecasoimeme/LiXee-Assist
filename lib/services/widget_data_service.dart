@@ -516,19 +516,40 @@ class WidgetDataService {
         .toList(growable: false);
   }
 
-  /// Relève toutes les box enregistrées et persiste les snapshots.
+  /// Relève les box enregistrées et persiste les snapshots.
   /// C'est le point d'entrée des workers background.
-  static Future<List<LinkySnapshot>> refreshAll({
+  ///
+  /// [only] restreint le relevé à une box : sur un appui, le widget touché est
+  /// le seul qui intéresse l'utilisateur, et balayer les autres allongerait
+  /// l'attente de plusieurs secondes par box injoignable.
+  ///
+  /// [onResult] est appelé au fil de l'eau, une box après l'autre, avec un
+  /// snapshot ou `null` si elle n'a pas répondu. C'est ce qui permet de
+  /// publier au fur et à mesure : le système peut tuer le processus en cours
+  /// de balayage, et tout ce qui n'a pas été écrit avant est perdu.
+  ///
+  /// Les box injoignables sont rapportées à part : sans elles, un échec est
+  /// indiscernable d'un succès côté widget, qui garderait ses chiffres avec le
+  /// même aplomb.
+  static Future<({List<LinkySnapshot> snapshots, List<String> unreachable})>
+      refreshAll({
     Future<String?> Function(String deviceName)? mdnsResolver,
     Duration localTimeout = defaultLocalTimeout,
     Duration remoteTimeout = defaultRemoteTimeout,
+    String? only,
+    Future<void> Function(String name, LinkySnapshot? snapshot)? onResult,
   }) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.reload();
     final entries = prefs.getStringList('saved_devices') ?? [];
 
     final snapshots = <LinkySnapshot>[];
+    final unreachable = <String>[];
     for (final entry in entries) {
+      final device = _ParsedDevice.tryParse(entry);
+      if (device == null) continue;
+      if (only != null && device.name != only) continue;
+
       final snapshot = await fetchForDevice(
         entry,
         mdnsResolver: mdnsResolver,
@@ -538,9 +559,12 @@ class WidgetDataService {
       if (snapshot != null) {
         await saveSnapshot(snapshot);
         snapshots.add(snapshot);
+      } else {
+        unreachable.add(device.name);
       }
+      await onResult?.call(device.name, snapshot);
     }
-    return snapshots;
+    return (snapshots: snapshots, unreachable: unreachable);
   }
 
   /// Persiste un snapshot, sauf si un plus récent est déjà stocké.
@@ -632,12 +656,19 @@ class WidgetDataService {
   /// IEEE du compteur de production, quand l'installation en a un.
   static final Map<String, String> _productionIeee = {};
 
-  /// Puissance apparente injectée, cluster 0x0B04 attribut 0x0511.
+  /// SINSTI, puissance apparente injectée, dans le cluster privé LiXee.
   ///
-  /// Symétrique de 0x050F pour la consommation : sur une installation
-  /// productrice, l'un est nul quand l'autre ne l'est pas. `/getLinky` ne
-  /// remonte qu'un seul compteur, d'où le passage par `/getDevice`.
-  static const _injectedPowerAttribute = '1297';
+  /// Identifié en comparant deux relevés pendant que la production chutait :
+  /// cet attribut est passé de 1179 à 268 en suivant l'export horaire, quand
+  /// 0x0B04/0x0511 restait figé autour de 230 — c'était la tension, dont la
+  /// proximité numérique avec une puissance plausible avait d'abord induit en
+  /// erreur. L'attribut voisin 0x0208 varie en sens inverse : c'est SINSTS.
+  ///
+  /// Ces libellés n'existent qu'en mode standard ; en historique le cluster
+  /// les laisse à zéro. `/getLinky` ne remonte qu'un seul compteur, d'où le
+  /// passage par `/getDevice`.
+  static const _injectedPowerCluster = 'FF66';
+  static const _injectedPowerAttribute = '519';
 
   /// Relève la puissance injectée. `null` sans compteur de production.
   static Future<int?> _fetchProductionPower(
@@ -658,9 +689,9 @@ class WidgetDataService {
       // La réponse est tantôt l'objet direct, tantôt indexée par IEEE.
       if (decoded is Map && decoded[ieee] is Map) decoded = decoded[ieee];
       if (decoded is! Map) return null;
-      final electrical = decoded['0B04'];
-      if (electrical is! Map) return null;
-      return _fromHex(electrical[_injectedPowerAttribute]);
+      final cluster = decoded[_injectedPowerCluster];
+      if (cluster is! Map) return null;
+      return _fromHex(cluster[_injectedPowerAttribute]);
     } catch (e) {
       print('[WIDGET-DATA] /getDevice illisible: $e');
       return null;

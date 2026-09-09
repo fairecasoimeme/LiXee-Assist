@@ -56,7 +56,11 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 /// sont indépendantes, l'échec de l'une ne doit pas priver l'autre de son tour.
 /// [closeSessions] ne doit être vrai que depuis un isolate qui se termine :
 /// au premier plan, les sessions sont partagées avec l'écran d'accueil.
-Future<void> refreshWidgetMetrics({bool closeSessions = false}) async {
+/// [only] restreint le relevé à une box, pour l'appui sur un widget.
+Future<void> refreshWidgetMetrics({
+  bool closeSessions = false,
+  String? only,
+}) async {
   try {
     // Publier la liste d'abord : l'utilisateur peut poser un widget et le
     // configurer avant qu'un seul relevé ait abouti.
@@ -64,13 +68,23 @@ Future<void> refreshWidgetMetrics({bool closeSessions = false}) async {
       await WidgetDataService.savedDeviceNames(),
     );
 
-    final snapshots = await WidgetDataService.refreshAll(
+    final result = await WidgetDataService.refreshAll(
       mdnsResolver: resolveMdnsIP,
+      only: only,
+      // Publier box par box, pas en fin de balayage : le processus
+      // d'arrière-plan est tué au bout de quelques secondes sous pression
+      // mémoire, et une box injoignable coûte jusqu'à dix secondes d'attente.
+      // Attendre la fin, c'est risquer de ne rien publier du tout.
+      onResult: (name, snapshot) async {
+        if (snapshot != null) {
+          await HomeWidgetBridge.push(snapshot);
+        } else {
+          await HomeWidgetBridge.pushFailure(name);
+        }
+      },
     );
-    print('[WIDGET-DATA] ${snapshots.length} relevé(s) mis à jour');
-
-    // Chaque widget posé est lié à une box précise : on pousse tout.
-    await HomeWidgetBridge.push(snapshots);
+    print('[WIDGET-DATA] ${result.snapshots.length} relevé(s) mis à jour'
+        '${result.unreachable.isEmpty ? '' : ', injoignables: ${result.unreachable.join(', ')}'}');
   } finally {
     if (closeSessions) WidgetDataService.disposeAll();
   }
@@ -86,11 +100,16 @@ Future<void> refreshWidgetMetrics({bool closeSessions = false}) async {
 @pragma('vm:entry-point')
 Future<void> widgetInteractionCallback(Uri? uri) async {
   if (uri?.host != 'refresh') return;
+  // L'URI porte la box du widget touché. Balayer les autres n'apporterait
+  // rien à l'écran et ferait durer l'attente de plusieurs secondes par box
+  // muette — assez pour que le système tue le processus avant la fin.
+  final device = uri!.pathSegments.isEmpty ? null : uri.pathSegments.first;
   print('[WIDGET-DATA] Relevé demandé depuis le widget ($uri)');
   try {
-    await refreshWidgetMetrics(closeSessions: true);
+    await refreshWidgetMetrics(closeSessions: true, only: device);
   } catch (e) {
     print('[WIDGET-DATA] Relevé sur appui échoué: $e');
+    if (device != null) await HomeWidgetBridge.pushFailure(device);
   }
 }
 
