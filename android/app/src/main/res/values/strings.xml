@@ -3,6 +3,11 @@
     <string name="widget_conso_label">LiXee — Consommation</string>
     <string name="widget_conso_description">Puissance instantanée, consommation et coût sur 24 h</string>
 
+    <!-- Confirmation avant d'ouvrir l'app depuis un widget. -->
+    <string name="widget_open_title">Ouvrir la box ?</string>
+    <string name="widget_open_message">Afficher « %1$s » dans LiXee-Assist ?</string>
+    <string name="widget_open_confirm">Ouvrir</string>
+
     <string name="widget_no_device">Box non choisie</string>
     <string name="widget_tap_to_configure">Retirez et reposez le widget</string>
     <string name="widget_never_updated">Jamais relevé</string>

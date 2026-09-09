@@ -64,6 +64,16 @@
             </intent-filter>
         </receiver>
 
+        <!-- Confirmation posée par-dessus le bureau. Thème dialogue et non
+             exportée : elle n'est atteinte que par le PendingIntent du widget,
+             qui porte déjà notre identité. -->
+        <activity
+            android:name=".WidgetLaunchConfirmActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.DeviceDefault.Light.Dialog.Alert" />
+
         <!-- Un receveur par thème : Android identifie un provider par son nom
              de composant, c'est ce qui leur donne des entrées distinctes dans
              le sélecteur. Tous partagent le même rendu et le même stockage. -->
