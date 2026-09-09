@@ -1,13 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'network_scope.dart';
-import 'session_manager.dart';
-import 'session_pool.dart';
+import 'box_client.dart';
+
+/// [LinkySource] appartient au transport, mais reste visible d'ici : c'est par
+/// ce service que tout le reste de l'app la connait.
+export 'box_client.dart' show LinkySource;
 
 /// Clés `cluster_attribut` renvoyées par `GET /getLinky`.
 ///
@@ -50,9 +51,6 @@ class LinkyKeys {
     '1794_266',
   ];
 }
-
-/// Voie par laquelle le snapshot a été obtenu.
-enum LinkySource { local, remote }
 
 /// Consommation d'une heure, telle que renvoyée par `/exportEnergyChart`.
 class HourlySample {
@@ -353,58 +351,6 @@ class LinkySnapshot {
   }
 }
 
-/// Entrée `saved_devices` décodée.
-///
-/// Formats supportés : `name|url`, `name|url|fallback`,
-/// `name|url|auth|login|pass`, `name|url|auth|login|pass|fallback`.
-class _ParsedDevice {
-  final String name;
-  final String primaryUrl;
-  final String? fallbackUrl;
-  final String? login;
-  final String? password;
-
-  const _ParsedDevice({
-    required this.name,
-    required this.primaryUrl,
-    this.fallbackUrl,
-    this.login,
-    this.password,
-  });
-
-  bool get hasAuth => login != null && password != null;
-
-  String get key => '$name|$primaryUrl';
-
-  static _ParsedDevice? tryParse(String entry) {
-    final parts = entry.split('|');
-    if (parts.length < 2) return null;
-
-    final hasAuth = parts.length >= 5 && parts[2] == 'auth';
-
-    if (hasAuth && (parts.length == 5 || parts.length == 6)) {
-      return _ParsedDevice(
-        name: parts[0],
-        primaryUrl: parts[1],
-        login: parts[3],
-        password: parts[4],
-        fallbackUrl: parts.length == 6 ? parts[5] : null,
-      );
-    }
-    if (parts.length == 2) {
-      return _ParsedDevice(name: parts[0], primaryUrl: parts[1]);
-    }
-    if (parts.length == 3 && parts[2] != 'auth') {
-      return _ParsedDevice(
-        name: parts[0],
-        primaryUrl: parts[1],
-        fallbackUrl: parts[2],
-      );
-    }
-    return null;
-  }
-}
-
 /// Récupère les métriques Linky d'une box et les persiste pour le widget.
 ///
 /// Marche indifféremment en accès LAN ou via le tunnel `remote.lixee-box.fr` :
@@ -416,16 +362,8 @@ class _ParsedDevice {
 class WidgetDataService {
   static const _prefsKeyPrefix = 'widget_snapshot_';
 
-  /// Une requête LAN qui n'a pas répondu en 3 s ne répondra pas : on bascule.
-  static const defaultLocalTimeout = Duration(seconds: 3);
-
-  /// Le tunnel relaie par WebSocket et impose un login formulaire : il lui faut
-  /// nettement plus de marge qu'un accès direct.
-  static const defaultRemoteTimeout = Duration(seconds: 10);
-
-  /// Dernière URL ayant répondu, par device. Évite de retenter systématiquement
-  /// l'IP locale en timeout quand on n'est pas sur le réseau de la box.
-  static final Map<String, String> _lastGoodUrl = {};
+  static const defaultLocalTimeout = BoxClient.defaultLocalTimeout;
+  static const defaultRemoteTimeout = BoxClient.defaultRemoteTimeout;
 
   /// Relève une box. Retourne `null` si aucune URL n'a répondu.
   ///
@@ -437,26 +375,26 @@ class WidgetDataService {
     Duration localTimeout = defaultLocalTimeout,
     Duration remoteTimeout = defaultRemoteTimeout,
   }) async {
-    final device = _ParsedDevice.tryParse(deviceEntry);
+    final device = BoxDevice.tryParse(deviceEntry);
     if (device == null) {
       print('[WIDGET-DATA] Entrée illisible: $deviceEntry');
       return null;
     }
 
-    for (final candidate in _orderedCandidates(device)) {
-      final baseUrl = await _resolve(candidate, device.name, mdnsResolver);
-      if (baseUrl == null) continue;
-
-      final source = _classify(baseUrl);
-      final timeout =
-          source == LinkySource.local ? localTimeout : remoteTimeout;
+    final routes = BoxClient.routes(
+      device,
+      mdnsResolver: mdnsResolver,
+      localTimeout: localTimeout,
+      remoteTimeout: remoteTimeout,
+    );
+    await for (final (candidate, route) in routes) {
+      final baseUrl = route.baseUrl;
 
       try {
-        final body =
-            await _authGet(baseUrl, device, timeout, source, '/getLinky');
+        final body = await BoxClient.get(route, '/getLinky');
         if (body == null) {
           print('[WIDGET-DATA] $baseUrl: pas de réponse exploitable');
-          _dropSession(baseUrl, device);
+          BoxClient.dropSession(route);
           continue;
         }
 
@@ -466,20 +404,19 @@ class WidgetDataService {
           continue;
         }
 
-        _lastGoodUrl[device.key] = candidate;
+        BoxClient.remember(device, candidate);
         var snapshot = LinkySnapshot.fromLinkyJson(
           decoded,
           deviceName: device.name,
-          source: source,
+          source: route.source,
         );
 
         // Compléments facultatifs : un échec ici ne doit pas perdre le relevé.
         try {
-          final hourly = await _fetchHourly(baseUrl, device, timeout, source);
+          final hourly = await _fetchHourly(route);
           // La découverte des compteurs a lieu dans _fetchHourly : la
           // production ne peut être lue qu'ensuite.
-          final injected =
-              await _fetchProductionPower(baseUrl, device, timeout, source);
+          final injected = await _fetchProductionPower(route);
           if (hourly.isNotEmpty || injected != null) {
             snapshot = snapshot.withHourly(
               hourly.isNotEmpty ? hourly : snapshot.hourly,
@@ -494,7 +431,7 @@ class WidgetDataService {
         return snapshot;
       } catch (e) {
         print('[WIDGET-DATA] $baseUrl échec: $e');
-        _dropSession(baseUrl, device);
+        BoxClient.dropSession(route);
       }
     }
 
@@ -510,8 +447,8 @@ class WidgetDataService {
     final prefs = await SharedPreferences.getInstance();
     await prefs.reload();
     return (prefs.getStringList('saved_devices') ?? [])
-        .map(_ParsedDevice.tryParse)
-        .whereType<_ParsedDevice>()
+        .map(BoxDevice.tryParse)
+        .whereType<BoxDevice>()
         .map((d) => d.name)
         .toList(growable: false);
   }
@@ -546,7 +483,7 @@ class WidgetDataService {
     final snapshots = <LinkySnapshot>[];
     final unreachable = <String>[];
     for (final entry in entries) {
-      final device = _ParsedDevice.tryParse(entry);
+      final device = BoxDevice.tryParse(entry);
       if (device == null) continue;
       if (only != null && device.name != only) continue;
 
@@ -610,44 +547,9 @@ class WidgetDataService {
   ///
   /// À n'appeler que depuis un isolate qui se termine : au premier plan, ces
   /// sessions sont partagées avec l'écran d'accueil.
-  static void disposeAll() => SessionPool.closeAll();
+  static void disposeAll() => BoxClient.disposeAll();
 
   // --- Interne -------------------------------------------------------------
-
-  /// URLs à tenter, la dernière qui a fonctionné en premier.
-  static List<String> _orderedCandidates(_ParsedDevice device) {
-    final candidates = <String>[device.primaryUrl];
-    final fallback = device.fallbackUrl;
-    if (fallback != null && fallback.isNotEmpty) {
-      candidates.add(fallback);
-    }
-
-    final lastGood = _lastGoodUrl[device.key];
-    if (lastGood != null && candidates.remove(lastGood)) {
-      candidates.insert(0, lastGood);
-    }
-    return candidates;
-  }
-
-  static Future<String?> _resolve(
-    String candidate,
-    String deviceName,
-    Future<String?> Function(String)? mdnsResolver,
-  ) async {
-    var url = candidate.trim();
-    if (url.isEmpty) return null;
-    if (!url.startsWith('http')) url = 'http://$url';
-    while (url.endsWith('/')) {
-      url = url.substring(0, url.length - 1);
-    }
-
-    final host = Uri.tryParse(url)?.host ?? '';
-    if (host.endsWith('.local') && mdnsResolver != null) {
-      final ip = await mdnsResolver(deviceName);
-      return ip == null ? null : 'http://$ip';
-    }
-    return url;
-  }
 
   /// Adresse IEEE du ZLinky, par box. Découverte une fois via `/getDevices`,
   /// qui est bien plus lourd que l'export lui-même.
@@ -671,17 +573,11 @@ class WidgetDataService {
   static const _injectedPowerAttribute = '519';
 
   /// Relève la puissance injectée. `null` sans compteur de production.
-  static Future<int?> _fetchProductionPower(
-    String baseUrl,
-    _ParsedDevice device,
-    Duration timeout,
-    LinkySource source,
-  ) async {
-    final ieee = _productionIeee[device.key];
+  static Future<int?> _fetchProductionPower(BoxRoute route) async {
+    final ieee = _productionIeee[route.device.key];
     if (ieee == null) return null;
 
-    final body =
-        await _authGet(baseUrl, device, timeout, source, '/getDevice?id=$ieee');
+    final body = await BoxClient.get(route, '/getDevice?id=$ieee');
     if (body == null) return null;
 
     try {
@@ -707,12 +603,8 @@ class WidgetDataService {
   ///
   /// Retourne une liste vide en cas d'échec : le graphe est un complément,
   /// son absence ne doit jamais faire échouer le relevé principal.
-  static Future<List<HourlySample>> _fetchHourly(
-    String baseUrl,
-    _ParsedDevice device,
-    Duration timeout,
-    LinkySource source,
-  ) async {
+  static Future<List<HourlySample>> _fetchHourly(BoxRoute route) async {
+    final device = route.device;
     final last = _lastHourlyFetch[device.key];
     if (last != null && DateTime.now().difference(last) < _hourlyInterval) {
       return const [];
@@ -720,7 +612,7 @@ class WidgetDataService {
 
     var ieee = _linkyIeee[device.key];
     if (ieee == null) {
-      final body = await _authGet(baseUrl, device, timeout, source, '/getDevices');
+      final body = await BoxClient.get(route, '/getDevices');
       if (body == null) return const [];
       final meters = _discoverMeters(body);
       ieee = meters.consumption;
@@ -735,11 +627,8 @@ class WidgetDataService {
       }
     }
 
-    final csv = await _authGet(
-      baseUrl,
-      device,
-      timeout,
-      source,
+    final csv = await BoxClient.get(
+      route,
       '/exportEnergyChart?IEEE=$ieee&time=hour',
     );
     if (csv == null) return const [];
@@ -858,80 +747,4 @@ class WidgetDataService {
     return double.tryParse(cells[column].trim().replaceAll(',', '.')) ?? 0;
   }
 
-  static void _dropSession(String baseUrl, _ParsedDevice device) {
-    if (device.login != null) {
-      SessionPool.invalidate(baseUrl, device.login!);
-    }
-  }
-
-  /// GET authentifié sur la box, quel que soit le mode d'auth.
-  ///
-  /// [path] commence par `/`. Retourne `null` si la requête n'aboutit pas.
-  static Future<String?> _authGet(
-    String baseUrl,
-    _ParsedDevice device,
-    Duration timeout,
-    LinkySource source,
-    String path,
-  ) async {
-    if (!device.hasAuth) {
-      return _rawGet('$baseUrl$path', timeout);
-    }
-
-    final basic =
-        'Basic ${base64Encode(utf8.encode('${device.login}:${device.password}'))}';
-
-    // En LAN la box accepte le Basic : une requête unique, sans état ni cookie
-    // à entretenir. C'est le tunnel qui impose le formulaire, pas le firmware.
-    var basicTried = false;
-    if (source == LinkySource.local) {
-      basicTried = true;
-      final body = await _rawGet('$baseUrl$path', timeout, authHeader: basic);
-      if (body != null) return body;
-      print('[WIDGET-DATA] Basic refusé sur $baseUrl, bascule sur le formulaire');
-    }
-
-    final mode = await SessionPool.authMode(baseUrl, timeout: timeout);
-    if (mode == AuthMode.form) {
-      final session =
-          SessionPool.session(baseUrl, device.login!, device.password!);
-      final result = await session.authenticatedGet(path).timeout(timeout);
-      if (result.statusCode == 200 && result.body.isNotEmpty) {
-        return result.body;
-      }
-      print('[WIDGET-DATA] Formulaire KO (${result.statusCode}) sur $baseUrl$path');
-    }
-
-    // Inutile de rejouer le Basic si la voie LAN l'a déjà refusé.
-    return basicTried
-        ? null
-        : _rawGet('$baseUrl$path', timeout, authHeader: basic);
-  }
-
-  static Future<String?> _rawGet(
-    String url,
-    Duration timeout, {
-    String? authHeader,
-  }) async {
-    final client = HttpClient()
-      ..badCertificateCallback = ((cert, host, port) => true)
-      ..connectionTimeout = timeout;
-    try {
-      final request = await client.getUrl(Uri.parse(url));
-      request.headers.set('Accept', 'application/json');
-      if (authHeader != null) {
-        request.headers.set('Authorization', authHeader);
-      }
-      request.followRedirects = false;
-      final response = await request.close().timeout(timeout);
-      final body = await response.transform(utf8.decoder).join();
-      return response.statusCode == 200 && body.isNotEmpty ? body : null;
-    } finally {
-      client.close(force: true);
-    }
-  }
-
-  /// Distingue un accès LAN d'un accès par le tunnel, pour l'afficher.
-  static LinkySource _classify(String baseUrl) =>
-      isLanUrl(baseUrl) ? LinkySource.local : LinkySource.remote;
 }
