@@ -3,9 +3,9 @@
   Widget d'un appareil Zigbee.
 
   Le contenu n'est pas connu d'avance : c'est le gabarit de la box qui dit
-  combien de grandeurs afficher et combien de boutons proposer. La mise en page
-  prévoit donc trois lignes de valeur et trois boutons, et masque ce qui n'est
-  pas rempli — RemoteViews ne sait pas créer de vues à la volée.
+  combien de grandeurs afficher et combien de boutons proposer. RemoteViews ne
+  sachant pas créer de vues à la volée, la mise en page prévoit le cas le plus
+  fourni et masque ce qui ne sert pas.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/device_root"
@@ -40,6 +40,19 @@
             android:textStyle="bold"
             android:textColor="@color/widget_text_primary"
             android:text="@string/widget_placeholder" />
+
+        <!-- La fraîcheur se loge dans l'en-tête, pas en bas : sous une grille
+             de six boutons, une ligne de plus était repoussée hors du cadre. -->
+        <TextView
+            android:id="@+id/device_footer"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textSize="10sp"
+            android:textColor="@color/widget_text_secondary"
+            android:text="@string/widget_never_updated" />
     </LinearLayout>
 
     <!-- Sans cette étiquette, « 100 » ne dit pas ce qu'il mesure. -->
@@ -66,78 +79,208 @@
         android:textColor="@color/widget_text_primary"
         android:text="@string/widget_placeholder" />
 
-    <!-- Absorbe la hauteur restante, ce qui maintient les boutons en bas quel
-         que soit le nombre de grandeurs. Un Space aurait dit la même chose plus
-         clairement, mais RemoteViews refuse de l'inflater : sa liste blanche de
-         vues ne le contient pas, et le widget entier échouait à se charger. -->
+    <!-- Hauteur sur le contenu, et surtout pas un poids : lui faire absorber
+         la place restante pour pousser les boutons en bas la réduisait à zéro
+         dès que le contenu remplissait le widget, et son texte disparaissait
+         sans prévenir. -->
     <TextView
         android:id="@+id/device_secondary"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
+        android:layout_height="wrap_content"
         android:maxLines="2"
         android:ellipsize="end"
         android:textSize="12sp"
         android:textColor="@color/widget_text_secondary"
         android:text="" />
 
+    <!-- Douze emplacements en quatre rangées : le gabarit le plus fourni en
+         propose onze — un climatiseur avec ses présélections de température. -->
     <LinearLayout
-        android:id="@+id/device_actions"
+        android:id="@+id/device_actions_0"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:paddingTop="6dp">
+        android:paddingTop="4dp">
 
         <Button
             android:id="@+id/device_action_0"
             android:layout_width="0dp"
             android:layout_weight="1"
-            android:layout_height="40dp"
+            android:layout_height="34dp"
             android:layout_marginEnd="4dp"
             android:padding="0dp"
             android:minWidth="0dp"
             android:minHeight="0dp"
-            android:textSize="13sp"
+            android:textSize="12sp"
             android:background="@drawable/widget_action_button"
             android:textColor="@color/widget_text_primary"
             android:text="@string/widget_placeholder" />
-
         <Button
             android:id="@+id/device_action_1"
             android:layout_width="0dp"
             android:layout_weight="1"
-            android:layout_height="40dp"
+            android:layout_height="34dp"
             android:layout_marginEnd="4dp"
             android:padding="0dp"
             android:minWidth="0dp"
             android:minHeight="0dp"
-            android:textSize="13sp"
+            android:textSize="12sp"
             android:background="@drawable/widget_action_button"
             android:textColor="@color/widget_text_primary"
             android:text="@string/widget_placeholder" />
-
         <Button
             android:id="@+id/device_action_2"
             android:layout_width="0dp"
             android:layout_weight="1"
-            android:layout_height="40dp"
+            android:layout_height="34dp"
             android:padding="0dp"
             android:minWidth="0dp"
             android:minHeight="0dp"
-            android:textSize="13sp"
+            android:textSize="12sp"
             android:background="@drawable/widget_action_button"
             android:textColor="@color/widget_text_primary"
             android:text="@string/widget_placeholder" />
     </LinearLayout>
 
-    <TextView
-        android:id="@+id/device_footer"
+    <LinearLayout
+        android:id="@+id/device_actions_1"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:paddingTop="4dp"
-        android:maxLines="1"
-        android:ellipsize="end"
-        android:textSize="10sp"
-        android:textColor="@color/widget_text_secondary"
-        android:text="@string/widget_never_updated" />
+        android:orientation="horizontal"
+        android:paddingTop="4dp">
+
+        <Button
+            android:id="@+id/device_action_3"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="34dp"
+            android:layout_marginEnd="4dp"
+            android:padding="0dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:textSize="12sp"
+            android:background="@drawable/widget_action_button"
+            android:textColor="@color/widget_text_primary"
+            android:text="@string/widget_placeholder" />
+        <Button
+            android:id="@+id/device_action_4"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="34dp"
+            android:layout_marginEnd="4dp"
+            android:padding="0dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:textSize="12sp"
+            android:background="@drawable/widget_action_button"
+            android:textColor="@color/widget_text_primary"
+            android:text="@string/widget_placeholder" />
+        <Button
+            android:id="@+id/device_action_5"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="34dp"
+            android:padding="0dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:textSize="12sp"
+            android:background="@drawable/widget_action_button"
+            android:textColor="@color/widget_text_primary"
+            android:text="@string/widget_placeholder" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/device_actions_2"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingTop="4dp">
+
+        <Button
+            android:id="@+id/device_action_6"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="34dp"
+            android:layout_marginEnd="4dp"
+            android:padding="0dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:textSize="12sp"
+            android:background="@drawable/widget_action_button"
+            android:textColor="@color/widget_text_primary"
+            android:text="@string/widget_placeholder" />
+        <Button
+            android:id="@+id/device_action_7"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="34dp"
+            android:layout_marginEnd="4dp"
+            android:padding="0dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:textSize="12sp"
+            android:background="@drawable/widget_action_button"
+            android:textColor="@color/widget_text_primary"
+            android:text="@string/widget_placeholder" />
+        <Button
+            android:id="@+id/device_action_8"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="34dp"
+            android:padding="0dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:textSize="12sp"
+            android:background="@drawable/widget_action_button"
+            android:textColor="@color/widget_text_primary"
+            android:text="@string/widget_placeholder" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/device_actions_3"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingTop="4dp">
+
+        <Button
+            android:id="@+id/device_action_9"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="34dp"
+            android:layout_marginEnd="4dp"
+            android:padding="0dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:textSize="12sp"
+            android:background="@drawable/widget_action_button"
+            android:textColor="@color/widget_text_primary"
+            android:text="@string/widget_placeholder" />
+        <Button
+            android:id="@+id/device_action_10"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="34dp"
+            android:layout_marginEnd="4dp"
+            android:padding="0dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:textSize="12sp"
+            android:background="@drawable/widget_action_button"
+            android:textColor="@color/widget_text_primary"
+            android:text="@string/widget_placeholder" />
+        <Button
+            android:id="@+id/device_action_11"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="34dp"
+            android:padding="0dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:textSize="12sp"
+            android:background="@drawable/widget_action_button"
+            android:textColor="@color/widget_text_primary"
+            android:text="@string/widget_placeholder" />
+    </LinearLayout>
+
 </LinearLayout>

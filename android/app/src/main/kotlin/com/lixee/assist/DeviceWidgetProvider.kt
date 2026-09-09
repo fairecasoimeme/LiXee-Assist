@@ -66,7 +66,10 @@ class DeviceWidgetProvider : HomeWidgetProvider() {
         const val ACTION_DEVICE_COMMAND = "com.lixee.assist.action.DEVICE_COMMAND"
 
         private const val AGING_MS = 60 * 60 * 1000L
-        private const val MAX_BUTTONS = 3
+        /** Quatre rangées de trois : le gabarit le plus fourni propose onze
+         *  actions, et RemoteViews impose de toutes les prévoir d'avance. */
+        private const val BUTTON_COLUMNS = 3
+        private const val MAX_BUTTONS = 12
 
         /** Clé du choix d'appareil, propre à une instance de widget. */
         fun bindingKeyFor(appWidgetId: Int) = "device_binding_$appWidgetId"
@@ -208,10 +211,6 @@ class DeviceWidgetProvider : HomeWidgetProvider() {
                 )
             }
             hideButtonsFrom(views, count)
-            views.setViewVisibility(
-                R.id.device_actions,
-                if (count == 0) View.GONE else View.VISIBLE
-            )
 
             views.setTextViewText(
                 R.id.device_footer, footer(context, timestamp, unreachable)
@@ -237,7 +236,7 @@ class DeviceWidgetProvider : HomeWidgetProvider() {
          */
         private fun label(context: Context, name: String): String = when (name) {
             "current_position" -> context.getString(R.string.widget_reading_position)
-            "temperature", "Temperature" ->
+            "temperature", "Temperature", "local_temperature" ->
                 context.getString(R.string.widget_reading_temperature)
             "humidity", "Humidity" ->
                 context.getString(R.string.widget_reading_humidity)
@@ -248,14 +247,49 @@ class DeviceWidgetProvider : HomeWidgetProvider() {
         private fun buttonId(index: Int) = when (index) {
             0 -> R.id.device_action_0
             1 -> R.id.device_action_1
-            else -> R.id.device_action_2
+            2 -> R.id.device_action_2
+            3 -> R.id.device_action_3
+            4 -> R.id.device_action_4
+            5 -> R.id.device_action_5
+            6 -> R.id.device_action_6
+            7 -> R.id.device_action_7
+            8 -> R.id.device_action_8
+            9 -> R.id.device_action_9
+            10 -> R.id.device_action_10
+            else -> R.id.device_action_11
         }
 
+        private fun rowId(index: Int) = when (index) {
+            0 -> R.id.device_actions_0
+            1 -> R.id.device_actions_1
+            2 -> R.id.device_actions_2
+            else -> R.id.device_actions_3
+        }
+
+        /**
+         * Masque les emplacements au-delà de [first].
+         *
+         * Deux façons de masquer, et la nuance compte : dans la rangée
+         * entamée, les emplacements restants gardent leur place (INVISIBLE),
+         * sinon un bouton seul s'étirerait sur toute la largeur. Les rangées
+         * entièrement vides disparaissent (GONE) pour ne pas laisser de trou.
+         */
         private fun hideButtonsFrom(views: RemoteViews, first: Int) {
             for (i in first until MAX_BUTTONS) {
-                views.setViewVisibility(buttonId(i), View.GONE)
+                val sameRowAsLast = i / BUTTON_COLUMNS == (first - 1) / BUTTON_COLUMNS
+                views.setViewVisibility(
+                    buttonId(i),
+                    if (first > 0 && sameRowAsLast) View.INVISIBLE else View.GONE
+                )
             }
-            if (first == 0) views.setViewVisibility(R.id.device_actions, View.GONE)
+            val usedRows =
+                (first + BUTTON_COLUMNS - 1) / BUTTON_COLUMNS
+            for (row in 0 until MAX_BUTTONS / BUTTON_COLUMNS) {
+                views.setViewVisibility(
+                    rowId(row),
+                    if (row < usedRows) View.VISIBLE else View.GONE
+                )
+            }
         }
 
         /**
