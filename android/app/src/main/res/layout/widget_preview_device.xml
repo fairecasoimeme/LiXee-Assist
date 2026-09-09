@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Vignette du sélecteur pour le widget d'appareil.
+     Sans elle, Android retombait sur l'icône de l'application : le sélecteur
+     montrait le logo LiXee au lieu d'un widget. Le contenu est un exemple
+     figé — un aperçu n'exécute aucun code et ne connaît donc aucun appareil. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/widget_background"
+    android:padding="10dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:baselineAligned="false">
+
+        <ImageView
+            android:layout_width="14dp"
+            android:layout_height="14dp"
+            android:layout_marginEnd="6dp"
+            android:src="@drawable/ic_lixee_mark"
+            android:scaleType="fitCenter"
+            android:contentDescription="@string/widget_logo_description" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:text="Volet cuisine"
+            android:maxLines="1"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="@color/widget_text_primary" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/widget_preview_footer"
+            android:textSize="10sp"
+            android:textColor="@color/widget_text_secondary" />
+    </LinearLayout>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingTop="4dp"
+        android:text="@string/widget_reading_position"
+        android:textSize="11sp"
+        android:textColor="@color/widget_text_secondary" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="99 %"
+        android:textSize="22sp"
+        android:textStyle="bold"
+        android:textColor="@color/widget_text_primary" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingTop="6dp">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="34dp"
+            android:layout_marginEnd="4dp"
+            android:gravity="center"
+            android:text="UP"
+            android:textSize="12sp"
+            android:background="@drawable/widget_action_button"
+            android:textColor="@color/widget_text_primary" />
+        <TextView
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="34dp"
+            android:layout_marginEnd="4dp"
+            android:gravity="center"
+            android:text="DOWN"
+            android:textSize="12sp"
+            android:background="@drawable/widget_action_button"
+            android:textColor="@color/widget_text_primary" />
+        <TextView
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="34dp"
+            android:gravity="center"
+            android:text="STOP"
+            android:textSize="12sp"
+            android:background="@drawable/widget_action_button"
+            android:textColor="@color/widget_text_primary" />
+    </LinearLayout>
+</LinearLayout>

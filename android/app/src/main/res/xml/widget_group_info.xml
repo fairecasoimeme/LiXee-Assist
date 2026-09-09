@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:initialLayout="@layout/widget_group"
+    android:previewLayout="@layout/widget_preview_group"
     android:description="@string/widget_group_description"
     android:configure="com.lixee.assist.ActionGroupWidgetConfigActivity"
     android:minWidth="80dp"

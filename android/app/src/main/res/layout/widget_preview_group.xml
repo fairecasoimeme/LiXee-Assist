@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Vignette du sélecteur pour le widget de groupe d'actions.
+     Sans elle, Android retombait sur l'icône de l'application. L'exemple est
+     figé : un aperçu n'exécute aucun code et ne connaît donc aucun groupe. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:background="@drawable/widget_background"
+    android:padding="10dp">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="🏠"
+        android:textSize="28sp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingTop="2dp"
+        android:gravity="center"
+        android:text="Fermeture des volets"
+        android:maxLines="2"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:textColor="@color/widget_text_primary" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingTop="4dp"
+        android:gravity="center"
+        android:text="6 actions"
+        android:textSize="10sp"
+        android:textColor="@color/widget_text_secondary" />
+</LinearLayout>
