@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Graphe du bilan : soutiré au-dessus de zéro, injecté en dessous.
+
+  Deux couleurs, donc pas de teinte applicable au vol : ce dessin est propre au
+  thème bilan, là où preview_chart.xml sert aux deux autres.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="220dp"
+    android:height="46dp"
+    android:viewportWidth="100"
+    android:viewportHeight="70">
+
+    <!-- Ligne de zéro. -->
+    <path android:pathData="M0,31.6 h100 v0.8 h-100 z"
+        android:fillColor="@color/widget_text_secondary" android:fillAlpha="0.55" />
+
+    <path android:pathData="M0.79,18.00 h2.58 v14.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="0.70" />
+    <path android:pathData="M4.96,20.00 h2.58 v12.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="0.70" />
+    <path android:pathData="M9.12,22.00 h2.58 v10.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="0.70" />
+    <path android:pathData="M13.29,23.00 h2.58 v9.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="0.70" />
+    <path android:pathData="M17.46,24.00 h2.58 v8.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="0.70" />
+    <path android:pathData="M21.63,24.00 h2.58 v8.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="0.70" />
+    <path android:pathData="M25.79,23.00 h2.58 v9.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="0.70" />
+    <path android:pathData="M29.96,21.00 h2.58 v11.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="0.70" />
+    <path android:pathData="M34.12,26.00 h2.58 v6.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="0.70" />
+    <path android:pathData="M38.29,32.00 h2.58 v8.00 h-2.58 z"
+        android:fillColor="@color/widget_accent_production" android:fillAlpha="1.00" />
+    <path android:pathData="M42.46,32.00 h2.58 v22.00 h-2.58 z"
+        android:fillColor="@color/widget_accent_production" android:fillAlpha="1.00" />
+    <path android:pathData="M46.62,32.00 h2.58 v30.00 h-2.58 z"
+        android:fillColor="@color/widget_accent_production" android:fillAlpha="1.00" />
+    <path android:pathData="M50.79,32.00 h2.58 v34.00 h-2.58 z"
+        android:fillColor="@color/widget_accent_production" android:fillAlpha="1.00" />
+    <path android:pathData="M54.96,32.00 h2.58 v28.00 h-2.58 z"
+        android:fillColor="@color/widget_accent_production" android:fillAlpha="1.00" />
+    <path android:pathData="M59.12,32.00 h2.58 v16.00 h-2.58 z"
+        android:fillColor="@color/widget_accent_production" android:fillAlpha="1.00" />
+    <path android:pathData="M63.29,32.00 h2.58 v4.00 h-2.58 z"
+        android:fillColor="@color/widget_accent_production" android:fillAlpha="1.00" />
+    <path android:pathData="M67.46,26.00 h2.58 v6.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="0.70" />
+    <path android:pathData="M71.63,16.00 h2.58 v16.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="0.70" />
+    <path android:pathData="M75.79,6.00 h2.58 v26.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="0.70" />
+    <path android:pathData="M79.96,2.00 h2.58 v30.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="0.70" />
+    <path android:pathData="M84.13,8.00 h2.58 v24.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="0.70" />
+    <path android:pathData="M88.29,12.00 h2.58 v20.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="0.70" />
+    <path android:pathData="M92.46,15.00 h2.58 v17.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="0.70" />
+    <path android:pathData="M96.63,17.00 h2.58 v15.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="0.70" />
+</vector>

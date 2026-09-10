@@ -1,5 +1,10 @@
-# Firebase requires iOS 13.0+
-platform :ios, '13.0'
+# Firebase (SDK 12, via firebase_core 4.5) exige iOS 15.0 — le plus exigeant
+# des plugins, devant home_widget (14.0). À vérifier à chaque montée de
+# version de Firebase : une cible trop basse fait échouer pod install, et
+# avec lui tout build sur un clone propre, Xcode Cloud compris.
+# iOS 15 ne coûte aucun appareil : il tourne sur tous ceux qui recevaient
+# iOS 13, jusqu'à l'iPhone 6s.
+platform :ios, '15.0'
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'

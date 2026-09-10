@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Le widget vit sur l'écran d'accueil, pas dans l'app : il doit suivre
+         le thème du système, sans quoi il jure avec le fond d'écran sombre. -->
+    <color name="widget_background">#1E1E1E</color>
+    <color name="widget_accent">#5EA9E4</color>
+    <color name="widget_text_primary">#F2F2F2</color>
+    <color name="widget_text_secondary">#A0A0A0</color>
+    <color name="widget_accent_production">#5FC98A</color>
+    <color name="widget_gauge_track">#33383D</color>
+    <color name="widget_gauge_ok">#5EA9E4</color>
+    <color name="widget_gauge_warn">#F0A85A</color>
+    <color name="widget_gauge_alert">#E86B57</color>
+    <color name="widget_positive">#5FC98A</color>
+    <color name="widget_negative">#E86B57</color>
+    <color name="widget_action_background">#2A3138</color>
+    <!-- Teintes d'état, reprises de la page thermostat de la box. -->
+    <color name="widget_frost">#5DADE2</color>
+    <color name="widget_on_accent">#101418</color>
+    <!-- Jauge du thermostat, teintes reprises de la page de la box :
+         vif quand l'actionneur marche, pâle quand il est au repos. -->
+    <color name="widget_thermo_heat_on">#E74C3C</color>
+    <color name="widget_thermo_heat_off">#F1948A</color>
+    <color name="widget_thermo_cool_on">#2980B9</color>
+    <color name="widget_thermo_cool_off">#AED6F1</color>
+</resources>

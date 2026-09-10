@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Vignette du sélecteur de widgets.
+     Android l'inflate sans exécuter le provider : les libellés du thème
+     doivent y figurer en dur, sinon les trois widgets se ressemblent dans la
+     liste. La jauge et le graphe sont des vectoriels — les bitmaps du rendu
+     réel ne peuvent pas exister ici, et laissaient des trous. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/widget_background"
+    android:padding="10dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:baselineAligned="false">
+
+        <ImageView
+            android:layout_width="14dp"
+            android:layout_height="14dp"
+            android:layout_marginEnd="6dp"
+            android:src="@drawable/ic_lixee_mark"
+            android:scaleType="fitCenter"
+            android:contentDescription="@string/widget_logo_description" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:text="LiXee-Box"
+            android:maxLines="1"
+            android:textSize="12sp"
+            android:textColor="@color/widget_text_secondary" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/widget_column_period"
+            android:textSize="12sp"
+            android:textColor="@color/widget_text_secondary" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:orientation="horizontal"
+        android:baselineAligned="false">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center_horizontal">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/widget_gauge_label_production"
+                android:textSize="11sp"
+                android:textColor="@color/widget_text_secondary" />
+
+            <ImageView
+                android:layout_width="70dp"
+                android:layout_height="52dp"
+                android:layout_marginTop="2dp"
+                android:src="@drawable/preview_gauge_production"
+                android:scaleType="fitCenter"
+                android:contentDescription="@string/widget_gauge_description" />
+        </LinearLayout>
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/widget_column_production"
+                android:textSize="11sp"
+                android:textColor="@color/widget_text_secondary" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="⚡ 8,10 kWh"
+                android:maxLines="1"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:textColor="@color/widget_text_primary" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="🪙 1,05 €"
+                android:maxLines="1"
+                android:textSize="14sp"
+                android:textColor="@color/widget_text_primary" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="↑ 23 % vs h-1"
+                android:maxLines="1"
+                android:textSize="11sp"
+                android:textColor="@color/widget_positive" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <ImageView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="4dp"
+        android:src="@drawable/preview_chart"
+        android:tint="@color/widget_accent_production"
+        android:scaleType="fitXY"
+        android:contentDescription="@string/widget_chart_description" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/widget_preview_footer"
+        android:textSize="10sp"
+        android:textColor="@color/widget_text_secondary" />
+</LinearLayout>

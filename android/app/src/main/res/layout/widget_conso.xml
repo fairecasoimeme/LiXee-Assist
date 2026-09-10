@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Un widget d'écran d'accueil s'affiche via RemoteViews : seules quelques
+     vues sont autorisées (TextView, ImageView, ProgressBar, layouts simples).
+     Ni ConstraintLayout, ni vue personnalisée — d'où la jauge en bitmap. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/widget_background"
+    android:padding="12dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:baselineAligned="true">
+
+        <ImageView
+            android:layout_width="14dp"
+            android:layout_height="14dp"
+            android:layout_marginEnd="6dp"
+            android:src="@drawable/ic_lixee_mark"
+            android:scaleType="fitCenter"
+            android:contentDescription="@string/widget_logo_description" />
+
+        <TextView
+            android:id="@+id/widget_device"
+            android:text="LiXee-Box"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textSize="12sp"
+            android:textColor="@color/widget_text_secondary" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/widget_column_period"
+            android:maxLines="1"
+            android:textSize="12sp"
+            android:textColor="@color/widget_text_secondary" />
+    </LinearLayout>
+
+    <!-- La hauteur supplémentaire est partagée avec le graphe (3 contre 2).
+         Tout donner à ce bloc laissait une bande blanche : la jauge garde son
+         ratio carré et ne grandit pas au-delà de la largeur disponible. -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="3"
+        android:orientation="horizontal">
+
+        <!-- Colonne de la jauge. L'étiquette est ici plutôt que dans le
+             bitmap : elle s'aligne ainsi sur « Conso » de la colonne voisine,
+             et l'arc garde ses deux lignes centrales bien lisibles. -->
+        <LinearLayout
+            android:id="@+id/widget_gauge_column"
+            android:layout_width="0dp"
+            android:layout_weight="5"
+            android:layout_height="match_parent"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/widget_gauge_label"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/widget_gauge_label"
+                android:maxLines="1"
+                android:gravity="center_horizontal"
+                android:textSize="11sp"
+                android:textColor="@color/widget_text_secondary" />
+
+            <!-- La valeur est inscrite au cœur de l'arc, dessinée avec lui :
+                 RemoteViews ne sait pas superposer proprement. -->
+            <ImageView
+                android:id="@+id/widget_gauge"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:adjustViewBounds="true"
+                android:scaleType="fitCenter"
+                android:contentDescription="@string/widget_gauge_description" />
+        </LinearLayout>
+
+        <!-- match_parent des deux côtés : sans cela cette colonne se centrait
+             verticalement et « Conso » ne s'alignait pas sur « Puissance ». -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_weight="5"
+            android:layout_height="match_parent"
+            android:layout_marginStart="8dp"
+            android:orientation="vertical">
+
+            <!-- Sans cette étiquette, « 5,05 kWh » ne dit pas ce qu'il mesure :
+                 le « 24 h » de l'en-tête donne la période, pas la grandeur. -->
+            <TextView
+                android:id="@+id/widget_column_label"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/widget_column_conso"
+                android:maxLines="1"
+                android:textSize="11sp"
+                android:textColor="@color/widget_text_secondary" />
+
+            <!-- Une ligne d'écart sous le titre : les trois chiffres se
+                 centrent ainsi face à l'arc plutôt que de flotter en haut. -->
+            <TextView
+                android:id="@+id/widget_daily"
+                android:text="⚡ 4,92 kWh"
+                android:layout_marginTop="14dp"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:textColor="@color/widget_text_primary" />
+
+            <TextView
+                android:id="@+id/widget_cost"
+                android:text="🪙 1,41 €"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:maxLines="1"
+                android:textSize="14sp"
+                android:textColor="@color/widget_text_primary" />
+
+            <TextView
+                android:id="@+id/widget_trend"
+                android:text="↓ 8 %"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:maxLines="1"
+                android:layout_marginTop="2dp"
+                android:textSize="12sp"
+                android:textColor="@color/widget_text_secondary" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Le graphe absorbe sa part de la hauteur : des barres plus hautes sont
+         plus lisibles, alors qu'une jauge géante n'apporte rien. -->
+    <ImageView
+        android:id="@+id/widget_chart"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="2"
+        android:minHeight="40dp"
+        android:layout_marginTop="4dp"
+        android:scaleType="fitXY"
+        android:contentDescription="@string/widget_chart_description" />
+
+    <TextView
+        android:id="@+id/widget_footer"
+        android:text="@string/widget_preview_footer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:textSize="11sp"
+        android:textColor="@color/widget_text_secondary" />
+</LinearLayout>

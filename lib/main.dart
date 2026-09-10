@@ -15,7 +15,14 @@ import 'dart:convert';
 import 'screens/wifi_provision_screen.dart';
 import 'screens/home_screen.dart';
 import 'services/session_manager.dart';
+import 'services/session_pool.dart';
 import 'services/push_register_service.dart';
+import 'services/widget_data_service.dart';
+import 'services/action_group_service.dart';
+import 'services/device_control_service.dart';
+import 'services/thermostat_service.dart';
+import 'services/home_widget_bridge.dart';
+import 'package:home_widget/home_widget.dart';
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
 
@@ -47,13 +54,370 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   print('[FCM] ====================================');
 }
 
+/// Relève les métriques Linky de chaque box et les persiste pour le widget.
+///
+/// Volontairement séparé de [checkDeviceStatusBackground] : les deux tâches
+/// sont indépendantes, l'échec de l'une ne doit pas priver l'autre de son tour.
+/// [closeSessions] ne doit être vrai que depuis un isolate qui se termine :
+/// au premier plan, les sessions sont partagées avec l'écran d'accueil.
+/// [only] restreint le relevé à une box, pour l'appui sur un widget.
+Future<void> refreshWidgetMetrics({
+  bool closeSessions = false,
+  String? only,
+}) async {
+  try {
+    await SessionPool.loadPersisted();
+
+    // Publier la liste d'abord : l'utilisateur peut poser un widget et le
+    // configurer avant qu'un seul relevé ait abouti.
+    await HomeWidgetBridge.publishDeviceList(
+      await WidgetDataService.savedDeviceNames(),
+    );
+
+    final result = await WidgetDataService.refreshAll(
+      mdnsResolver: resolveMdnsIP,
+      only: only,
+      // Publier box par box, pas en fin de balayage : le processus
+      // d'arrière-plan est tué au bout de quelques secondes sous pression
+      // mémoire, et une box injoignable coûte jusqu'à dix secondes d'attente.
+      // Attendre la fin, c'est risquer de ne rien publier du tout.
+      onResult: (name, snapshot) async {
+        if (snapshot != null) {
+          await HomeWidgetBridge.push(snapshot);
+        } else {
+          await HomeWidgetBridge.pushFailure(name);
+        }
+      },
+    );
+    print('[WIDGET-DATA] ${result.snapshots.length} relevé(s) mis à jour'
+        '${result.unreachable.isEmpty ? '' : ', injoignables: ${result.unreachable.join(', ')}'}');
+  } finally {
+    if (closeSessions) WidgetDataService.disposeAll();
+  }
+}
+
+/// Relève les appareils Zigbee appairés et les publie pour leurs widgets.
+///
+/// [only] restreint le relevé à un appareil, désigné par sa clé
+/// `box/IEEE` : sur un appui, c'est le seul qui intéresse l'utilisateur.
+Future<void> refreshDeviceMetrics({
+  bool closeSessions = false,
+  String? only,
+  bool forceRead = false,
+}) async {
+  try {
+    await SessionPool.loadPersisted();
+    final catalogue = <DeviceSnapshot>[];
+    final refreshed = <String>{};
+    for (final box in await DeviceControlService.savedBoxes()) {
+      if (only != null && !only.startsWith('${box.name}/')) continue;
+
+      final devices = await DeviceControlService.fetchAll(
+        box,
+        mdnsResolver: resolveMdnsIP,
+      );
+      if (devices.isEmpty) {
+        // Une box muette n'a pas « zéro appareil » : on ne touche pas à son
+        // catalogue, et seul le widget qui attendait une réponse le signale.
+        if (only != null) await HomeWidgetBridge.pushDeviceFailure(only);
+        continue;
+      }
+      refreshed.add(box.name);
+      catalogue.addAll(devices);
+
+      // Après une action, la box sert encore la dernière valeur *rapportée*.
+      // Sans ce rappel, un volet en mouvement affiche sa position de départ.
+      if (forceRead) {
+        for (final device in devices.where((d) => d.key == only)) {
+          for (final reading in device.readings) {
+            await DeviceControlService.forceRead(
+              box,
+              device,
+              reading,
+              mdnsResolver: resolveMdnsIP,
+            );
+          }
+        }
+      }
+      for (final device in devices) {
+        if (only == null || device.key == only) {
+          await HomeWidgetBridge.pushDevice(device);
+        }
+      }
+    }
+
+    await HomeWidgetBridge.publishDeviceCatalog(catalogue, refreshed);
+    print('[DEVICES] ${catalogue.length} appareil(s) relevé(s)');
+  } finally {
+    if (closeSessions) WidgetDataService.disposeAll();
+  }
+}
+
+/// Relève les groupes d'actions de chaque box et les publie pour les widgets.
+Future<void> refreshActionGroups({bool closeSessions = false}) async {
+  try {
+    await SessionPool.loadPersisted();
+    final catalogue = <ActionGroup>[];
+    final refreshed = <String>{};
+
+    for (final box in await DeviceControlService.savedBoxes()) {
+      final groups = await ActionGroupService.fetchAll(
+        box,
+        mdnsResolver: resolveMdnsIP,
+      );
+      // Une box muette et une box sans groupe se ressemblent : dans le doute
+      // on ne touche pas à son catalogue.
+      if (groups.isEmpty) continue;
+      refreshed.add(box.name);
+      catalogue.addAll(groups);
+      for (final group in groups) {
+        await HomeWidgetBridge.pushGroup(group);
+      }
+    }
+
+    await HomeWidgetBridge.publishGroupCatalog(catalogue, refreshed);
+    print('[GROUPES] ${catalogue.length} groupe(s) relevé(s)');
+  } finally {
+    if (closeSessions) WidgetDataService.disposeAll();
+  }
+}
+
+/// Relève les thermostats virtuels de chaque box.
+Future<void> refreshThermostats({bool closeSessions = false}) async {
+  try {
+    await SessionPool.loadPersisted();
+    final catalogue = <ThermostatZone>[];
+    final refreshed = <String>{};
+
+    for (final box in await DeviceControlService.savedBoxes()) {
+      final zones = await ThermostatService.fetchAll(
+        box,
+        mdnsResolver: resolveMdnsIP,
+      );
+      if (zones.isEmpty) continue;
+      refreshed.add(box.name);
+      catalogue.addAll(zones);
+      for (final zone in zones) {
+        await HomeWidgetBridge.pushThermostat(zone);
+      }
+    }
+
+    await HomeWidgetBridge.publishThermostatCatalog(catalogue, refreshed);
+    print('[THERMO] ${catalogue.length} zone(s) relevée(s)');
+  } finally {
+    if (closeSessions) WidgetDataService.disposeAll();
+  }
+}
+
+/// Applique une commande de thermostat venue d'un widget.
+Future<void> _runThermostatCommand(Uri uri) async {
+  await SessionPool.loadPersisted();
+  final key = uri.pathSegments.first;
+  final boxName = key.split('~').first;
+  final zoneName = key.substring(boxName.length + 1);
+
+  final boxes = await DeviceControlService.savedBoxes();
+  final box = boxes.where((b) => b.name == boxName).firstOrNull;
+  if (box == null) {
+    print('[THERMO] Box inconnue: $boxName');
+    await HomeWidgetBridge.pushThermostatFailure(key);
+    return;
+  }
+
+  final q = uri.queryParameters;
+  final ok = await ThermostatService.command(
+    box,
+    zoneName,
+    delta: double.tryParse(q['d'] ?? ''),
+    forceMode: int.tryParse(q['f'] ?? ''),
+    heat: q['h'] == null ? null : q['h'] == '1',
+    toggleFrost: q['g'] == '1',
+    mdnsResolver: resolveMdnsIP,
+  );
+  if (!ok) {
+    await HomeWidgetBridge.pushThermostatFailure(key);
+    return;
+  }
+
+  // La box régule en continu : relire tout de suite donnerait la consigne
+  // d'avant. Un court délai suffit, l'actionneur n'est pas dans la boucle.
+  await Future<void>.delayed(const Duration(seconds: 2));
+  await refreshThermostats();
+}
+
+/// Déclenche un groupe d'actions depuis son widget.
+Future<void> _runActionGroup(String groupKey) async {
+  await SessionPool.loadPersisted();
+  final boxName = groupKey.split('#').first;
+  final groupName = groupKey.substring(boxName.length + 1);
+
+  final boxes = await DeviceControlService.savedBoxes();
+  final box = boxes.where((b) => b.name == boxName).firstOrNull;
+  if (box == null) {
+    print('[GROUPES] Box inconnue: $boxName');
+    await HomeWidgetBridge.pushGroupFailure(groupKey);
+    return;
+  }
+
+  final result = await ActionGroupService.run(
+    box,
+    groupName,
+    mdnsResolver: resolveMdnsIP,
+  );
+  if (result.ok) {
+    print('[GROUPES] $groupName: ${result.sent} action(s) envoyée(s)');
+    await HomeWidgetBridge.pushGroupResult(groupKey, result.sent);
+  } else {
+    print('[GROUPES] $groupName échoué: ${result.error}');
+    await HomeWidgetBridge.pushGroupFailure(groupKey);
+  }
+}
+
+/// Envoie une action sur un appareil, puis relit son état.
+///
+/// La box se contente d'empiler la trame Zigbee : elle répond avant que
+/// l'appareil ait bougé. On relit donc après coup — et plusieurs fois, car un
+/// volet met une vingtaine de secondes à arriver et ne rapporte sa position
+/// qu'à intervalles grossiers.
+Future<void> _runDeviceAction(Uri uri) async {
+  final deviceKey = uri.pathSegments[0];
+  final actionName = uri.pathSegments[1];
+  final boxName = deviceKey.split('/').first;
+
+  await SessionPool.loadPersisted();
+  final boxes = await DeviceControlService.savedBoxes();
+  final box = boxes.where((b) => b.name == boxName).firstOrNull;
+  if (box == null) {
+    print('[DEVICES] Box inconnue: $boxName');
+    return;
+  }
+
+  // Tout ce qu'il faut pour émettre la commande était déjà affiché : le widget
+  // le renvoie dans l'URI. Relire l'inventaire de la box d'abord coûtait
+  // plusieurs secondes avant que le volet ne bouge.
+  final device = DeviceControlService.stub(
+    boxName: boxName,
+    key: deviceKey,
+    shortAddr: int.tryParse(uri.queryParameters['sa'] ?? '') ?? 0,
+    endpoint: int.tryParse(uri.queryParameters['e'] ?? '') ?? 1,
+  );
+  final action = DeviceAction(
+    name: actionName,
+    command: int.tryParse(uri.queryParameters['c'] ?? '') ?? 0,
+    endpoint: device.endpoint,
+    value: int.tryParse(uri.queryParameters['v'] ?? '') ?? 0,
+    cluster: int.tryParse(uri.queryParameters['cl'] ?? ''),
+    manufacturerCode: int.tryParse(uri.queryParameters['m'] ?? ''),
+  );
+  if (device.shortAddr == 0 || action.command == 0) {
+    print('[DEVICES] Commande incomplète: $uri');
+    return;
+  }
+
+  final sent = await DeviceControlService.send(
+    box,
+    device,
+    action,
+    mdnsResolver: resolveMdnsIP,
+  );
+  if (!sent) {
+    await HomeWidgetBridge.pushDeviceFailure(deviceKey);
+    return;
+  }
+
+  // Relectures espacées : la première attrape les mouvements courts, la
+  // dernière la position d'arrivée. S'arrêter à la première afficherait la
+  // valeur d'avant l'appui, ce qui ressemblerait à une commande sans effet.
+  for (final delay in const [Duration(seconds: 4), Duration(seconds: 12)]) {
+    await Future<void>.delayed(delay);
+    await refreshDeviceMetrics(only: deviceKey, forceRead: true);
+  }
+}
+
+/// Appui sur un widget : relève et redessine, sans ouvrir l'app.
+///
+/// Doit être top-level et annoté `vm:entry-point` : l'appel arrive dans un
+/// isolate neuf, lancé par le receveur du plugin, où rien de l'app ne tourne.
+///
+/// C'est le seul rafraîchissement qui échappe aux limites de fréquence
+/// d'Android, puisque c'est l'utilisateur qui le demande.
+@pragma('vm:entry-point')
+Future<void> widgetInteractionCallback(Uri? uri) async {
+  if (uri == null) return;
+  await HomeWidgetBridge.init();
+  print('[WIDGET-DATA] Appui widget ($uri)');
+
+  try {
+    switch (uri.host) {
+      case 'refresh':
+        // L'URI porte la box du widget touché. Balayer les autres n'apporterait
+        // rien à l'écran et ferait durer l'attente de plusieurs secondes par
+        // box muette — assez pour que le système tue le processus avant la fin.
+        final device =
+            uri.pathSegments.isEmpty ? null : uri.pathSegments.first;
+        try {
+          await refreshWidgetMetrics(closeSessions: true, only: device);
+        } catch (e) {
+          print('[WIDGET-DATA] Relevé sur appui échoué: $e');
+          if (device != null) await HomeWidgetBridge.pushFailure(device);
+        }
+
+      case 'devrefresh':
+        final key = uri.pathSegments.isEmpty ? null : uri.pathSegments.first;
+        await refreshDeviceMetrics(closeSessions: true, only: key);
+
+      case 'devaction':
+        if (uri.pathSegments.length < 2) return;
+        await _runDeviceAction(uri);
+
+      case 'groupaction':
+        if (uri.pathSegments.isEmpty) return;
+        await _runActionGroup(uri.pathSegments.first);
+
+      case 'grouprefresh':
+        await refreshActionGroups();
+
+      case 'thermo':
+        if (uri.pathSegments.isEmpty) return;
+        await _runThermostatCommand(uri);
+
+      case 'thermorefresh':
+        await refreshThermostats();
+    }
+  } finally {
+    WidgetDataService.disposeAll();
+  }
+}
+
 @pragma('vm:entry-point')
 void callbackDispatcher() {
   Workmanager().executeTask((task, inputData) async {
+    await HomeWidgetBridge.init();
     try {
       await checkDeviceStatusBackground();
     } catch (e) {
       // Silently handle errors to avoid crashing the worker
+    }
+    try {
+      // Isolate éphémère : refermer les sessions HTTP en sortant.
+      await refreshWidgetMetrics();
+    } catch (e) {
+      print('[WIDGET-DATA] Relevé échoué dans le worker: $e');
+    }
+    try {
+      await refreshDeviceMetrics();
+    } catch (e) {
+      print('[DEVICES] Relevé échoué dans le worker: $e');
+    }
+    try {
+      await refreshActionGroups();
+    } catch (e) {
+      print('[GROUPES] Relevé échoué dans le worker: $e');
+    }
+    try {
+      await refreshThermostats(closeSessions: true);
+    } catch (e) {
+      print('[THERMO] Relevé échoué dans le worker: $e');
     }
     return Future.value(true);
   });
@@ -89,6 +453,39 @@ void main() async {
   } catch (e) {
     print('[FCM] Token unavailable (pas de Play Services ?): $e');
   }
+
+  // Rend la jauge du widget cliquable : l'appui réveille un isolate qui
+  // exécute widgetInteractionCallback.
+  await HomeWidgetBridge.init();
+  await HomeWidget.registerInteractivityCallback(widgetInteractionCallback);
+
+  // Premier relevé au démarrage, sans bloquer l'UI : le widget dispose d'une
+  // valeur fraîche sans attendre le prochain tour du worker (15 min).
+  () async {
+    try {
+      await refreshWidgetMetrics();
+    } catch (e) {
+      print('[WIDGET-DATA] Relevé initial échoué: $e');
+    }
+    // Après le Linky : c'est le relevé des appareils qui alimente le catalogue
+    // de l'écran de configuration, sans lequel aucun widget d'appareil ne peut
+    // être posé.
+    try {
+      await refreshDeviceMetrics();
+    } catch (e) {
+      print('[DEVICES] Relevé initial échoué: $e');
+    }
+    try {
+      await refreshActionGroups();
+    } catch (e) {
+      print('[GROUPES] Relevé initial échoué: $e');
+    }
+    try {
+      await refreshThermostats();
+    } catch (e) {
+      print('[THERMO] Relevé initial échoué: $e');
+    }
+  }();
 
   // Écouter les refresh de token FCM → ré-enregistrer automatiquement
   FirebaseMessaging.instance.onTokenRefresh.listen((newToken) {

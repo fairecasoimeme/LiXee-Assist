@@ -1,0 +1,152 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_conso_label">LiXee — Consommation</string>
+    <string name="widget_conso_description">Puissance instantanée, consommation et coût sur 24 h</string>
+
+    <!-- Confirmation avant d'ouvrir l'app depuis un widget. -->
+    <string name="widget_open_title">Ouvrir la box ?</string>
+    <string name="widget_open_message">Afficher « %1$s » dans LiXee-Assist ?</string>
+    <string name="widget_open_confirm">Ouvrir</string>
+
+    <string name="widget_no_device">Box non choisie</string>
+    <string name="widget_tap_to_configure">Retirez et reposez le widget</string>
+    <string name="widget_never_updated">Jamais relevé</string>
+    <!-- La box n'a pas répondu à la dernière tentative. On garde l'âge des
+         chiffres affichés : sans lui, on ne sait pas ce qu'on regarde. -->
+    <string name="widget_unreachable">Injoignable · %1$s</string>
+    <string name="widget_unreachable_never">Injoignable</string>
+    <!-- Accusé de réception de l'appui : le relevé prend plusieurs secondes
+         et ne change parfois rien de visible. -->
+    <string name="widget_refreshing">Mise à jour…</string>
+
+    <string name="widget_config_title">Quelle LiXee-Box afficher ?</string>
+    <string name="widget_config_empty">Aucune box enregistrée. Ajoutez-en une dans LiXee-Assist, puis reposez le widget.</string>
+    <string name="widget_placeholder">—</string>
+    <string name="widget_unit_power">VA</string>
+    <!-- Deux symboles de même nature, lisibles à petite taille : l'éclair et la
+         pièce sont des silhouettes simples, là où le billet 💶 était une scène
+         détaillée qui se lisait comme une tache. -->
+    <string name="widget_unit_energy">⚡ %s kWh</string>
+    <string name="widget_unit_cost">🪙 %s €</string>
+    <string name="widget_unit_max">%s kVA</string>
+    <!-- Sans ces étiquettes, « 470 VA » et « 5,05 kWh » ne disent pas ce
+         qu'ils mesurent. Tenues courtes : elles logent dans l'arc et dans une
+         colonne étroite. -->
+    <string name="widget_gauge_label">Puissance</string>
+    <string name="widget_gauge_label_production">Injection</string>
+    <string name="widget_column_conso">Conso</string>
+    <string name="widget_column_production">Production</string>
+    <string name="widget_column_balance">Bilan</string>
+    <string name="widget_column_period">24 h</string>
+
+    <!-- Libellés du sélecteur de widgets, un par thème. -->
+    <string name="widget_production_label">LiXee — Production</string>
+    <string name="widget_production_description">Injection solaire et revenu sur 24 h</string>
+    <string name="widget_balance_label">LiXee — Bilan</string>
+    <string name="widget_balance_description">Solde entre soutirage et injection, et facture nette</string>
+
+    <!-- Vert = baisse : sur une facture, consommer moins est la bonne nouvelle. -->
+    <string name="widget_trend_up">↑ %d %% vs h-1</string>
+    <string name="widget_trend_down">↓ %d %% vs h-1</string>
+    <string name="widget_trend_flat">→ stable</string>
+    <string name="widget_chart_description">Consommation heure par heure sur les 24 dernières heures</string>
+    <string name="widget_gauge_description">Puissance instantanée rapportée à la puissance souscrite</string>
+    <string name="widget_logo_description">LiXee</string>
+
+    <string name="widget_age_now">à l\'instant</string>
+    <plurals name="widget_age_minutes">
+        <item quantity="one">il y a %d min</item>
+        <item quantity="other">il y a %d min</item>
+    </plurals>
+    <plurals name="widget_age_hours">
+        <item quantity="one">il y a %d h</item>
+        <item quantity="other">il y a %d h</item>
+    </plurals>
+
+    <!-- Valeur d'aperçu du sélecteur de widgets, remplacée au premier rendu. -->
+    <string name="widget_preview_footer">il y a 2 min</string>
+
+    <!-- Widget par appareil Zigbee. -->
+    <string name="widget_device_label">LiXee — Appareil</string>
+    <string name="widget_device_description">Valeurs et commandes d\'un appareil appairé (volet, prise, capteur)</string>
+    <string name="widget_device_config_title">Quel appareil afficher ?</string>
+    <string name="widget_device_config_box">Sur quelle LiXee-Box ?</string>
+    <string name="widget_device_config_device">Quel appareil sur « %1$s » ?</string>
+    <plurals name="widget_device_count">
+        <item quantity="one">%d appareil</item>
+        <item quantity="other">%d appareils</item>
+    </plurals>
+    <string name="widget_device_config_empty">Aucun appareil relevé pour l\'instant. Ouvrez LiXee-Assist une fois, puis reposez le widget.</string>
+    <!-- Intitulés lisibles des grandeurs les plus courantes. Tout autre nom
+         s'affiche tel que le gabarit le donne. -->
+    <string name="widget_reading_position">Position</string>
+    <!-- Position d'un volet aux extrémités : 100 = ouvert sur le matériel de
+         la box, à rebours de la norme ZCL. -->
+    <string name="widget_position_open">%1$s ouvert</string>
+    <string name="widget_position_closed">%1$s fermé</string>
+    <string name="widget_reading_temperature">Température</string>
+    <string name="widget_reading_humidity">Humidité</string>
+    <string name="widget_reading_battery">Batterie</string>
+
+    <!-- Confirmation avant d'agir : un volet qui descend par mégarde ne se
+         rattrape pas d'un retour arrière. -->
+    <string name="widget_action_title">%1$s ?</string>
+    <string name="widget_action_message">Envoyer « %1$s » à « %2$s » ?</string>
+    <string name="widget_action_confirm">Envoyer</string>
+
+    <!-- Widget de groupe d'actions. -->
+    <string name="widget_group_label">LiXee — Groupe d\'actions</string>
+    <string name="widget_group_description">Un bouton qui déclenche un groupe d\'actions configuré sur la box</string>
+    <string name="widget_group_config_title">Quel groupe d\'actions ?</string>
+    <string name="widget_group_config_group">Quel groupe sur « %1$s » ?</string>
+    <string name="widget_group_config_empty">Aucun groupe d\'actions trouvé. Créez-en un sur la box (config → Groupes d\'actions), ouvrez LiXee-Assist une fois, puis reposez le widget.</string>
+    <string name="widget_group_running">Envoi…</string>
+    <string name="widget_group_failed">Échec</string>
+    <!-- Ce que le dernier appui a donné : le nombre compte, un groupe peut
+         n'envoyer qu'une partie de ses actions. -->
+    <string name="widget_group_sent" formatted="false">%1$d envoyée(s) · %2$s</string>
+    <plurals name="widget_group_actions">
+        <item quantity="one">%d action</item>
+        <item quantity="other">%d actions</item>
+    </plurals>
+    <plurals name="widget_group_count">
+        <item quantity="one">%d groupe</item>
+        <item quantity="other">%d groupes</item>
+    </plurals>
+    <plurals name="widget_group_confirm">
+        <item quantity="one">Envoyer %d action ?</item>
+        <item quantity="other">Envoyer %d actions ?</item>
+    </plurals>
+    <string name="widget_group_confirm_unknown">Déclencher ce groupe ?</string>
+    <string name="widget_group_confirm_run">Déclencher</string>
+
+    <!-- Widget de thermostat virtuel. -->
+    <string name="widget_thermo_label">LiXee — Thermostat</string>
+    <string name="widget_thermo_description">Consigne, mesure et forçage d\'une zone du thermostat de la box</string>
+    <string name="widget_thermo_config_title">Quelle zone de thermostat ?</string>
+    <string name="widget_thermo_config_zone">Quelle zone sur « %1$s » ?</string>
+    <string name="widget_thermo_config_empty">Aucune zone de thermostat trouvée. Créez-en une sur la box, ouvrez LiXee-Assist une fois, puis reposez le widget.</string>
+    <string name="widget_thermo_gauge_description">Température mesurée et consigne sur une échelle de 5 à 35 °C</string>
+    <string name="widget_thermo_setpoint">%1$s °C</string>
+    <!-- La sonde ne répond pas : la consigne ne régule alors rien, et
+         afficher une mesure périmée laisserait croire le contraire. -->
+    <string name="widget_thermo_no_sensor">Pas de sonde</string>
+    <string name="widget_thermo_auto">Auto</string>
+    <string name="widget_thermo_on">Marche</string>
+    <string name="widget_thermo_off">Arrêt</string>
+    <string name="widget_thermo_heat">Chaud</string>
+    <string name="widget_thermo_cool">Froid</string>
+    <string name="widget_thermo_frost">Hors-gel</string>
+    <!-- État de la zone, assemblé par le provider avec des points médians.
+         La box dit la même chose par la couleur de sa carte ; sur un écran
+         d'accueil, un mot est plus sûr qu'une teinte. -->
+    <string name="widget_thermo_forced_on">Marche forcée</string>
+    <string name="widget_thermo_forced_off">Arrêt forcé</string>
+    <string name="widget_thermo_regulating">régule</string>
+    <string name="widget_thermo_idle">au repos</string>
+    <string name="widget_thermo_separator">" · "</string>
+    <plurals name="widget_thermo_count">
+        <item quantity="one">%d zone</item>
+        <item quantity="other">%d zones</item>
+    </plurals>
+</resources>

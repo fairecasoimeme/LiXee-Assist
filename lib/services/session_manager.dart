@@ -1,6 +1,8 @@
-import 'dart:io';
-import 'dart:convert';
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'network_scope.dart';
 
 enum AuthMode { basic, form }
 
@@ -20,9 +22,10 @@ bool _hasLoginForm(String body) {
 
 /// Détecte le mode d'authentification d'un appareil.
 Future<AuthMode> detectAuthMode(String targetBaseUrl) async {
-  final client = HttpClient();
-  client.badCertificateCallback = (cert, host, port) => true;
-  client.connectionTimeout = const Duration(seconds: 5);
+  final client = scopedHttpClient(
+    targetBaseUrl,
+    connectionTimeout: const Duration(seconds: 5),
+  );
 
   try {
     final uri = Uri.parse(targetBaseUrl);
@@ -95,12 +98,34 @@ class SessionManager {
     required this.targetBaseUrl,
     required this.username,
     required this.password,
-  }) : httpClient = HttpClient() {
-    httpClient.badCertificateCallback = (cert, host, port) => true;
-    httpClient.connectionTimeout = const Duration(seconds: 5);
-  }
+  }) : httpClient = scopedHttpClient(
+          targetBaseUrl,
+          connectionTimeout: const Duration(seconds: 5),
+        );
 
   String? get sessionCookie => _sessionCookie;
+
+  /// Noms des champs du formulaire, une fois détectés. Exposés pour pouvoir
+  /// les conserver d'un isolate à l'autre : les redétecter coûte un aller-retour
+  /// avant même de pouvoir tenter le login.
+  String? get userField => _userField;
+  String? get passField => _passField;
+
+  /// Rétablit une session obtenue ailleurs — typiquement lors d'un passage
+  /// précédent de l'app, avant que cet isolate n'existe.
+  ///
+  /// Sans garantie de validité : le cookie vit 24 h côté box, mais peut avoir
+  /// été révoqué. [authenticatedGet] reconnaît la page de login et refait le
+  /// trajet complet, ce qui ramène simplement au comportement d'avant.
+  void restore({String? cookie, String? userField, String? passField}) {
+    if (cookie != null && cookie.isNotEmpty) _sessionCookie = cookie;
+    if (userField != null) _userField = userField;
+    if (passField != null) _passField = passField;
+  }
+
+  /// Appelé après chaque login abouti, pour que l'appelant puisse conserver le
+  /// cookie au-delà de la vie de cet objet.
+  void Function(SessionManager session)? onAuthenticated;
 
   /// Détecte les noms des champs du formulaire de login depuis le HTML.
   Future<void> _detectFormFields() async {
@@ -158,7 +183,8 @@ class SessionManager {
 
       // Chercher le cookie sur la réponse du POST
       var cookies = response.headers['set-cookie'];
-      print('[SESSION] Login POST status=${response.statusCode}, set-cookie=$cookies');
+      print('[SESSION] Login POST status=${response.statusCode}, '
+          'set-cookie=${cookies == null ? 'aucun' : '${cookies.length} reçu(s)'}');
 
       // Si redirect (303/302) sans cookie → suivre la redirection pour récupérer le cookie
       if ((cookies == null || cookies.isEmpty) &&
@@ -173,7 +199,8 @@ class SessionManager {
           redirectReq.followRedirects = false;
           final redirectResp = await redirectReq.close();
           cookies = redirectResp.headers['set-cookie'];
-          print('[SESSION] Redirect response status=${redirectResp.statusCode}, set-cookie=$cookies');
+          print('[SESSION] Redirect response status=${redirectResp.statusCode}, '
+              'set-cookie=${cookies == null ? 'aucun' : '${cookies.length} reçu(s)'}');
           await redirectResp.drain();
         }
       } else {
@@ -190,7 +217,8 @@ class SessionManager {
         }
         if (cookieParts.isNotEmpty) {
           _sessionCookie = cookieParts.join('; ');
-          print('[SESSION] Login OK, cookie=$_sessionCookie');
+          print('[SESSION] Login OK');
+          onAuthenticated?.call(this);
           _loginCompleter!.complete(true);
           _loginCompleter = null;
           return true;
@@ -242,6 +270,45 @@ class SessionManager {
   /// Met à jour le cookie de session (ex: l'ESP32 a rafraîchi le cookie).
   void updateSessionCookie(String newCookie) {
     _sessionCookie = newCookie;
+  }
+
+  /// POST authentifié, en `application/x-www-form-urlencoded`.
+  ///
+  /// Même politique que [authenticatedGet] face à une session expirée : on
+  /// rejoue la requête après re-login. Rejouer un POST n'est anodin que parce
+  /// que la première tentative a été refusée sans rien exécuter — la box a
+  /// renvoyé sa page de login, pas un résultat.
+  Future<AuthenticatedResponse> authenticatedPost(
+    String path,
+    Map<String, String> fields,
+  ) async {
+    final cookie = await getSessionCookie();
+    final uri = Uri.parse(targetBaseUrl).resolve(path);
+    final payload = fields.entries
+        .map((e) =>
+            '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value)}')
+        .join('&');
+
+    Future<HttpClientResponse> send(String? withCookie) async {
+      final request = await httpClient.postUrl(uri);
+      request.headers.set('Content-Type', 'application/x-www-form-urlencoded');
+      if (withCookie != null) request.headers.set('Cookie', withCookie);
+      request.followRedirects = false;
+      request.add(utf8.encode(payload));
+      return request.close();
+    }
+
+    var response = await send(cookie);
+    var body = await response.transform(utf8.decoder).join();
+
+    if (isLoginPage(response.statusCode, body, response.headers.value('location'))) {
+      _sessionCookie = null;
+      if (await login()) {
+        response = await send(_sessionCookie);
+        body = await response.transform(utf8.decoder).join();
+      }
+    }
+    return AuthenticatedResponse(response.statusCode, body);
   }
 
   /// GET authentifié avec re-login automatique si session expirée.

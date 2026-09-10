@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Graphe horaire de la vignette. Blanc à dessein : chaque aperçu le teinte
+  avec la couleur de son thème, ce qui évite un dessin par thème.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="220dp"
+    android:height="46dp"
+    android:viewportWidth="100"
+    android:viewportHeight="70">
+
+    <path android:pathData="M0.79,36.00 h2.58 v34.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="0.70" />
+    <path android:pathData="M4.96,40.00 h2.58 v30.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="0.70" />
+    <path android:pathData="M9.12,44.00 h2.58 v26.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="0.70" />
+    <path android:pathData="M13.29,48.00 h2.58 v22.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="0.70" />
+    <path android:pathData="M17.46,50.00 h2.58 v20.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="0.70" />
+    <path android:pathData="M21.63,51.00 h2.58 v19.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="0.70" />
+    <path android:pathData="M25.79,52.00 h2.58 v18.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="0.30" />
+    <path android:pathData="M29.96,50.00 h2.58 v20.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="0.70" />
+    <path android:pathData="M34.12,44.00 h2.58 v26.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="0.70" />
+    <path android:pathData="M38.29,32.00 h2.58 v38.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="0.70" />
+    <path android:pathData="M42.46,18.00 h2.58 v52.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="0.70" />
+    <path android:pathData="M46.62,24.00 h2.58 v46.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="0.70" />
+    <path android:pathData="M50.79,30.00 h2.58 v40.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="0.70" />
+    <path android:pathData="M54.96,34.00 h2.58 v36.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="0.70" />
+    <path android:pathData="M59.12,37.00 h2.58 v33.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="0.70" />
+    <path android:pathData="M63.29,39.00 h2.58 v31.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="0.70" />
+    <path android:pathData="M67.46,40.00 h2.58 v30.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="0.70" />
+    <path android:pathData="M71.63,36.00 h2.58 v34.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="0.70" />
+    <path android:pathData="M75.79,26.00 h2.58 v44.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="0.70" />
+    <path android:pathData="M79.96,12.00 h2.58 v58.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="0.70" />
+    <path android:pathData="M84.13,6.00 h2.58 v64.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="1.00" />
+    <path android:pathData="M88.29,15.00 h2.58 v55.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="0.70" />
+    <path android:pathData="M92.46,26.00 h2.58 v44.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="0.70" />
+    <path android:pathData="M96.63,32.00 h2.58 v38.00 h-2.58 z"
+        android:fillColor="#FFFFFF" android:fillAlpha="0.70" />
+</vector>

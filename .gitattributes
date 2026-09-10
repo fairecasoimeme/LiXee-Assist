@@ -1,0 +1,4 @@
+# Les scripts shell s'exécutent sur macOS (Xcode Cloud) et Linux : des fins de
+# ligne Windows les casseraient (« /bin/sh^M: bad interpreter »), quelle que
+# soit la configuration git du poste qui les a écrits.
+*.sh text eol=lf

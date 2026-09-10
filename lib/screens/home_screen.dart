@@ -10,6 +10,8 @@ import 'dart:convert'; // ✅ permet d'utiliser base64Encode et utf8
 import 'package:dio/dio.dart';
 import 'about_screen.dart';
 import '../services/session_manager.dart';
+import '../services/session_pool.dart';
+import 'package:home_widget/home_widget.dart';
 import '../main.dart' show TVDetector;
 
 // ✅ Instance globale des notifications - référence celle du main.dart
@@ -589,9 +591,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   Timer? _refreshTimer;
   Map<String, bool> deviceStatuses = {};
   Map<String, bool> deviceOnFallback = {}; // true si le polling utilise le fallback
-  Map<String, SessionManager> _sessionManagers = {};
-  Map<String, AuthMode> _authModes = {};
   bool _initialized = false;
+
+  StreamSubscription<Uri?>? _widgetClicks;
+
+  /// Évite d'empiler deux WebViews : au démarrage à froid, le clic peut
+  /// arriver à la fois par l'URI initiale et par le flux.
+  bool _openingFromWidget = false;
+
+  /// Box demandée par un widget, le temps d'en résoudre l'URL.
+  String? _pendingWidgetDevice;
 
   @override
   void initState() {
@@ -599,6 +608,85 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _loadDevices();
     _startAutoRefresh();
+    _listenForWidgetLaunch();
+  }
+
+  /// Ouvre directement la box choisie quand l'app est lancée depuis un widget.
+  ///
+  /// Sans cela l'appui retombait sur la liste des box, alors que le widget
+  /// désigne déjà la sienne : son nom voyage dans l'URI du PendingIntent, il
+  /// suffisait de la consommer.
+  void _listenForWidgetLaunch() {
+    // Deux sources : l'app démarrée à froid par le widget, et le clic reçu
+    // alors qu'elle tournait déjà.
+    HomeWidget.initiallyLaunchedFromHomeWidget().then(_openFromWidget);
+    _widgetClicks = HomeWidget.widgetClicked.listen(_openFromWidget);
+  }
+
+  Future<void> _openFromWidget(Uri? uri) async {
+    if (uri == null || uri.host != 'open') return;
+    if (_openingFromWidget) return;
+
+    final name = uri.pathSegments.isEmpty
+        ? ''
+        : Uri.decodeComponent(uri.pathSegments.first);
+    if (name.isEmpty || name == 'unconfigured') return;
+
+    _openingFromWidget = true;
+    if (mounted) setState(() => _pendingWidgetDevice = name);
+    try {
+      // Relu depuis les préférences plutôt que de la liste en mémoire : au
+      // démarrage à froid, celle-ci n'est pas encore chargée.
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.reload();
+      final entry = (prefs.getStringList('saved_devices') ?? []).firstWhere(
+        (e) => e.split('|').first == name,
+        orElse: () => '',
+      );
+      if (entry.isEmpty) {
+        print('[WIDGET] Box « $name » introuvable, on reste sur la liste');
+        return;
+      }
+
+      // La confirmation a déjà eu lieu côté natif, avant même que l'app ne
+      // démarre : arriver ici veut dire que l'utilisateur a accepté.
+      if (!mounted) return;
+      await _openDevice(entry);
+    } finally {
+      _openingFromWidget = false;
+      if (mounted) setState(() => _pendingWidgetDevice = null);
+    }
+  }
+
+  /// Écran d'attente pendant qu'on résout l'URL de la box demandée.
+  Widget _buildWidgetLaunchScreen(String name) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF5F7FA),
+      body: SafeArea(
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Image.asset('assets/logo.png', height: 72),
+              const SizedBox(height: 24),
+              Text(
+                name,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.black87,
+                ),
+              ),
+              const SizedBox(height: 20),
+              const CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF1B75BC)),
+                strokeWidth: 3,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -631,9 +719,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _refreshTimer?.cancel();
-    for (final sm in _sessionManagers.values) {
-      sm.close();
-    }
+    _widgetClicks?.cancel();
+    // Les sessions appartiennent à SessionPool et sont partagées avec le
+    // relevé des métriques : cet écran n'a pas à les fermer.
     super.dispose();
   }
 
@@ -644,30 +732,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       String responseBody;
 
       if (login != null && password != null) {
-        final deviceKey = '$deviceName|$finalUrl';
-        _authModes[deviceKey] ??= await detectAuthMode(finalUrl);
-        final authMode = _authModes[deviceKey]!;
+        var authMode = await SessionPool.authMode(finalUrl);
 
         if (authMode == AuthMode.form) {
-          _sessionManagers[deviceKey] ??= SessionManager(
-            targetBaseUrl: finalUrl,
-            username: login,
-            password: password,
-          );
-          final sm = _sessionManagers[deviceKey]!;
+          final sm = SessionPool.session(finalUrl, login, password);
           if (sm.sessionCookie == null) {
             final loginOk = await sm.login();
             if (!loginOk) {
               print('[HOME] Form login failed for $deviceName, fallback to Basic Auth');
-              sm.close();
-              _sessionManagers.remove(deviceKey);
-              _authModes[deviceKey] = AuthMode.basic;
+              SessionPool.invalidate(finalUrl, login);
+              SessionPool.setAuthMode(finalUrl, AuthMode.basic);
+              authMode = AuthMode.basic;
             }
           }
         }
 
-        if (_authModes[deviceKey] == AuthMode.form) {
-          final result = await _sessionManagers[deviceKey]!.authenticatedGet('/poll');
+        if (authMode == AuthMode.form) {
+          final result = await SessionPool.session(finalUrl, login, password)
+              .authenticatedGet('/poll');
           statusCode = result.statusCode;
           responseBody = result.body;
         } else {
@@ -1700,6 +1782,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
+    // Lancement depuis un widget : on ne montre pas la liste des box, sans
+    // quoi elle apparaîtrait le temps que la cascade d'URL aboutisse — alors
+    // que l'utilisateur a déjà désigné la sienne.
+    if (_pendingWidgetDevice != null) {
+      return _buildWidgetLaunchScreen(_pendingWidgetDevice!);
+    }
     return SafeArea(
         child: Scaffold(
           backgroundColor: Color(0xFFF5F7FA),

@@ -1,7 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     package="com.lixee.assist">
 
-
+    <!-- Désactiver l'identifiant publicitaire (pas de pub dans l'app) -->
+    <uses-permission android:name="com.google.android.gms.permission.AD_ID" tools:node="remove" />
 
     <application
         android:name=".AppContextProvider"
@@ -39,6 +41,165 @@
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Choix de la box, au dépôt du widget. Exportée car lancée par le
+             lanceur : Android impose ce point d'entrée pour android:configure. -->
+        <activity
+            android:name=".WidgetConfigActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.DeviceDefault.Light.Dialog.NoActionBar">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+
+        <!-- Réveille un isolate Dart quand on appuie sur la jauge du widget,
+             pour relever sans ouvrir l'app. Fourni par le plugin home_widget. -->
+        <receiver
+            android:name="es.antonborri.home_widget.HomeWidgetBackgroundReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="es.antonborri.home_widget.action.BACKGROUND" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Confirmation posée par-dessus le bureau. Thème dialogue et non
+             exportée : elle n'est atteinte que par le PendingIntent du widget,
+             qui porte déjà notre identité. -->
+        <activity
+            android:name=".WidgetLaunchConfirmActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.DeviceDefault.Light.Dialog.Alert" />
+
+        <!-- Confirmation avant d'agir sur un appareil. Même parti pris que
+             ci-dessus : refuser ne doit rien lancer ni rien envoyer. -->
+        <activity
+            android:name=".WidgetActionConfirmActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.DeviceDefault.Light.Dialog.Alert" />
+
+        <!-- Exportée à dessein : c'est le lanceur, une autre application, qui
+             démarre l'écran de configuration au dépôt du widget. Le thème
+             dialogue est nécessaire aussi — sans lui, la barre d'action de
+             l'app recouvre le titre et ampute la première ligne. -->
+        <activity
+            android:name=".DeviceWidgetConfigActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.DeviceDefault.Light.Dialog.NoActionBar">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+
+        <receiver
+            android:name=".DeviceWidgetProvider"
+            android:label="@string/widget_device_label"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_device_info" />
+        </receiver>
+
+        <activity
+            android:name=".WidgetGroupConfirmActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.DeviceDefault.Light.Dialog.Alert" />
+
+        <!-- Exportée à dessein, comme les autres écrans de configuration :
+             c'est le lanceur qui les démarre au dépôt du widget. -->
+        <activity
+            android:name=".ActionGroupWidgetConfigActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.DeviceDefault.Light.Dialog.NoActionBar">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+
+        <receiver
+            android:name=".ActionGroupWidgetProvider"
+            android:label="@string/widget_group_label"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_group_info" />
+        </receiver>
+
+        <activity
+            android:name=".ThermostatWidgetConfigActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.DeviceDefault.Light.Dialog.NoActionBar">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+
+        <receiver
+            android:name=".ThermostatWidgetProvider"
+            android:label="@string/widget_thermo_label"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_thermostat_info" />
+        </receiver>
+
+        <!-- Un receveur par thème : Android identifie un provider par son nom
+             de composant, c'est ce qui leur donne des entrées distinctes dans
+             le sélecteur. Tous partagent le même rendu et le même stockage. -->
+        <receiver
+            android:name=".ConsoWidgetProvider"
+            android:label="@string/widget_conso_label"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_conso_info" />
+        </receiver>
+
+        <receiver
+            android:name=".ProductionWidgetProvider"
+            android:label="@string/widget_production_label"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_production_info" />
+        </receiver>
+
+        <receiver
+            android:name=".BalanceWidgetProvider"
+            android:label="@string/widget_balance_label"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_balance_info" />
+        </receiver>
 
         <meta-data
             android:name="flutterEmbedding"

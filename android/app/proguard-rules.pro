@@ -22,3 +22,13 @@
 
 # Flutter Firebase plugins
 -keep class io.flutter.plugins.firebase.** { *; }
+
+# Dio HTTP client
+-keep class io.flutter.plugins.** { *; }
+-dontwarn okhttp3.**
+-dontwarn okio.**
+-keep class okhttp3.** { *; }
+-keep class okio.** { *; }
+
+# Device Info Plus
+-keep class com.baseflow.** { *; }

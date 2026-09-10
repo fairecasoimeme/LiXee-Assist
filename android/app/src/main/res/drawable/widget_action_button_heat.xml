@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Fond d'un bouton chaud sélectionné.
+     RemoteViews ne sait pas gérer d'état sélectionné : c'est le provider qui
+     échange le fond par setBackgroundResource selon ce que la box rapporte. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/widget_gauge_warn" />
+    <corners android:radius="10dp" />
+</shape>

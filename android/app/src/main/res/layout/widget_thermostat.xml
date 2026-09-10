@@ -1,0 +1,252 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Widget d'une zone du thermostat virtuel.
+
+  Deux rangées de commandes au plus : le forçage, toujours présent, puis une
+  rangée conditionnelle qui ne sert qu'aux zones réversibles ou en chauffage.
+  RemoteViews ne créant pas de vues à la volée, elles sont prévues et masquées.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/thermo_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/widget_background"
+    android:padding="10dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:baselineAligned="false">
+
+        <ImageView
+            android:layout_width="14dp"
+            android:layout_height="14dp"
+            android:layout_marginEnd="6dp"
+            android:src="@drawable/ic_lixee_mark"
+            android:scaleType="fitCenter"
+            android:contentDescription="@string/widget_logo_description" />
+
+        <TextView
+            android:id="@+id/thermo_name"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="@color/widget_text_primary"
+            android:text="@string/widget_placeholder" />
+
+        <TextView
+            android:id="@+id/thermo_footer"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textSize="10sp"
+            android:textColor="@color/widget_text_secondary"
+            android:text="@string/widget_never_updated" />
+    </LinearLayout>
+
+    <!-- La jauge porte la mesure en son centre et se remplit jusqu'à la
+         consigne, comme celle de la box. À sa droite, l'état en toutes
+         lettres et les deux boutons de consigne. -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:baselineAligned="false"
+        android:paddingTop="2dp">
+
+        <ImageView
+            android:id="@+id/thermo_gauge"
+            android:layout_width="86dp"
+            android:layout_height="86dp"
+            android:layout_marginEnd="8dp"
+            android:scaleType="fitCenter"
+            android:contentDescription="@string/widget_thermo_gauge_description" />
+
+        <!-- `layout_gravity` et non `gravity` : la colonne fait la hauteur de
+             son contenu, elle n'a donc aucun jeu à distribuer à ses enfants.
+             C'est elle qu'il faut centrer dans la rangée, en face de la jauge. -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_vertical"
+            android:orientation="vertical">
+
+            <!-- Ce que fait la zone : chaud ou froid, forçage, hors-gel, et si
+                 l'actionneur marche. La jauge le dit par sa teinte ; sur un
+                 écran d'accueil, un mot est plus sûr qu'une couleur. -->
+            <TextView
+                android:id="@+id/thermo_state"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:maxLines="3"
+                android:ellipsize="end"
+                android:textSize="11sp"
+                android:textColor="@color/widget_text_secondary"
+                android:text="" />
+
+            <TextView
+                android:id="@+id/thermo_temp"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:textSize="11sp"
+                android:textColor="@color/widget_text_secondary"
+                android:text="" />
+
+        </LinearLayout>
+    </LinearLayout>
+
+        <!-- Consigne, encadrée de ses deux boutons. -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:baselineAligned="false"
+            android:paddingTop="2dp">
+
+    <Button
+        android:id="@+id/thermo_minus"
+        android:layout_width="46dp"
+        android:layout_height="38dp"
+        android:padding="0dp"
+        android:minWidth="0dp"
+        android:minHeight="0dp"
+        android:textSize="18sp"
+        android:background="@drawable/widget_action_button"
+        android:textColor="@color/widget_text_primary"
+        android:text="−" />
+
+    <TextView
+        android:id="@+id/thermo_setpoint"
+        android:layout_width="0dp"
+        android:layout_weight="1"
+        android:layout_height="38dp"
+        android:gravity="center"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        android:textColor="@color/widget_accent"
+        android:text="@string/widget_placeholder" />
+
+    <Button
+        android:id="@+id/thermo_plus"
+        android:layout_width="46dp"
+        android:layout_height="38dp"
+        android:padding="0dp"
+        android:minWidth="0dp"
+        android:minHeight="0dp"
+        android:textSize="18sp"
+        android:background="@drawable/widget_action_button"
+        android:textColor="@color/widget_text_primary"
+        android:text="+" />
+    </LinearLayout>
+
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingTop="4dp">
+
+        <Button
+            android:id="@+id/thermo_auto"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="32dp"
+            android:layout_marginEnd="4dp"
+            android:padding="0dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:textSize="11sp"
+            android:background="@drawable/widget_action_button"
+            android:textColor="@color/widget_text_primary"
+            android:text="@string/widget_thermo_auto" />
+
+        <Button
+            android:id="@+id/thermo_on"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="32dp"
+            android:layout_marginEnd="4dp"
+            android:padding="0dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:textSize="11sp"
+            android:background="@drawable/widget_action_button"
+            android:textColor="@color/widget_text_primary"
+            android:text="@string/widget_thermo_on" />
+
+        <Button
+            android:id="@+id/thermo_off"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="32dp"
+            android:padding="0dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:textSize="11sp"
+            android:background="@drawable/widget_action_button"
+            android:textColor="@color/widget_text_primary"
+            android:text="@string/widget_thermo_off" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/thermo_row_modes"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:paddingTop="4dp">
+
+        <Button
+            android:id="@+id/thermo_heat"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="32dp"
+            android:layout_marginEnd="4dp"
+            android:padding="0dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:textSize="11sp"
+            android:background="@drawable/widget_action_button"
+            android:textColor="@color/widget_text_primary"
+            android:text="@string/widget_thermo_heat" />
+
+        <Button
+            android:id="@+id/thermo_cool"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="32dp"
+            android:layout_marginEnd="4dp"
+            android:padding="0dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:textSize="11sp"
+            android:background="@drawable/widget_action_button"
+            android:textColor="@color/widget_text_primary"
+            android:text="@string/widget_thermo_cool" />
+
+        <Button
+            android:id="@+id/thermo_frost"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="32dp"
+            android:padding="0dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:textSize="11sp"
+            android:background="@drawable/widget_action_button"
+            android:textColor="@color/widget_text_primary"
+            android:text="@string/widget_thermo_frost" />
+    </LinearLayout>
+</LinearLayout>

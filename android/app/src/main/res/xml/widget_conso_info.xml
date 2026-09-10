@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  4×3 par défaut. Deux mécanismes, selon la version d'Android : targetCell* à
+  partir d'Android 12 ; minWidth/minHeight avant, que le lanceur convertit en
+  cases (70 × n − 30 dp). Relever minWidth aurait aussi relevé la taille
+  minimale : minResize* la maintient à 3×2, pour qu'on puisse encore rétrécir
+  le widget à sa taille d'avant.
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:initialLayout="@layout/widget_conso"
+    android:previewLayout="@layout/widget_preview_conso"
+    android:description="@string/widget_conso_description"
+    android:configure="com.lixee.assist.WidgetConfigActivity"
+    android:minWidth="250dp"
+    android:minHeight="180dp"
+    android:minResizeWidth="180dp"
+    android:minResizeHeight="110dp"
+    android:targetCellWidth="4"
+    android:targetCellHeight="3"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen"
+    android:updatePeriodMillis="1800000" />

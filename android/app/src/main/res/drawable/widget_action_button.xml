@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Fond des boutons d'action. Un Button de RemoteViews hérite sinon du thème du
+  lanceur, qui varie d'un fabricant à l'autre : sans fond explicite, les mêmes
+  boutons sont tantôt lisibles, tantôt invisibles sur le fond du widget.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/widget_action_background" />
+    <corners android:radius="10dp" />
+</shape>
