@@ -224,6 +224,7 @@ class HomeWidgetBridge {
   // --- Widgets par appareil Zigbee -----------------------------------------
 
   static const _deviceProvider = 'DeviceWidgetProvider';
+  static const _iosDeviceKind = 'LixeeDeviceWidget';
 
   /// Catalogue proposé par l'écran de configuration : un objet par appareil,
   /// toutes box confondues.
@@ -336,11 +337,12 @@ class HomeWidgetBridge {
   }
 
   static Future<void> notifyDeviceWidgets() =>
-      _update(android: _deviceProvider);
+      _update(android: _deviceProvider, ios: _iosDeviceKind);
 
   // --- Widgets de groupe d'actions -----------------------------------------
 
   static const _groupProvider = 'ActionGroupWidgetProvider';
+  static const _iosGroupKind = 'LixeeGroupWidget';
 
   /// Catalogue proposé par l'écran de configuration.
   static const keyGroupCatalog = 'widget_group_catalog';
@@ -434,11 +436,12 @@ class HomeWidgetBridge {
   }
 
   static Future<void> notifyGroupWidgets() =>
-      _update(android: _groupProvider);
+      _update(android: _groupProvider, ios: _iosGroupKind);
 
   // --- Widgets de thermostat -----------------------------------------------
 
   static const _thermostatProvider = 'ThermostatWidgetProvider';
+  static const _iosThermostatKind = 'LixeeThermostatWidget';
 
   static const keyThermostatCatalog = 'widget_thermostat_catalog';
   static const suffixThermostat = '.thermo';
@@ -512,5 +515,5 @@ class HomeWidgetBridge {
   }
 
   static Future<void> notifyThermostatWidgets() =>
-      _update(android: _thermostatProvider);
+      _update(android: _thermostatProvider, ios: _iosThermostatKind);
 }

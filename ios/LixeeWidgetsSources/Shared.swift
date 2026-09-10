@@ -43,6 +43,51 @@ enum Shared {
         var seen = Set<String>()
         return names.filter { seen.insert($0).inserted }
     }
+
+    /// Un objet JSON publié par l'app, relu en dictionnaire.
+    static func object(_ key: String) -> [String: Any] {
+        guard let raw = string(key), let data = raw.data(using: .utf8) else { return [:] }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+    }
+
+    /// Un catalogue publié par l'app : la liste des appareils, des groupes ou
+    /// des zones parmi lesquels on choisit en configurant un widget.
+    ///
+    /// Les valeurs sont ramenées à des chaînes sans distinguer leur type
+    /// d'origine : `count` voyage tantôt en nombre, tantôt en chaîne selon le
+    /// chemin d'écriture côté Dart, et seul son affichage nous intéresse.
+    static func catalog(_ key: String) -> [[String: String]] {
+        guard let raw = string(key), let data = raw.data(using: .utf8),
+              let items = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]]
+        else { return [] }
+        return items.map { item in item.mapValues { "\($0)" } }
+    }
+}
+
+extension Dictionary where Key == String, Value == Any {
+    func string(_ key: String) -> String? {
+        guard let value = self[key] as? String, !value.isEmpty else { return nil }
+        return value
+    }
+
+    /// Un nombre publié en JSON, qu'il soit arrivé en nombre ou en chaîne.
+    func double(_ key: String) -> Double? {
+        if let value = self[key] as? Double { return value }
+        if let value = self[key] as? Int { return Double(value) }
+        return (self[key] as? String).flatMap { Double($0) }
+    }
+
+    func int(_ key: String) -> Int? { double(key).map { Int($0) } }
+
+    func bool(_ key: String) -> Bool {
+        if let value = self[key] as? Bool { return value }
+        if let value = self[key] as? String { return value == "true" || value == "1" }
+        return (self[key] as? Int).map { $0 != 0 } ?? false
+    }
+
+    func list(_ key: String) -> [[String: Any]] {
+        self[key] as? [[String: Any]] ?? []
+    }
 }
 
 /// Teintes du widget Android, clair et sombre — mêmes valeurs que colors.xml.
@@ -57,6 +102,17 @@ enum Palette {
     static let alert = Color(light: 0xD3452F, dark: 0xE86B57)
     static let positive = Color(light: 0x2E9E5B, dark: 0x5FC98A)
     static let negative = Color(light: 0xD3452F, dark: 0xE86B57)
+    static let actionBackground = Color(light: 0xE9EEF4, dark: 0x2A3138)
+    static let onAccent = Color(light: 0xFFFFFF, dark: 0x101418)
+
+    // Teintes d'état du thermostat, reprises de la page de la box : vif quand
+    // l'actionneur marche, pâle quand il est au repos. Elles ne changent pas
+    // avec le thème — ce sont les couleurs de la box, pas celles du système.
+    static let frost = Color(light: 0x5DADE2, dark: 0x5DADE2)
+    static let heatOn = Color(light: 0xE74C3C, dark: 0xE74C3C)
+    static let heatOff = Color(light: 0xF1948A, dark: 0xF1948A)
+    static let coolOn = Color(light: 0x2980B9, dark: 0x2980B9)
+    static let coolOff = Color(light: 0xAED6F1, dark: 0xAED6F1)
 }
 
 extension Color {

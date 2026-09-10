@@ -1,17 +1,20 @@
 import SwiftUI
 import WidgetKit
 
-/// Point d'entrée de l'extension : les trois widgets énergie.
+/// Point d'entrée de l'extension : les six widgets, comme sur Android.
 ///
-/// Affichage seul pour ce premier jet. Les widgets Appareil, Groupe d'actions
-/// et Thermostat, qui portent des boutons, demanderont iOS 17 et des
-/// AppIntents interactifs : ils viendront dans un second temps.
+/// Les trois widgets énergie se contentent d'afficher. Les trois autres
+/// portent des boutons : leur appui n'agit pas ici, il réveille le rappel Dart
+/// qui commande la box — voir `LixeeActionIntent`.
 @main
 struct LixeeWidgetsBundle: WidgetBundle {
     var body: some Widget {
         ConsoWidget()
         ProductionWidget()
         BalanceWidget()
+        DeviceWidget()
+        ActionGroupWidget()
+        ThermostatWidget()
     }
 }
 
