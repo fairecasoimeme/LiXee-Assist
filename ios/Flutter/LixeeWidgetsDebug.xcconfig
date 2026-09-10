@@ -1,0 +1,2 @@
+#include? "Pods/Target Support Files/Pods-LixeeWidgets/Pods-LixeeWidgets.debug.xcconfig"
+#include "Generated.xcconfig"

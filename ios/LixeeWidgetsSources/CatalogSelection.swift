@@ -45,22 +45,45 @@ extension CatalogEntity {
     }
 }
 
-/// Propose les entrées qu'un catalogue contient au moment du choix.
+/// Les entrées désignées par leurs clés, dans l'ordre demandé.
 ///
 /// Le catalogue survit à une box muette : l'app y garde les entrées de la
 /// fois précédente, pour qu'un hoquet du Wi-Fi n'empêche pas de poser un
 /// widget.
-struct CatalogQuery<Entity: CatalogEntity>: EntityQuery {
-    func entities(for identifiers: [Entity.ID]) async throws -> [Entity] where Entity.ID == String {
-        let published = Entity.published()
-        return identifiers.compactMap { id in published.first { $0.id == id } }
+private func published<Entity: CatalogEntity>(matching identifiers: [String]) -> [Entity] {
+    let entries = Entity.published()
+    return identifiers.compactMap { id in entries.first { $0.id == id } }
+}
+
+// Les trois requêtes ci-dessous ne diffèrent que par leur type. Une seule,
+// générique, se compilerait mais ne s'installerait pas : le compilateur de
+// métadonnées AppIntents n'accepte qu'une requête de type concret.
+//
+// `defaultResult` renvoie la première entrée, faute de choix explicite : un
+// widget fraîchement posé montre ainsi quelque chose plutôt qu'un cadre vide.
+
+struct DeviceQuery: EntityQuery {
+    func entities(for identifiers: [String]) async throws -> [DeviceEntity] {
+        published(matching: identifiers)
     }
+    func suggestedEntities() async throws -> [DeviceEntity] { DeviceEntity.published() }
+    func defaultResult() async -> DeviceEntity? { DeviceEntity.published().first }
+}
 
-    func suggestedEntities() async throws -> [Entity] { Entity.published() }
+struct GroupQuery: EntityQuery {
+    func entities(for identifiers: [String]) async throws -> [GroupEntity] {
+        published(matching: identifiers)
+    }
+    func suggestedEntities() async throws -> [GroupEntity] { GroupEntity.published() }
+    func defaultResult() async -> GroupEntity? { GroupEntity.published().first }
+}
 
-    /// Sans choix explicite, la première entrée : un widget fraîchement posé
-    /// montre ainsi quelque chose plutôt qu'un cadre vide.
-    func defaultResult() async -> Entity? { Entity.published().first }
+struct ThermostatQuery: EntityQuery {
+    func entities(for identifiers: [String]) async throws -> [ThermostatEntity] {
+        published(matching: identifiers)
+    }
+    func suggestedEntities() async throws -> [ThermostatEntity] { ThermostatEntity.published() }
+    func defaultResult() async -> ThermostatEntity? { ThermostatEntity.published().first }
 }
 
 // --- Appareil Zigbee ---------------------------------------------------------
@@ -73,7 +96,7 @@ struct DeviceEntity: CatalogEntity {
     static var catalogKey = "widget_device_catalog"
     static var labelField = "label"
     static var typeDisplayRepresentation: TypeDisplayRepresentation = "Appareil"
-    static var defaultQuery = CatalogQuery<DeviceEntity>()
+    static var defaultQuery = DeviceQuery()
 }
 
 struct SelectDeviceIntent: WidgetConfigurationIntent {
@@ -94,7 +117,7 @@ struct GroupEntity: CatalogEntity {
     static var catalogKey = "widget_group_catalog"
     static var labelField = "name"
     static var typeDisplayRepresentation: TypeDisplayRepresentation = "Groupe d'actions"
-    static var defaultQuery = CatalogQuery<GroupEntity>()
+    static var defaultQuery = GroupQuery()
 }
 
 struct SelectGroupIntent: WidgetConfigurationIntent {
@@ -115,7 +138,7 @@ struct ThermostatEntity: CatalogEntity {
     static var catalogKey = "widget_thermostat_catalog"
     static var labelField = "name"
     static var typeDisplayRepresentation: TypeDisplayRepresentation = "Thermostat"
-    static var defaultQuery = CatalogQuery<ThermostatEntity>()
+    static var defaultQuery = ThermostatQuery()
 }
 
 struct SelectThermostatIntent: WidgetConfigurationIntent {

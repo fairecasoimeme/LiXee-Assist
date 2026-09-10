@@ -41,6 +41,14 @@ target 'Runner' do
   end
 end
 
+# L'appui sur un bouton de widget réveille un moteur Flutter dans l'extension,
+# qui exécute le rappel Dart enregistré par l'app. C'est ce plugin qui l'y
+# amène ; la cible Runner ne le lui prête pas.
+target 'LixeeWidgets' do
+  use_frameworks!
+  pod 'home_widget', :path => '.symlinks/plugins/home_widget/ios'
+end
+
 post_install do |installer|
   installer.pods_project.targets.each do |target|
     flutter_additional_ios_build_settings(target)
