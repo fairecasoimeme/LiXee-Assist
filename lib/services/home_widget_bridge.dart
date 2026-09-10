@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io' show Platform;
 
 import 'package:home_widget/home_widget.dart';
 
@@ -27,6 +28,25 @@ class HomeWidgetBridge {
     'ProductionWidgetProvider',
     'BalanceWidgetProvider',
   ];
+
+  /// Groupe d'apps partagé avec l'extension de widgets iOS.
+  ///
+  /// Sur iOS le widget vit dans un processus à part, qui ne voit pas les
+  /// préférences de l'app : les relevés doivent passer par un UserDefaults
+  /// commun. Sans effet sur Android, où le plugin écrit dans ses propres
+  /// SharedPreferences. Doit être déclaré sur les deux cibles dans Xcode, et
+  /// appliqué dans chaque isolate avant la première écriture.
+  static const appGroupId = 'group.com.lixee.assist';
+
+  /// « Kinds » des widgets iOS, un par thème — ceux de LixeeWidgets.swift.
+  static const _iosKinds = [
+    'LixeeConsoWidget',
+    'LixeeProductionWidget',
+    'LixeeBalanceWidget',
+  ];
+
+  /// À appeler au démarrage de chaque isolate qui publie pour les widgets.
+  static Future<void> init() => HomeWidget.setAppGroupId(appGroupId);
 
   /// Liste des box proposées par l'activité de configuration, en JSON.
   static const keyDeviceList = 'widget_device_list';
@@ -178,7 +198,26 @@ class HomeWidgetBridge {
   /// Redemande le rendu de tous les widgets posés, quel que soit leur thème.
   static Future<void> notifyWidgets() async {
     for (final provider in _androidProviders) {
-      await HomeWidget.updateWidget(androidName: provider);
+      await _update(android: provider);
+    }
+    for (final kind in _iosKinds) {
+      await _update(ios: kind);
+    }
+  }
+
+  /// Demande le redessin d'un widget sur la seule plateforme qui le connaît.
+  ///
+  /// Le plugin exige un nom pour la plateforme courante et lève une erreur
+  /// sinon : un nom Android seul échoue sur iOS (« updateWidget must be called
+  /// with name »), un nom iOS seul échoue sur Android (il y cherche une classe
+  /// « <paquet>.null »). L'erreur interromprait la publication en cours — c'est
+  /// ce qui arrivait sur iPhone depuis l'ajout des widgets Android. Un widget
+  /// qui n'existe que d'un côté n'est donc demandé que là.
+  static Future<void> _update({String? android, String? ios}) async {
+    if (Platform.isAndroid && android != null) {
+      await HomeWidget.updateWidget(androidName: android);
+    } else if (Platform.isIOS && ios != null) {
+      await HomeWidget.updateWidget(iOSName: ios);
     }
   }
 
@@ -297,7 +336,7 @@ class HomeWidgetBridge {
   }
 
   static Future<void> notifyDeviceWidgets() =>
-      HomeWidget.updateWidget(androidName: _deviceProvider);
+      _update(android: _deviceProvider);
 
   // --- Widgets de groupe d'actions -----------------------------------------
 
@@ -395,7 +434,7 @@ class HomeWidgetBridge {
   }
 
   static Future<void> notifyGroupWidgets() =>
-      HomeWidget.updateWidget(androidName: _groupProvider);
+      _update(android: _groupProvider);
 
   // --- Widgets de thermostat -----------------------------------------------
 
@@ -473,5 +512,5 @@ class HomeWidgetBridge {
   }
 
   static Future<void> notifyThermostatWidgets() =>
-      HomeWidget.updateWidget(androidName: _thermostatProvider);
+      _update(android: _thermostatProvider);
 }

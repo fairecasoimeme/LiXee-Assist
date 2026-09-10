@@ -344,6 +344,7 @@ Future<void> _runDeviceAction(Uri uri) async {
 @pragma('vm:entry-point')
 Future<void> widgetInteractionCallback(Uri? uri) async {
   if (uri == null) return;
+  await HomeWidgetBridge.init();
   print('[WIDGET-DATA] Appui widget ($uri)');
 
   try {
@@ -391,6 +392,7 @@ Future<void> widgetInteractionCallback(Uri? uri) async {
 @pragma('vm:entry-point')
 void callbackDispatcher() {
   Workmanager().executeTask((task, inputData) async {
+    await HomeWidgetBridge.init();
     try {
       await checkDeviceStatusBackground();
     } catch (e) {
@@ -454,6 +456,7 @@ void main() async {
 
   // Rend la jauge du widget cliquable : l'appui réveille un isolate qui
   // exécute widgetInteractionCallback.
+  await HomeWidgetBridge.init();
   await HomeWidget.registerInteractivityCallback(widgetInteractionCallback);
 
   // Premier relevé au démarrage, sans bloquer l'UI : le widget dispose d'une
