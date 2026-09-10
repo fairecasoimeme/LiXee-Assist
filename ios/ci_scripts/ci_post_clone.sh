@@ -12,7 +12,10 @@
 # Xcode Cloud exécute ce fichier de lui-même, parce qu'il se trouve dans un
 # dossier ci_scripts voisin du .xcworkspace. Il doit rester exécutable.
 
-set -e
+# -x : chaque commande s'affiche dans le journal Xcode Cloud avant de
+# s'exécuter. Sans lui, un échec ne dit que « exited with code 1 », sans
+# indiquer laquelle des étapes a cédé.
+set -ex
 
 # Même version que celle qui construit l'app ailleurs : une version « stable »
 # flottante ferait changer le build sans que le code ait bougé.
@@ -30,10 +33,16 @@ flutter precache --ios
 # Crée ios/Flutter/Generated.xcconfig et résout les paquets Dart.
 flutter pub get
 
-# CocoaPods n'est pas garanti sur l'image Xcode Cloud.
-HOMEBREW_NO_AUTO_UPDATE=1 brew install cocoapods
+# CocoaPods n'est pas garanti sur l'image Xcode Cloud — mais il y est parfois,
+# et l'installer par-dessus fait échouer « brew link ». On ne l'installe donc
+# que s'il manque.
+if ! command -v pod >/dev/null 2>&1; then
+    HOMEBREW_NO_AUTO_UPDATE=1 brew install cocoapods
+fi
 
 cd ios
-pod install
+# --repo-update : le Podfile.lock versionné a pris du retard sur les plugins,
+# et les versions qu'ils réclament peuvent manquer à l'index local.
+pod install --repo-update
 
 exit 0
