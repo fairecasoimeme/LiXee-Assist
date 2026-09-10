@@ -24,10 +24,24 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<!-- Ouvre l'app depuis un widget, sur la box qu'il affiche :
+			     lixee://open/<box>?homeWidget. Le paramètre homeWidget est
+			     celui que le plugin guette pour transmettre l'URL à Flutter. -->
+			<key>CFBundleURLName</key>
+			<string>com.lixee.assist.widget</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>lixee</string>
+			</array>
+		</dict>
+	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>MinimumOSVersion</key>
-	<string>12.0</string>
+	<string>$(IPHONEOS_DEPLOYMENT_TARGET)</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
