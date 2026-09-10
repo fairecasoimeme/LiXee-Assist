@@ -1,6 +1,8 @@
-import 'dart:io';
-import 'dart:convert';
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'network_scope.dart';
 
 enum AuthMode { basic, form }
 
@@ -20,9 +22,10 @@ bool _hasLoginForm(String body) {
 
 /// Détecte le mode d'authentification d'un appareil.
 Future<AuthMode> detectAuthMode(String targetBaseUrl) async {
-  final client = HttpClient();
-  client.badCertificateCallback = (cert, host, port) => true;
-  client.connectionTimeout = const Duration(seconds: 5);
+  final client = scopedHttpClient(
+    targetBaseUrl,
+    connectionTimeout: const Duration(seconds: 5),
+  );
 
   try {
     final uri = Uri.parse(targetBaseUrl);
@@ -95,10 +98,10 @@ class SessionManager {
     required this.targetBaseUrl,
     required this.username,
     required this.password,
-  }) : httpClient = HttpClient() {
-    httpClient.badCertificateCallback = (cert, host, port) => true;
-    httpClient.connectionTimeout = const Duration(seconds: 5);
-  }
+  }) : httpClient = scopedHttpClient(
+          targetBaseUrl,
+          connectionTimeout: const Duration(seconds: 5),
+        );
 
   String? get sessionCookie => _sessionCookie;
 
@@ -180,7 +183,8 @@ class SessionManager {
 
       // Chercher le cookie sur la réponse du POST
       var cookies = response.headers['set-cookie'];
-      print('[SESSION] Login POST status=${response.statusCode}, set-cookie=$cookies');
+      print('[SESSION] Login POST status=${response.statusCode}, '
+          'set-cookie=${cookies == null ? 'aucun' : '${cookies.length} reçu(s)'}');
 
       // Si redirect (303/302) sans cookie → suivre la redirection pour récupérer le cookie
       if ((cookies == null || cookies.isEmpty) &&
@@ -195,7 +199,8 @@ class SessionManager {
           redirectReq.followRedirects = false;
           final redirectResp = await redirectReq.close();
           cookies = redirectResp.headers['set-cookie'];
-          print('[SESSION] Redirect response status=${redirectResp.statusCode}, set-cookie=$cookies');
+          print('[SESSION] Redirect response status=${redirectResp.statusCode}, '
+              'set-cookie=${cookies == null ? 'aucun' : '${cookies.length} reçu(s)'}');
           await redirectResp.drain();
         }
       } else {
@@ -212,7 +217,7 @@ class SessionManager {
         }
         if (cookieParts.isNotEmpty) {
           _sessionCookie = cookieParts.join('; ');
-          print('[SESSION] Login OK, cookie=$_sessionCookie');
+          print('[SESSION] Login OK');
           onAuthenticated?.call(this);
           _loginCompleter!.complete(true);
           _loginCompleter = null;

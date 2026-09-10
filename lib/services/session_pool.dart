@@ -1,3 +1,4 @@
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'session_manager.dart';
@@ -18,13 +19,40 @@ class SessionPool {
   /// concurrents partagent la même détection au lieu d'émettre deux requêtes.
   static final Map<String, Future<AuthMode>> _authModes = {};
 
-  /// Sessions retenues d'un passage précédent de l'app, lues au démarrage.
+  /// Le cookie de session tient lieu de mot de passe pendant 24 h : il va au
+  /// trousseau du système, que le Keychain sur iOS et le KeyStore sur Android
+  /// chiffrent avec une clé matérielle. Les préférences partagées, elles, sont
+  /// un fichier en clair, lisible dès qu'une sauvegarde ou un appareil rooté
+  /// donne accès au répertoire de l'app.
+  ///
+  /// `first_unlock_this_device` : lisible en tâche de fond dès le premier
+  /// déverrouillage depuis le démarrage — le widget se rafraîchit sans que
+  /// l'écran soit allumé — mais jamais recopié vers un autre appareil, un
+  /// cookie n'étant de toute façon valable que là où il a été obtenu.
+  static const _secure = FlutterSecureStorage(
+    iOptions: IOSOptions(
+      accessibility: KeychainAccessibility.first_unlock_this_device,
+    ),
+  );
+
+  /// Champs de formulaire et modes d'authentification retenus d'un passage
+  /// précédent de l'app, lus au démarrage.
   ///
   /// Un isolate d'arrière-plan naît sans rien : sans ce report, chaque appui
   /// sur un widget refaisait détection du mode, détection des champs du
   /// formulaire et POST /login — trois allers-retours avant la première
   /// requête utile, soit deux secondes de plus sur un tunnel.
   static Map<String, String> _persisted = const {};
+
+  /// Cookies relus du trousseau, indexés comme [_persisted].
+  ///
+  /// Tenus en mémoire parce que [session] est synchrone, alors que la lecture
+  /// du trousseau ne l'est pas.
+  static final Map<String, String> _cookies = {};
+
+  /// Mémorise le chargement lui-même : deux isolates qui démarrent ensemble
+  /// partagent la même lecture au lieu d'en lancer deux.
+  static Future<void>? _loading;
 
   static const _cookiePrefix = 'session_cookie_';
   static const _fieldsPrefix = 'session_fields_';
@@ -34,16 +62,15 @@ class SessionPool {
   ///
   /// À appeler au début d'un point d'entrée d'arrière-plan, avant la première
   /// requête : après, il serait trop tard pour éviter le login.
-  static Future<void> loadPersisted() async {
-    if (_persisted.isNotEmpty) return;
+  static Future<void> loadPersisted() => _loading ??= _load();
+
+  static Future<void> _load() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.reload();
       _persisted = {
         for (final key in prefs.getKeys())
-          if (key.startsWith(_cookiePrefix) ||
-              key.startsWith(_fieldsPrefix) ||
-              key.startsWith(_modePrefix))
+          if (key.startsWith(_fieldsPrefix) || key.startsWith(_modePrefix))
             key: prefs.getString(key) ?? '',
       };
 
@@ -57,16 +84,55 @@ class SessionPool {
             .firstOrNull;
         if (mode != null) _authModes[baseUrl] = Future.value(mode);
       }
+
+      await _purgeLegacyCookies(prefs);
     } catch (e) {
       print('[SESSION] Sessions conservées illisibles: $e');
+    }
+
+    try {
+      final stored = await _secure.readAll();
+      _cookies
+        ..clear()
+        ..addEntries(
+          stored.entries.where((e) => e.key.startsWith(_cookiePrefix)),
+        );
+    } catch (e) {
+      print('[SESSION] Trousseau illisible: $e');
+    }
+  }
+
+  /// Efface les cookies que les versions précédentes laissaient en clair.
+  ///
+  /// Les recopier vers le trousseau serait du travail perdu — un cookie vit
+  /// 24 h et le prochain login en fournit un neuf — alors que les laisser
+  /// garderait sur disque exactement ce que ce stockage cherche à en retirer.
+  static Future<void> _purgeLegacyCookies(SharedPreferences prefs) async {
+    final stale =
+        prefs.getKeys().where((k) => k.startsWith(_cookiePrefix)).toList();
+    for (final key in stale) {
+      await prefs.remove(key);
+    }
+    if (stale.isNotEmpty) {
+      print('[SESSION] ${stale.length} cookie(s) en clair effacé(s)');
     }
   }
 
   static Future<void> _remember(SessionManager session) async {
     final key = _key(session.targetBaseUrl, session.username);
+    final cookie = session.sessionCookie;
+
+    if (cookie != null && cookie.isNotEmpty) {
+      try {
+        await _secure.write(key: '$_cookiePrefix$key', value: cookie);
+        _cookies['$_cookiePrefix$key'] = cookie;
+      } catch (e) {
+        print('[SESSION] Cookie non conservé: $e');
+      }
+    }
+
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('$_cookiePrefix$key', session.sessionCookie ?? '');
       await prefs.setString(
         '$_fieldsPrefix$key',
         '${session.userField ?? ''}|${session.passField ?? ''}',
@@ -97,7 +163,7 @@ class SessionPool {
       final key = _key(baseUrl, username);
       final fields = (_persisted['$_fieldsPrefix$key'] ?? '').split('|');
       manager.restore(
-        cookie: _persisted['$_cookiePrefix$key'],
+        cookie: _cookies['$_cookiePrefix$key'],
         userField: fields.length == 2 && fields[0].isNotEmpty ? fields[0] : null,
         passField: fields.length == 2 && fields[1].isNotEmpty ? fields[1] : null,
       );

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 /// Détermine si une URL désigne une box joignable directement sur le réseau
 /// local, par opposition à un accès relayé par le tunnel.
 ///
@@ -21,4 +23,31 @@ bool isLanUrl(String baseUrl) {
       a == 127 ||
       (a == 172 && b >= 16 && b <= 31) ||
       (a == 192 && b == 168);
+}
+
+/// L'exigence sur le certificat qui convient à [baseUrl] : `null` impose la
+/// validation normale, une fonction acceptante l'assouplit.
+///
+/// Sur le réseau local, la box présente un certificat auto-signé qu'aucune
+/// autorité ne contresignera jamais : le refuser rendrait l'accès direct
+/// impossible, et un intercepteur devrait de toute façon déjà être sur le
+/// réseau. Le tunnel, lui, traverse Internet sous un vrai nom de domaine ;
+/// y accepter n'importe quel certificat livrerait identifiants et cookie de
+/// session au premier relais qui se ferait passer pour la box.
+///
+/// Une URL dont la portée est indéterminable est traitée comme distante :
+/// se tromper dans ce sens coûte une connexion refusée, dans l'autre une
+/// interception silencieuse.
+bool Function(X509Certificate, String, int)? certificatePolicyFor(
+  String baseUrl,
+) =>
+    isLanUrl(baseUrl) ? (_, __, ___) => true : null;
+
+/// Un client HTTP dont l'exigence sur le certificat correspond à la portée de
+/// [baseUrl].
+HttpClient scopedHttpClient(String baseUrl, {Duration? connectionTimeout}) {
+  final client = HttpClient();
+  if (connectionTimeout != null) client.connectionTimeout = connectionTimeout;
+  client.badCertificateCallback = certificatePolicyFor(baseUrl);
+  return client;
 }

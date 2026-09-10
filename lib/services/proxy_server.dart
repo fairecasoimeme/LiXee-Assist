@@ -5,6 +5,7 @@ import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as io;
 import 'package:shelf_proxy/shelf_proxy.dart';
 
+import 'network_scope.dart';
 import 'session_manager.dart';
 
 Future<HttpServer> startProxy({
@@ -55,8 +56,7 @@ Future<HttpServer> _startSessionProxy(String targetBaseUrl, SessionManager sessi
   print('[PROXY] Starting session proxy for $targetBaseUrl');
 
   final server = await HttpServer.bind('127.0.0.1', 0);
-  final httpClient = HttpClient();
-  httpClient.badCertificateCallback = (cert, host, port) => true;
+  final httpClient = scopedHttpClient(targetBaseUrl);
 
   server.listen((HttpRequest clientRequest) async {
     try {
@@ -245,8 +245,7 @@ Future<HttpServer> _startBasicAuthProxy(String targetBaseUrl, String username, S
   if (isHttps) {
     // HTTPS + Basic Auth : proxy custom avec HttpClient
     final server = await HttpServer.bind('127.0.0.1', 0);
-    final httpClient = HttpClient();
-    httpClient.badCertificateCallback = (cert, host, port) => true;
+    final httpClient = scopedHttpClient(targetBaseUrl);
 
     final rootUri = Uri(scheme: targetUri.scheme, host: targetUri.host, port: targetUri.port, path: '/');
     httpClient.addCredentials(rootUri, '', HttpClientBasicCredentials(username, password));
@@ -325,8 +324,7 @@ Future<HttpServer> _startBasicAuthProxy(String targetBaseUrl, String username, S
 /// Suit les redirections pour trouver l'URL finale.
 Future<String> _resolveRedirects(String url) async {
   try {
-    final client = HttpClient();
-    client.badCertificateCallback = (cert, host, port) => true;
+    final client = scopedHttpClient(url);
 
     final request = await client.getUrl(Uri.parse(url));
     request.followRedirects = false;

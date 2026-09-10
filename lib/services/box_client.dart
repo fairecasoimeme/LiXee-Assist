@@ -230,9 +230,7 @@ class BoxClient {
     Duration timeout, {
     String? authHeader,
   }) async {
-    final client = HttpClient()
-      ..badCertificateCallback = ((cert, host, port) => true)
-      ..connectionTimeout = timeout;
+    final client = scopedHttpClient(url, connectionTimeout: timeout);
     try {
       final request = await client.postUrl(Uri.parse(url));
       request.headers.set('Content-Type', 'application/x-www-form-urlencoded');
@@ -262,9 +260,7 @@ class BoxClient {
     Duration timeout, {
     String? authHeader,
   }) async {
-    final client = HttpClient()
-      ..badCertificateCallback = ((cert, host, port) => true)
-      ..connectionTimeout = timeout;
+    final client = scopedHttpClient(url, connectionTimeout: timeout);
     try {
       final request = await client.getUrl(Uri.parse(url));
       request.headers.set('Accept', 'application/json');
