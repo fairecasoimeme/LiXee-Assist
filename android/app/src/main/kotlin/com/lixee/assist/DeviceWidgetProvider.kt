@@ -328,6 +328,10 @@ class DeviceWidgetProvider : HomeWidgetProvider() {
          * un volet fermé, alors que les SONOFF MINI-ZBRBS, pilotés par la box,
          * rapportent 100 volet ouvert (vérifié de visu). Entre les deux, le
          * pourcentage se suffit à lui-même.
+         *
+         * Un point de tolérance à chaque bout : un volet arrivé en butée se
+         * rapporte parfois à 99 plutôt qu'à 100 — celui de la cuisine se repose
+         * ainsi, grand ouvert. Exiger la valeur exacte lui refusait le mot.
          */
         private fun coveringState(
             context: Context,
@@ -336,12 +340,17 @@ class DeviceWidgetProvider : HomeWidgetProvider() {
             formatted: String
         ): String {
             if (reading.optString("name") != "current_position") return formatted
-            return when (value) {
-                100.0 -> context.getString(R.string.widget_position_open, formatted)
-                0.0 -> context.getString(R.string.widget_position_closed, formatted)
+            return when {
+                value >= 100.0 - END_TOLERANCE ->
+                    context.getString(R.string.widget_position_open, formatted)
+                value <= END_TOLERANCE ->
+                    context.getString(R.string.widget_position_closed, formatted)
                 else -> formatted
             }
         }
+
+        /** Écart admis à chaque extrémité d'un volet, en points de pourcentage. */
+        private const val END_TOLERANCE = 1.0
 
         /**
          * L'URI distingue les widgets entre eux : deux PendingIntent ne sont
