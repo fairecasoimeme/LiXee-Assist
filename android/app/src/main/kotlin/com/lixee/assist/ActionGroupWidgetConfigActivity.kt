@@ -91,7 +91,9 @@ class ActionGroupWidgetConfigActivity : Activity() {
         bind(
             groups.map { entry ->
                 Row(
-                    if (entry.icon.isEmpty()) entry.name
+                    // Un émoji précède le nom ; un nom d'icône, lui, n'a rien à
+                    // faire dans une ligne de texte.
+                    if (entry.icon.isEmpty() || GroupIcon.isIconName(entry.icon)) entry.name
                     else entry.icon + "  " + entry.name,
                     resources.getQuantityString(
                         R.plurals.widget_group_actions, entry.count, entry.count

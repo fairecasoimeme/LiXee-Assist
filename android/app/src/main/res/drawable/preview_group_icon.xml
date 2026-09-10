@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Icône de la vignette du widget de groupe d'actions.
+
+  Tracé `window-shutter` recopié tel quel de /agicons.js (firmware 2.23) : c'est
+  ce que le widget réel dessine pour le groupe « Fermeture des volets ». Figé
+  ici parce qu'un aperçu n'exécute aucun code et ne peut donc rien lire de la
+  box. Teinté de la couleur de l'exemple, comme le vrai.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="36dp"
+    android:height="36dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <path
+        android:pathData="M3 4H21V8H19V20H17V8H7V20H5V8H3V4M8 9H16V11H8V9M8 12H16V14H8V12M8 15H16V17H8V15M8 18H16V20H8V18Z"
+        android:fillColor="#FF8080" />
+</vector>

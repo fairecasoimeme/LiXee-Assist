@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'box_client.dart';
 
@@ -19,8 +20,15 @@ class ActionGroup {
 
   final String name;
 
-  /// Émoji choisi sur la box. Vide si l'utilisateur n'en a pas mis.
+  /// Icône choisie sur la box.
+  ///
+  /// Un nom Material Design Icons depuis le firmware 2.23 (`window-shutter`),
+  /// un émoji avant. Vide si l'utilisateur n'en a pas mis.
   final String icon;
+
+  /// Tracé SVG de l'icône, sur une grille 24×24, quand [icon] est un nom que
+  /// la box sait dessiner. `null` pour un émoji ou un nom inconnu.
+  final String? iconPath;
 
   /// Couleur `#rrggbb` choisie sur la box.
   final String color;
@@ -35,6 +43,7 @@ class ActionGroup {
     required this.index,
     required this.name,
     this.icon = '',
+    this.iconPath,
     this.color = '',
     this.enabled = true,
     this.actionCount = 0,
@@ -90,7 +99,8 @@ class ActionGroupService {
           continue;
         }
         BoxClient.remember(box, candidate);
-        return parseGroups(box.name, body);
+        final icons = await _iconsFor(route);
+        return parseGroups(box.name, body, icons: icons);
       } catch (e) {
         print('[GROUPES] ${route.baseUrl} échec: $e');
         BoxClient.dropSession(route);
@@ -152,8 +162,65 @@ class ActionGroupService {
     return const ActionGroupResult(ok: false, error: 'box injoignable');
   }
 
+  /// Jeu d'icônes par box : ne change qu'avec le firmware.
+  static final Map<String, Map<String, String>> _icons = {};
+  static const _iconsPrefix = 'actiongroup_icons_';
+
+  /// Charge le jeu d'icônes que la box propose pour ses groupes.
+  ///
+  /// La box ne stocke que le **nom** de l'icône ; son dessin vit dans
+  /// `/agicons.js`, que sa propre interface charge. On le lit de même, plutôt
+  /// que d'embarquer une copie des Material Design Icons dans l'app : une
+  /// icône ajoutée par une mise à jour du firmware s'affichera sans mise à
+  /// jour de l'app. Un échec n'est pas bloquant — le widget retombe alors sur
+  /// le nom du groupe seul.
+  static Future<Map<String, String>> _iconsFor(BoxRoute route) async {
+    final cacheKey = '$_iconsPrefix${route.device.key}';
+    final memory = _icons[cacheKey];
+    if (memory != null) return memory;
+
+    final prefs = await SharedPreferences.getInstance();
+    final stored = prefs.getString(cacheKey);
+    if (stored != null) {
+      final parsed = parseIconSet(stored);
+      if (parsed.isNotEmpty) return _icons[cacheKey] = parsed;
+    }
+
+    try {
+      final body = await BoxClient.get(route, '/agicons.js');
+      if (body == null) return const {};
+      final parsed = parseIconSet(body);
+      if (parsed.isEmpty) return const {};
+      await prefs.setString(cacheKey, body);
+      return _icons[cacheKey] = parsed;
+    } catch (e) {
+      print('[GROUPES] Icônes indisponibles: $e');
+      return const {};
+    }
+  }
+
+  /// Extrait `nom → tracé` de `/agicons.js`.
+  ///
+  /// Le fichier déclare `AG_ICONS={'nom':[thème,'libellé','tracé'],…}`. On le
+  /// lit par expression régulière : c'est du JavaScript, pas du JSON — clés et
+  /// chaînes y sont entre apostrophes.
   @visibleForTesting
-  static List<ActionGroup> parseGroups(String boxName, String json) {
+  static Map<String, String> parseIconSet(String js) {
+    final entry = RegExp(
+      r"'([\w\-]+)'\s*:\s*\[\s*\d+\s*,\s*'(?:[^'\\]|\\.)*'\s*,\s*'([^']*)'\s*\]",
+    );
+    return {
+      for (final m in entry.allMatches(js))
+        if (m.group(2)!.isNotEmpty) m.group(1)!: m.group(2)!,
+    };
+  }
+
+  @visibleForTesting
+  static List<ActionGroup> parseGroups(
+    String boxName,
+    String json, {
+    Map<String, String> icons = const {},
+  }) {
     try {
       final decoded = jsonDecode(json);
       final groups = decoded is Map ? decoded['groups'] : null;
@@ -167,6 +234,7 @@ class ActionGroupService {
               index: (raw['index'] as num?)?.toInt() ?? 0,
               name: raw['name']?.toString() ?? '',
               icon: raw['icon']?.toString() ?? '',
+              iconPath: icons[raw['icon']?.toString()],
               color: raw['color']?.toString() ?? '',
               enabled: raw['enabled'] != false,
               actionCount: (raw['actions'] as List?)?.length ?? 0,

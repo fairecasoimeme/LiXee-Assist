@@ -361,6 +361,9 @@ class HomeWidgetBridge {
       jsonEncode({
         'name': group.name,
         'icon': group.icon,
+        // Le tracé voyage avec le groupe : le natif le dessine sans avoir à
+        // connaître le jeu d'icônes de la box.
+        if (group.iconPath != null) 'iconPath': group.iconPath,
         'color': group.color,
         'count': group.actionCount,
         'enabled': group.enabled,

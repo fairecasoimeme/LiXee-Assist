@@ -23,6 +23,13 @@ const _listing = '''
 }
 ''';
 
+/// Extrait réel de `/agicons.js` (firmware 2.23) : du JavaScript, pas du JSON.
+/// Le libellé de la seconde icône porte une apostrophe échappée, pour vérifier
+/// qu'elle ne coupe pas la lecture du tracé qui la suit.
+const _iconSet = r"""
+var AG_THEMES=['Éclairage','Volets / ouvrants'];var AG_ICONS={'window-shutter':[1,'Volet fermé','M3,4H21V8H19V20H17V8H7V20H5V8H3V4M8,9H16V11H8V9M8,12H16V14H8V12M8,15H16V17H8V15M8,18H16V20H8V18Z'],'window-shutter-open':[1,'Volet d\'entrée','M3,4H21V8H19V20H17V8H7V20H5V8H3V4M8,9H16V11H8V9Z'],'vide':[8,'Sans tracé','']};
+""";
+
 void main() {
   group('parseGroups', () {
     test('retient les groupes nommés', () {
@@ -54,6 +61,36 @@ void main() {
       expect(ActionGroupService.parseGroups('b', '{}'), isEmpty);
       expect(ActionGroupService.parseGroups('b', 'pas du json'), isEmpty);
       expect(ActionGroupService.parseGroups('b', '{"groups": 3}'), isEmpty);
+    });
+  });
+
+  group('parseIconSet', () {
+    test('associe chaque nom à son tracé', () {
+      final icons = ActionGroupService.parseIconSet(_iconSet);
+      expect(icons.keys, ['window-shutter', 'window-shutter-open']);
+      expect(icons['window-shutter'], startsWith('M3,4H21V8'));
+    });
+
+    test('une apostrophe échappée dans le libellé ne coupe pas la lecture', () {
+      expect(ActionGroupService.parseIconSet(_iconSet)['window-shutter-open'],
+          'M3,4H21V8H19V20H17V8H7V20H5V8H3V4M8,9H16V11H8V9Z');
+    });
+
+    test('une icône sans tracé est écartée', () {
+      expect(ActionGroupService.parseIconSet(_iconSet), isNot(contains('vide')));
+    });
+
+    test('le nom du groupe mène à son tracé', () {
+      final groups = ActionGroupService.parseGroups(
+        'b',
+        '{"groups":[{"index":0,"name":"Fermeture","icon":"window-shutter"},'
+            '{"index":1,"name":"Ancien","icon":"\ud83c\udfe0"}]}',
+        icons: ActionGroupService.parseIconSet(_iconSet),
+      );
+      expect(groups.first.iconPath, startsWith('M3,4H21V8'));
+      // Un émoji d'avant la 2.23 n'a pas de tracé : le widget l'écrira tel quel.
+      expect(groups.last.iconPath, isNull);
+      expect(groups.last.icon, '🏠');
     });
   });
 

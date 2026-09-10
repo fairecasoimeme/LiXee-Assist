@@ -113,20 +113,15 @@ class ActionGroupWidgetProvider : HomeWidgetProvider() {
             }
 
             val group = JSONObject(payload)
-            val icon = group.optString("icon")
-            views.setViewVisibility(
-                R.id.group_icon, if (icon.isEmpty()) View.GONE else View.VISIBLE
-            )
-            views.setTextViewText(R.id.group_icon, icon)
             views.setTextViewText(
                 R.id.group_name, group.optString("name").ifEmpty { fallbackName }
             )
 
-            // La couleur choisie sur la box teinte le nom : c'est elle qui
-            // distingue « ouverture » de « fermeture » avant même de lire.
-            tint(group.optString("color"))?.let {
-                views.setTextColor(R.id.group_name, it)
-            }
+            // La couleur choisie sur la box teinte le nom et l'icône : c'est
+            // elle qui distingue « ouverture » de « fermeture » avant de lire.
+            val colour = tint(group.optString("color"))
+            colour?.let { views.setTextColor(R.id.group_name, it) }
+            showIcon(context, views, group, colour)
 
             val timestamp = widgetData.getString("$key.ts", null)?.toLongOrNull()
             val failedAt = widgetData.getString("$key.failedat", null)?.toLongOrNull()
@@ -147,6 +142,40 @@ class ActionGroupWidgetProvider : HomeWidgetProvider() {
                 )
             )
             return views
+        }
+
+        /**
+         * Trois cas, selon ce que la box a enregistré.
+         *
+         * Un nom d'icône avec son tracé se dessine ; un émoji d'avant la 2.23
+         * s'écrit ; un nom d'icône *sans* tracé — jeu d'icônes injoignable — ne
+         * s'affiche pas du tout, plutôt que d'écrire « window-shutter » en
+         * toutes lettres là où l'on attend un dessin.
+         */
+        private fun showIcon(
+            context: Context,
+            views: RemoteViews,
+            group: JSONObject,
+            colour: Int?
+        ) {
+            val icon = group.optString("icon")
+            val bitmap = group.optString("iconPath").takeIf { it.isNotEmpty() }?.let {
+                GroupIcon.render(
+                    it,
+                    colour ?: ContextCompat.getColor(context, R.color.widget_text_primary)
+                )
+            }
+            val showEmoji = bitmap == null && icon.isNotEmpty() && !GroupIcon.isIconName(icon)
+
+            views.setViewVisibility(
+                R.id.group_icon_image, if (bitmap != null) View.VISIBLE else View.GONE
+            )
+            bitmap?.let { views.setImageViewBitmap(R.id.group_icon_image, it) }
+
+            views.setViewVisibility(
+                R.id.group_icon, if (showEmoji) View.VISIBLE else View.GONE
+            )
+            views.setTextViewText(R.id.group_icon, if (showEmoji) icon else "")
         }
 
         /**
