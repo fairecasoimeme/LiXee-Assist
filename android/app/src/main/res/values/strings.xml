@@ -80,6 +80,10 @@
     <!-- Intitulés lisibles des grandeurs les plus courantes. Tout autre nom
          s'affiche tel que le gabarit le donne. -->
     <string name="widget_reading_position">Position</string>
+    <!-- Position d'un volet aux extrémités : 100 = ouvert sur le matériel de
+         la box, à rebours de la norme ZCL. -->
+    <string name="widget_position_open">%1$s ouvert</string>
+    <string name="widget_position_closed">%1$s fermé</string>
     <string name="widget_reading_temperature">Température</string>
     <string name="widget_reading_humidity">Humidité</string>
     <string name="widget_reading_battery">Batterie</string>

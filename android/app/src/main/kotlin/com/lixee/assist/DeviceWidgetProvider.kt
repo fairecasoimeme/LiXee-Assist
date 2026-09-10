@@ -316,7 +316,31 @@ class DeviceWidgetProvider : HomeWidgetProvider() {
             } else {
                 String.format(locale, "%.1f", value)
             }
-            return if (unit.isEmpty()) text else "$text $unit"
+            val withUnit = if (unit.isEmpty()) text else "$text $unit"
+            return coveringState(context, reading, value, withUnit)
+        }
+
+        /**
+         * Aux extrémités, la position d'un volet se dit aussi en mots.
+         *
+         * « 100 % » laisse deviner, « 100 % ouvert » ne laisse aucun doute —
+         * d'autant que le sens n'a rien d'évident : la norme ZCL fait de 100 %
+         * un volet fermé, alors que les SONOFF MINI-ZBRBS, pilotés par la box,
+         * rapportent 100 volet ouvert (vérifié de visu). Entre les deux, le
+         * pourcentage se suffit à lui-même.
+         */
+        private fun coveringState(
+            context: Context,
+            reading: JSONObject,
+            value: Double,
+            formatted: String
+        ): String {
+            if (reading.optString("name") != "current_position") return formatted
+            return when (value) {
+                100.0 -> context.getString(R.string.widget_position_open, formatted)
+                0.0 -> context.getString(R.string.widget_position_closed, formatted)
+                else -> formatted
+            }
         }
 
         /**
