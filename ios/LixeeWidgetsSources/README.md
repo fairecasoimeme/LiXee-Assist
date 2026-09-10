@@ -38,7 +38,7 @@ Versionner le `Podfile.lock` régénéré.
 ## 3. Régler la cible LixeeWidgets
 
 - *General › Minimum Deployments* : **iOS 17.0**. La configuration par
-  AppIntent l'exige ; l'app, elle, reste à iOS 14.
+  AppIntent l'exige ; l'app, elle, reste à iOS 15.
 - *Build Settings › Product Bundle Identifier* : il doit **prolonger celui de
   l'app, dans chaque configuration**. Or Runner n'a pas le même identifiant
   partout :
