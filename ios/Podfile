@@ -1,5 +1,7 @@
-# Firebase requires iOS 13.0+
-platform :ios, '13.0'
+# home_widget exige iOS 14.0 (Firebase se contenterait de 13.0). Un appareil
+# resté sous iOS 13 n'existe pratiquement pas : ceux qui l'ont reçu sont tous
+# montés au moins jusqu'à iOS 15.
+platform :ios, '14.0'
 
 # CocoaPods analytics sends network stats synchronously affecting flutter build latency.
 ENV['COCOAPODS_DISABLE_STATS'] = 'true'
