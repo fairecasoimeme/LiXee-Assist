@@ -28,6 +28,7 @@
 ### Accès aux box
 - 🖥 **Interface web de la box intégrée**, via un proxy local : HTTP, HTTPS, authentification par formulaire ou Basic
 - 🔁 **Accès distant automatique** : si un tunnel est configuré sur la box, l'app le détecte et bascule entre tunnel et réseau local selon ce qui répond. Un badge indique l'état : *Tunnel*, *Local* ou *Hors ligne*
+- 🔒 **Sécurité** : le certificat est vérifié hors du réseau local (le certificat auto-signé de la box n'est accepté qu'en local), et les cookies de session sont conservés dans le stockage sécurisé du système
 - 📤 **Export CSV** : les fichiers exportés depuis l'interface de la box sont enregistrés sur le téléphone
 
 ### Surveillance
@@ -41,7 +42,7 @@
 - 🌡 **Thermostat virtuel** : consigne réglable directement (+/−), mode forcé (auto, marche, arrêt), chauffage ou refroidissement, hors-gel ; état de régulation et jauge comme sur la box
 - Quand une box ne répond pas, le widget l'indique (*Injoignable*) plutôt que d'afficher des valeurs périmées
 
-> Les widgets énergie pour iOS (iOS 17 et plus) sont en préparation.
+> Les six widgets arrivent sur iOS (iOS 17 et plus) : leurs sources sont prêtes et attendent leur intégration dans l'app.
 
 ### Et aussi
 - 📺 **Android TV**, avec navigation à la télécommande
@@ -71,6 +72,7 @@
     - [`firebase_messaging`](https://pub.dev/packages/firebase_messaging) — notifications push
     - [`workmanager`](https://pub.dev/packages/workmanager) — tâches en arrière-plan
     - [`flutter_local_notifications`](https://pub.dev/packages/flutter_local_notifications) — notifications locales
+    - [`flutter_secure_storage`](https://pub.dev/packages/flutter_secure_storage) — stockage sécurisé des sessions
     - [`multicast_dns`](https://pub.dev/packages/multicast_dns) — résolution mDNS
     - [`dio`](https://pub.dev/packages/dio) / [`http`](https://pub.dev/packages/http) — clients HTTP
 
