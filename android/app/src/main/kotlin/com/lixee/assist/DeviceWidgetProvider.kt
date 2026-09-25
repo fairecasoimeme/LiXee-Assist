@@ -32,11 +32,17 @@ class DeviceWidgetProvider : HomeWidgetProvider() {
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
             ACTION_DEVICE_REFRESH, ACTION_DEVICE_COMMAND -> {
+                if (!WidgetIntentGuard.isOurs(context, intent)) return
                 acknowledge(context, intent)
                 WidgetRefreshWorker.enqueue(context, intent.data?.toString())
                 return
             }
         }
+        val handled = ExposureRefresh.handle(context, intent, javaClass) { data, id ->
+            data.getString(bindingKeyFor(id), null)
+                ?.let { "lixee://devrefresh/${Uri.encode(it)}" }
+        }
+        if (handled) return
         super.onReceive(context, intent)
     }
 
@@ -361,10 +367,13 @@ class DeviceWidgetProvider : HomeWidgetProvider() {
             key: String,
             widgetId: Int
         ): PendingIntent {
-            val intent = Intent(ACTION_DEVICE_REFRESH)
-                .setClassName(context.packageName, DeviceWidgetProvider::class.java.name)
-                .setData(Uri.parse("lixee://devrefresh/${Uri.encode(key)}"))
-                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
+            val intent = WidgetIntentGuard.sign(
+                context,
+                Intent(ACTION_DEVICE_REFRESH)
+                    .setClassName(context.packageName, DeviceWidgetProvider::class.java.name)
+                    .setData(Uri.parse("lixee://devrefresh/${Uri.encode(key)}"))
+                    .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
+            )
             return PendingIntent.getBroadcast(context, widgetId, intent, flags())
         }
 

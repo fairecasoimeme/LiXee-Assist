@@ -68,10 +68,13 @@ class WidgetActionConfirmActivity : Activity() {
             .setNegativeButton(android.R.string.cancel) { _, _ -> finish() }
             .setPositiveButton(R.string.widget_action_confirm) { _, _ ->
                 sendBroadcast(
-                    Intent(broadcast)
-                        .setClassName(packageName, receiver)
-                        .setData(target)
-                        .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
+                    WidgetIntentGuard.sign(
+                        this,
+                        Intent(broadcast)
+                            .setClassName(packageName, receiver)
+                            .setData(target)
+                            .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
+                    )
                 )
                 finish()
             }

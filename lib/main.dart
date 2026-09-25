@@ -183,13 +183,20 @@ Future<void> refreshActionGroups({bool closeSessions = false}) async {
 }
 
 /// Relève les thermostats virtuels de chaque box.
-Future<void> refreshThermostats({bool closeSessions = false}) async {
+///
+/// [onlyBox] restreint le relevé à une box ; le catalogue des autres est
+/// conservé tel quel.
+Future<void> refreshThermostats({
+  bool closeSessions = false,
+  String? onlyBox,
+}) async {
   try {
     await SessionPool.loadPersisted();
     final catalogue = <ThermostatZone>[];
     final refreshed = <String>{};
 
     for (final box in await DeviceControlService.savedBoxes()) {
+      if (onlyBox != null && box.name != onlyBox) continue;
       final zones = await ThermostatService.fetchAll(
         box,
         mdnsResolver: resolveMdnsIP,
@@ -242,7 +249,9 @@ Future<void> _runThermostatCommand(Uri uri) async {
   // La box régule en continu : relire tout de suite donnerait la consigne
   // d'avant. Un court délai suffit, l'actionneur n'est pas dans la boucle.
   await Future<void>.delayed(const Duration(seconds: 2));
-  await refreshThermostats();
+  // Seule la box commandée a changé : interroger les autres ferait attendre
+  // le widget sur chaque box injoignable.
+  await refreshThermostats(onlyBox: boxName);
 }
 
 /// Déclenche un groupe d'actions depuis son widget.
@@ -328,7 +337,12 @@ Future<void> _runDeviceAction(Uri uri) async {
   // Relectures espacées : la première attrape les mouvements courts, la
   // dernière la position d'arrivée. S'arrêter à la première afficherait la
   // valeur d'avant l'appui, ce qui ressemblerait à une commande sans effet.
-  for (final delay in const [Duration(seconds: 4), Duration(seconds: 12)]) {
+  // La troisième, à 30 s, couvre la course complète d'un volet.
+  for (final delay in const [
+    Duration(seconds: 4),
+    Duration(seconds: 12),
+    Duration(seconds: 14),
+  ]) {
     await Future<void>.delayed(delay);
     await refreshDeviceMetrics(only: deviceKey, forceRead: true);
   }
@@ -344,6 +358,7 @@ Future<void> _runDeviceAction(Uri uri) async {
 @pragma('vm:entry-point')
 Future<void> widgetInteractionCallback(Uri? uri) async {
   if (uri == null) return;
+  final watch = Stopwatch()..start();
   await HomeWidgetBridge.init();
   print('[WIDGET-DATA] Appui widget ($uri)');
 
@@ -356,7 +371,7 @@ Future<void> widgetInteractionCallback(Uri? uri) async {
         final device =
             uri.pathSegments.isEmpty ? null : uri.pathSegments.first;
         try {
-          await refreshWidgetMetrics(closeSessions: true, only: device);
+          await refreshWidgetMetrics(only: device);
         } catch (e) {
           print('[WIDGET-DATA] Relevé sur appui échoué: $e');
           if (device != null) await HomeWidgetBridge.pushFailure(device);
@@ -364,7 +379,7 @@ Future<void> widgetInteractionCallback(Uri? uri) async {
 
       case 'devrefresh':
         final key = uri.pathSegments.isEmpty ? null : uri.pathSegments.first;
-        await refreshDeviceMetrics(closeSessions: true, only: key);
+        await refreshDeviceMetrics(only: key);
 
       case 'devaction':
         if (uri.pathSegments.length < 2) return;
@@ -382,10 +397,16 @@ Future<void> widgetInteractionCallback(Uri? uri) async {
         await _runThermostatCommand(uri);
 
       case 'thermorefresh':
-        await refreshThermostats();
+        // La clé vaut « box~zone » : seule la box du widget est relevée.
+        final key = uri.pathSegments.isEmpty ? null : uri.pathSegments.first;
+        await refreshThermostats(onlyBox: key?.split('~').first);
     }
   } finally {
-    WidgetDataService.disposeAll();
+    // Les sessions restent ouvertes : le moteur survit quelques minutes à
+    // l'appui (WidgetRefreshWorker), et l'appui suivant repart de la même
+    // connexion, sans login ni poignée de main TLS. Les fermer ici couperait
+    // aussi un relevé encore en vol sur ce même isolate.
+    print('[WIDGET] Appui ${uri.host} ${watch.elapsedMilliseconds} ms');
   }
 }
 

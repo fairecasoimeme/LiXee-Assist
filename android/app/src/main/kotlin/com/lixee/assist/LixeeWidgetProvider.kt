@@ -37,10 +37,16 @@ abstract class LixeeWidgetProvider(private val theme: WidgetTheme) :
      */
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == ACTION_REFRESH) {
+            if (!WidgetIntentGuard.isOurs(context, intent)) return
             acknowledgeTap(context, intent, theme)
             WidgetRefreshWorker.enqueue(context, intent.data?.toString())
             return
         }
+        val handled = ExposureRefresh.handle(context, intent, javaClass) { data, id ->
+            data.getString(WidgetConfigActivity.deviceKeyFor(id), null)
+                ?.let { "lixee://refresh/${Uri.encode(it)}" }
+        }
+        if (handled) return
         super.onReceive(context, intent)
     }
 
@@ -321,10 +327,13 @@ abstract class LixeeWidgetProvider(private val theme: WidgetTheme) :
             theme: WidgetTheme,
             widgetId: Int
         ): PendingIntent {
-            val intent = Intent(ACTION_REFRESH)
-                .setClassName(context.packageName, theme.providerClassName)
-                .setData(target)
-                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
+            val intent = WidgetIntentGuard.sign(
+                context,
+                Intent(ACTION_REFRESH)
+                    .setClassName(context.packageName, theme.providerClassName)
+                    .setData(target)
+                    .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
+            )
             var flags = PendingIntent.FLAG_UPDATE_CURRENT
             if (Build.VERSION.SDK_INT >= 23) {
                 flags = flags or PendingIntent.FLAG_IMMUTABLE

@@ -243,9 +243,9 @@ class DeviceControlService {
     await for (final (candidate, route) in routes) {
       try {
         final path = '/ZigbeeAction?${action.query(device.shortAddr)}';
-        final body = await BoxClient.get(route, path);
         // La réponse est vide en cas de succès : c'est l'absence d'erreur qui
         // fait foi, et BoxClient rend null dès que le code n'est pas 200.
+        final body = await BoxClient.get(route, path, allowEmpty: true);
         if (body == null) {
           BoxClient.dropSession(route);
           continue;
@@ -290,6 +290,7 @@ class DeviceControlService {
           '/ZigbeeSendRequest?shortaddr=${device.shortAddr}'
           '&endpoint=${device.endpoint}&cluster=$cluster'
           '&attribute=${reading.attribute}',
+          allowEmpty: true,
         );
         return;
       } catch (e) {
