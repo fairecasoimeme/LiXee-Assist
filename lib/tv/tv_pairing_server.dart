@@ -20,24 +20,25 @@ class PairingOutcome {
   const PairingOutcome.failure(this.message) : ok = false, entry = null;
 }
 
-/// Serveur d'appairage : reçoit du téléphone les identifiants d'une box.
+/// Serveur d'appairage : reçoit du téléphone une box à ajouter.
 ///
 /// Il n'écoute que le temps de l'écran d'ajout, et seulement à une adresse
 /// secrète (`/p/<jeton>`) que seul le QR code donne. Deux façons d'arriver :
 ///
-/// - le navigateur du téléphone, qui affiche un formulaire identifiant et
-///   mot de passe ;
-/// - LiXee-Assist, qui envoie l'entrée complète d'une box déjà configurée
-///   (adresses locale et tunnel comprises).
+/// - LiXee-Assist, qui envoie l'entrée complète d'une box qu'il connaît
+///   déjà : nom, adresses locale et tunnel, identifiants ;
+/// - le navigateur du téléphone, qui affiche un formulaire : adresse (les box
+///   trouvées sur le réseau y sont proposées), identifiant, mot de passe.
 ///
 /// Dans les deux cas, la TV vérifie les identifiants auprès de la box avant
 /// d'enregistrer quoi que ce soit. Les échanges restent sur le réseau local,
 /// en HTTP : c'est aussi ainsi que l'app parle à la box en local.
 class TvPairingServer {
-  final FoundBox target;
+  /// Box trouvées sur le réseau, proposées dans le formulaire du navigateur.
+  final List<FoundBox> Function() suggestions;
   final void Function(PairingOutcome outcome) onOutcome;
 
-  TvPairingServer({required this.target, required this.onOutcome});
+  TvPairingServer({required this.suggestions, required this.onOutcome});
 
   HttpServer? _server;
   late final String token = _randomHex(16);
@@ -73,7 +74,11 @@ class TvPairingServer {
             ? _hostOverride
             : await TvDiscovery.localAddress();
     if (_host == null) return null;
-    _server = await HttpServer.bind(InternetAddress.anyIPv4, _portOverride);
+    _server = await HttpServer.bind(
+      InternetAddress.anyIPv4,
+      _portOverride,
+      shared: true,
+    );
     _server!.listen(_handle, onError: (_) {});
     return pairingUrl;
   }
@@ -98,20 +103,35 @@ class TvPairingServer {
       if (request.method == 'GET' && sub.isEmpty) {
         await _html(request, _formPage());
       } else if (request.method == 'GET' && sub == 'info') {
-        await _json(request, {'box': target.name, 'code': code});
+        await _json(request, {'code': code});
       } else if (request.method == 'POST' && sub.isEmpty) {
         final form = Uri.splitQueryString(
           await utf8.decoder.bind(request).join(),
         );
-        final outcome = await _fromCredentials(
-          form['login'] ?? '',
-          form['password'] ?? '',
+        // Une adresse tapée l'emporte sur la box choisie dans la liste.
+        final typed = (form['address'] ?? '').trim();
+        final outcome = await addWithCredentials(
+          address: typed.isNotEmpty ? typed : (form['box'] ?? ''),
+          login: form['login'] ?? '',
+          password: form['password'] ?? '',
+          name: form['name'],
+          known: suggestions(),
         );
         await _html(request, _resultPage(outcome));
         _report(outcome);
       } else if (request.method == 'POST' && sub == 'entry') {
         final body = jsonDecode(await utf8.decoder.bind(request).join());
         final outcome = await _fromEntry(body is Map ? '${body['entry']}' : '');
+        await _json(request, {'ok': outcome.ok, 'message': outcome.message});
+        _report(outcome);
+      } else if (request.method == 'POST' && sub == 'entries') {
+        // Synchronisation : toutes les box choisies sur le téléphone.
+        final body = jsonDecode(await utf8.decoder.bind(request).join());
+        final list =
+            body is Map && body['entries'] is List
+                ? (body['entries'] as List).map((e) => '$e').toList()
+                : const <String>[];
+        final outcome = await _fromEntries(list);
         await _json(request, {'ok': outcome.ok, 'message': outcome.message});
         _report(outcome);
       } else {
@@ -133,12 +153,38 @@ class TvPairingServer {
     onOutcome(outcome);
   }
 
-  /// Formulaire du navigateur : on construit l'entrée nous-mêmes.
-  Future<PairingOutcome> _fromCredentials(String login, String password) async {
+  /// Ajoute une box d'après son adresse et ses identifiants : formulaire du
+  /// navigateur, ou saisie à la télécommande.
+  ///
+  /// [known] sert à retrouver le nom d'une box trouvée sur le réseau ; à
+  /// défaut, [name], puis l'adresse elle-même.
+  static Future<PairingOutcome> addWithCredentials({
+    required String address,
+    required String login,
+    required String password,
+    String? name,
+    List<FoundBox> known = const [],
+  }) async {
+    final url = normalizeAddress(address);
+    if (url == null) {
+      return const PairingOutcome.failure('Indiquez l\'adresse de la box.');
+    }
+    final host = Uri.parse(url).host;
+    final found = known.where((b) => b.ip == host).firstOrNull;
+    final label =
+        (name ?? '').trim().isNotEmpty
+            ? name!.trim().replaceAll('|', ' ')
+            : found?.name ?? host;
+
     final hasAuth = login.isNotEmpty || password.isNotEmpty;
+    if (login.contains('|') || password.contains('|')) {
+      return const PairingOutcome.failure(
+        'Le caractère | n\'est pas accepté dans l\'identifiant ou le mot de passe.',
+      );
+    }
     final device = BoxDevice(
-      name: target.name,
-      primaryUrl: target.url,
+      name: label,
+      primaryUrl: url,
       login: hasAuth ? login : null,
       password: hasAuth ? password : null,
     );
@@ -150,12 +196,69 @@ class TvPairingServer {
     final tunnel = hasAuth ? await _tunnelUrl(device) : null;
     final entry =
         !hasAuth
-            ? '${target.name}|${target.url}'
+            ? '$label|$url'
             : tunnel != null
-            ? '${target.name}|$tunnel|auth|$login|$password|${target.url}'
-            : '${target.name}|${target.url}|auth|$login|$password';
+            ? '$label|$tunnel|auth|$login|$password|$url'
+            : '$label|$url|auth|$login|$password';
     await TvData.upsert(entry);
-    return PairingOutcome.success(entry, '${target.name} est ajoutée à la TV.');
+    return PairingOutcome.success(entry, '$label est ajoutée à la TV.');
+  }
+
+  /// `192.168.1.20`, `lixeebox-8bf0.local`, `http://…/` → `http://hôte[:port]`.
+  static String? normalizeAddress(String raw) {
+    var text = raw.trim();
+    if (text.isEmpty) return null;
+    if (!text.startsWith('http://') && !text.startsWith('https://')) {
+      text = 'http://$text';
+    }
+    final uri = Uri.tryParse(text);
+    if (uri == null || uri.host.isEmpty) return null;
+    return uri.hasPort
+        ? '${uri.scheme}://${uri.host}:${uri.port}'
+        : '${uri.scheme}://${uri.host}';
+  }
+
+  /// Box envoyées ensemble par LiXee-Assist.
+  ///
+  /// Toutes sont vérifiées en parallèle. Seule une box qui refuse ses
+  /// identifiants est écartée : une box muette sur le moment (éteinte, ou
+  /// joignable seulement par un tunnel coupé) est gardée, puisque le
+  /// téléphone la connaît déjà et qu'elle répondra plus tard.
+  Future<PairingOutcome> _fromEntries(List<String> entries) async {
+    final devices = <String, BoxDevice>{};
+    for (final entry in entries) {
+      final device = BoxDevice.tryParse(entry);
+      if (device != null && !entry.contains('\n')) devices[entry] = device;
+    }
+    if (devices.isEmpty) {
+      return const PairingOutcome.failure('Aucune box à ajouter.');
+    }
+    final checks = await Future.wait(devices.values.map(verify));
+    final added = <String>[];
+    final refused = <String>[];
+    for (final (i, entry) in devices.keys.indexed) {
+      final name = devices[entry]!.name;
+      if (checks[i]?.startsWith('Identifiant') ?? false) {
+        refused.add(name);
+      } else {
+        await TvData.upsert(entry);
+        added.add(name);
+      }
+    }
+    if (added.isEmpty) {
+      return PairingOutcome.failure(
+        'Identifiants refusés par ${refused.join(', ')}.',
+      );
+    }
+    final message = StringBuffer(
+      added.length == 1
+          ? '${added.first} est ajoutée à la TV.'
+          : '${added.length} box ajoutées à la TV : ${added.join(', ')}.',
+    );
+    if (refused.isNotEmpty) {
+      message.write(' Identifiants refusés par ${refused.join(', ')}.');
+    }
+    return PairingOutcome.success(null, message.toString());
   }
 
   /// Entrée envoyée par LiXee-Assist.
@@ -246,25 +349,41 @@ class TvPairingServer {
   }
 
   String _formPage() {
-    final name = const HtmlEscape().convert(target.name);
+    const escape = HtmlEscape();
     final app = Uri(
       scheme: 'lixee',
       host: 'pair',
       queryParameters: {'u': pairingUrl.toString()},
     );
+    final boxes = suggestions();
+    final options =
+        boxes
+            .map(
+              (b) =>
+                  '<option value="${escape.convert(b.url)}">${escape.convert(b.name)} · ${escape.convert(b.ip)}</option>',
+            )
+            .join();
+    final choice =
+        boxes.isEmpty
+            ? ''
+            : '<label>Box trouvée sur le réseau<select name="box">$options</select></label>'
+                '<p class="note">Ou tapez son adresse ci-dessous, si elle n\'est pas dans la liste.</p>';
     return '''<!doctype html><html lang="fr"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Ajouter $name à la TV</title><style>$_css</style></head><body><main>
-<h1>Ajouter $name à la TV</h1>
+<title>Ajouter une box à la TV</title><style>$_css</style></head><body><main>
+<h1>Ajouter une box à la TV</h1>
 <p class="code">Code affiché sur la TV : <b>${_spaced(code)}</b></p>
 <a class="app" href="$app">Envoyer depuis LiXee-Assist</a>
-<p class="or">ou saisissez les identifiants de la box</p>
+<p class="or">ou remplissez ce formulaire</p>
 <form method="post">
+$choice
+<label>Adresse de la box<input name="address" inputmode="url" autocapitalize="off" placeholder="192.168.1.20"></label>
 <label>Identifiant<input name="login" autocomplete="username" autocapitalize="off"></label>
 <label>Mot de passe<input name="password" type="password" autocomplete="current-password"></label>
+<label>Nom affiché sur la TV (facultatif)<input name="name" placeholder="Maison"></label>
 <button type="submit">Ajouter à la TV</button>
 </form>
-<p class="note">Laissez les deux champs vides si la box n'a pas de mot de passe.</p>
+<p class="note">Laissez identifiant et mot de passe vides si la box n'en a pas.</p>
 </main></body></html>''';
   }
 
@@ -293,7 +412,7 @@ h1{font-size:1.5rem;margin:0 0 12px}
 .or{text-align:center;color:#5b6878;margin:8px 0 14px}
 form{display:grid;gap:14px}
 label{display:grid;gap:6px;font-weight:600}
-input{font-size:1rem;padding:12px;border:1px solid #c9d2dc;border-radius:10px}
+input,select{font-size:1rem;padding:12px;border:1px solid #c9d2dc;border-radius:10px;background:#fff}
 button{font-size:1rem;font-weight:700;padding:14px;border:0;border-radius:12px;background:#17202b;color:#fff}
 .note{color:#5b6878;font-size:.9rem}''';
 

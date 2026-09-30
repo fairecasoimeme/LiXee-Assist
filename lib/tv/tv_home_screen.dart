@@ -245,7 +245,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
               const SizedBox(height: 16),
               const TvHints([
                 ('OK', 'Ouvrir la box'),
-                ('☰', 'Renommer ou retirer'),
+                ('OK maintenu', 'Renommer ou retirer'),
               ]),
             ],
           ),

@@ -3,14 +3,17 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:qr/qr.dart';
 
-import '../services/box_client.dart';
-import 'tv_data.dart';
 import 'tv_discovery.dart';
+import 'tv_manual_add_screen.dart';
 import 'tv_pairing_server.dart';
 import 'tv_theme.dart';
 
-/// Ajout d'une box sans clavier : la TV trouve les box du réseau, puis le
-/// téléphone envoie les identifiants par un QR code.
+/// Ajout de box à la TV, en deux façons :
+///
+/// - depuis le téléphone : un QR code, et LiXee-Assist envoie toutes ses box
+///   d'un coup (ou, sans l'app, le navigateur ouvre un formulaire) ;
+/// - à la télécommande : adresse, identifiant et mot de passe saisis sur la
+///   TV, pour qui n'a pas le téléphone sous la main.
 class TvPairingScreen extends StatefulWidget {
   const TvPairingScreen({super.key});
 
@@ -20,25 +23,22 @@ class TvPairingScreen extends StatefulWidget {
 
 class _TvPairingScreenState extends State<TvPairingScreen> {
   List<FoundBox> _found = [];
-  Set<String> _known = {};
   bool _scanning = true;
-  FoundBox? _target;
   TvPairingServer? _server;
   Uri? _url;
   String? _message;
   bool _messageIsError = false;
   Timer? _rescan;
   Timer? _expiry;
-  Timer? _focusDebounce;
 
-  /// Un QR code resté affiché trop longtemps est renouvelé : son adresse
-  /// secrète ne vaut que pour cette session d'ajout.
+  /// Le QR code est renouvelé à intervalles : son adresse secrète ne vaut
+  /// que pour cette session d'ajout.
   static const _validity = Duration(minutes: 5);
 
   @override
   void initState() {
     super.initState();
-    _loadKnown();
+    _startServer();
     _scan();
     _rescan = Timer.periodic(const Duration(seconds: 15), (_) => _scan());
   }
@@ -47,65 +47,43 @@ class _TvPairingScreenState extends State<TvPairingScreen> {
   void dispose() {
     _rescan?.cancel();
     _expiry?.cancel();
-    _focusDebounce?.cancel();
     _server?.stop();
     super.dispose();
   }
 
-  Future<void> _loadKnown() async {
-    final boxes = await TvData.load();
-    if (mounted)
-      setState(() => _known = boxes.map((b) => b.name.toLowerCase()).toSet());
-  }
-
+  /// Les box du réseau ne servent qu'à préremplir les formulaires : l'ajout
+  /// depuis LiXee-Assist n'en a pas besoin.
   Future<void> _scan() async {
     final found = await TvDiscovery.scan();
     if (!mounted) return;
     setState(() {
       _scanning = false;
-      // Ne jamais faire disparaître la box en cours d'ajout sur un balayage
-      // qui l'aurait manquée.
-      final keep =
-          _target != null && !found.any((f) => f.name == _target!.name)
-              ? [_target!]
-              : <FoundBox>[];
-      _found = [...found, ...keep];
+      if (found.isNotEmpty) _found = found;
     });
   }
 
-  bool _isKnown(FoundBox box) => _known.contains(box.name.toLowerCase());
-
-  /// La box sélectionnée devient la cible du QR code, après un court délai
-  /// pour ne pas relancer le serveur à chaque cran de flèche.
-  void _focusBox(FoundBox box) {
-    _focusDebounce?.cancel();
-    _focusDebounce = Timer(
-      const Duration(milliseconds: 350),
-      () => _startFor(box),
-    );
-  }
-
-  Future<void> _startFor(FoundBox box) async {
-    if (_target?.name == box.name && _url != null) return;
+  Future<void> _startServer() async {
     await _server?.stop();
-    final server = TvPairingServer(target: box, onOutcome: _onOutcome);
+    final server = TvPairingServer(
+      suggestions: () => _found,
+      onOutcome: _onOutcome,
+    );
     final url = await server.start();
     if (!mounted) {
       await server.stop();
       return;
     }
     setState(() {
-      _target = box;
       _server = server;
       _url = url;
-      _message =
-          url == null ? 'La TV n\'est pas connectée au réseau local.' : null;
-      _messageIsError = url == null;
+      if (url == null) {
+        _message = 'La TV n\'est pas connectée au réseau local.';
+        _messageIsError = true;
+      }
     });
     _expiry?.cancel();
     _expiry = Timer(_validity, () {
-      _url = null;
-      if (mounted) _startFor(box);
+      if (mounted) _startServer();
     });
   }
 
@@ -116,97 +94,17 @@ class _TvPairingScreenState extends State<TvPairingScreen> {
       _messageIsError = !outcome.ok;
     });
     if (outcome.ok) {
-      Future<void>.delayed(const Duration(seconds: 2), () {
+      Future<void>.delayed(const Duration(seconds: 3), () {
         if (mounted) Navigator.of(context).pop(true);
       });
     }
   }
 
-  /// OK sur une box sans mot de passe l'ajoute tout de suite.
-  Future<void> _addDirectly(FoundBox box) async {
-    setState(() {
-      _message = 'Vérification de ${box.name}…';
-      _messageIsError = false;
-    });
-    final check = await TvPairingServer.verify(
-      BoxDevice(name: box.name, primaryUrl: box.url),
-    );
-    if (!mounted) return;
-    if (check == null) {
-      await TvData.upsert('${box.name}|${box.url}');
-      _onOutcome(
-        PairingOutcome.success(null, '${box.name} est ajoutée à la TV.'),
-      );
-    } else {
-      setState(() {
-        _message =
-            check.startsWith('Cette box demande')
-                ? 'Cette box a un mot de passe : scannez le QR code avec le téléphone.'
-                : check;
-        _messageIsError = !check.startsWith('Cette box demande');
-      });
-    }
-  }
-
-  /// Box d'un autre réseau, ou que la recherche ne voit pas : le seul cas où
-  /// il faut taper quelque chose.
   Future<void> _manual() async {
-    final controller = TextEditingController(text: '192.168.');
-    final address = await showDialog<String>(
-      context: context,
-      builder:
-          (context) => AlertDialog(
-            title: const Text('Adresse de la box'),
-            content: TextField(
-              controller: controller,
-              autofocus: true,
-              keyboardType: TextInputType.url,
-              style: const TextStyle(fontSize: 20),
-              decoration: const InputDecoration(
-                hintText: '192.168.1.20 ou lixeebox-8bf0.local',
-              ),
-              onSubmitted: (value) => Navigator.pop(context, value),
-            ),
-            actions: [
-              TvFocusable(
-                color: TvColors.panelHigh,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 10,
-                ),
-                onSelect: () => Navigator.pop(context),
-                child: const Text('Annuler', style: TextStyle(fontSize: 16)),
-              ),
-              TvFocusable(
-                color: TvColors.focus.withValues(alpha: 0.25),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 10,
-                ),
-                onSelect: () => Navigator.pop(context, controller.text),
-                child: const Text('Continuer', style: TextStyle(fontSize: 16)),
-              ),
-            ],
-          ),
+    final added = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => TvManualAddScreen(found: _found)),
     );
-    final host = address
-        ?.trim()
-        .replaceFirst(RegExp(r'^https?://'), '')
-        .replaceAll(RegExp(r'/+$'), '');
-    if (host == null || host.isEmpty || !mounted) return;
-    final parts = host.split(':');
-    final box = FoundBox(
-      name:
-          parts.first.split('.').first.toUpperCase().startsWith('LIXEE')
-              ? parts.first.split('.').first.toUpperCase()
-              : parts.first,
-      ip: parts.first,
-      port: parts.length > 1 ? int.tryParse(parts[1]) ?? 80 : 80,
-    );
-    setState(() {
-      if (!_found.any((f) => f.name == box.name)) _found = [..._found, box];
-    });
-    _startFor(box);
+    if (added == true && mounted) Navigator.of(context).pop(true);
   }
 
   @override
@@ -225,17 +123,17 @@ class _TvPairingScreenState extends State<TvPairingScreen> {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(flex: 11, child: _list()),
+                    Expanded(flex: 10, child: _choices()),
                     const SizedBox(width: 40),
-                    Expanded(flex: 9, child: _qrPanel()),
+                    Expanded(flex: 11, child: _qrPanel()),
                   ],
                 ),
               ),
               const SizedBox(height: 12),
               TvHints([
-                const ('↑ ↓', 'Choisir la box'),
-                const ('OK', 'Ajouter une box sans mot de passe'),
-                ('', 'QR code valable ${_validity.inMinutes} min'),
+                const ('↑ ↓', 'Choisir'),
+                const ('OK', 'Valider'),
+                ('', 'QR code renouvelé toutes les ${_validity.inMinutes} min'),
               ]),
             ],
           ),
@@ -244,95 +142,49 @@ class _TvPairingScreenState extends State<TvPairingScreen> {
     );
   }
 
-  Widget _list() {
-    final items = <Widget>[
-      Text(
-        _scanning
-            ? 'Recherche des box sur ce réseau…'
-            : 'Box trouvées sur ce réseau',
-        style: const TextStyle(fontSize: 16, color: TvColors.muted),
-      ),
-      const SizedBox(height: 12),
-      if (!_scanning && _found.isEmpty)
-        const Padding(
-          padding: EdgeInsets.only(bottom: 12),
-          child: Text(
-            'Aucune box trouvée. Vérifiez que la TV est sur le même réseau que la box, '
-            'ou saisissez son adresse.',
-            style: TextStyle(fontSize: 17),
-          ),
-        ),
-      for (final (i, box) in _found.indexed) ...[
+  Widget _choices() {
+    return ListView(
+      clipBehavior: Clip.none,
+      padding: const EdgeInsets.all(6),
+      children: [
         TvFocusable(
-          autofocus: i == 0,
-          onFocusChange: (focused) {
-            if (focused) _focusBox(box);
-          },
-          onSelect: () => _addDirectly(box),
+          autofocus: true,
           focusScale: 1.02,
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      box.name,
-                      style: const TextStyle(
-                        fontSize: 21,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    Text(
-                      box.url.replaceFirst('http://', ''),
-                      style: const TextStyle(
-                        fontSize: 14,
-                        color: TvColors.muted,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              _isKnown(box)
-                  ? const TvPill('Déjà ajoutée', TvColors.ok)
-                  : const TvPill('Nouvelle', TvColors.warn),
-            ],
+          focusedColor: TvColors.panelHigh,
+          child: const _Choice(
+            icon: Icons.qr_code_2,
+            title: 'Depuis le téléphone',
+            subtitle:
+                'Scannez le QR code avec LiXee-Assist : '
+                'toutes vos box arrivent sur la TV.',
+            badge: 'Recommandé',
           ),
         ),
-        const SizedBox(height: 12),
-      ],
-      TvFocusable(
-        autofocus: !_scanning && _found.isEmpty,
-        onSelect: _manual,
-        focusScale: 1.02,
-        child: const Row(
-          children: [
-            Icon(Icons.keyboard, color: TvColors.muted),
-            SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Saisir une adresse',
-                    style: TextStyle(fontSize: 21, fontWeight: FontWeight.w700),
-                  ),
-                  Text(
-                    'Box introuvable ou sur un autre réseau',
-                    style: TextStyle(fontSize: 14, color: TvColors.muted),
-                  ),
-                ],
-              ),
-            ),
-          ],
+        const SizedBox(height: 14),
+        TvFocusable(
+          focusScale: 1.02,
+          focusedColor: TvColors.panelHigh,
+          onSelect: _manual,
+          child: const _Choice(
+            icon: Icons.settings_remote,
+            title: 'Saisie à la télécommande',
+            subtitle: 'Adresse, identifiant et mot de passe de la box.',
+          ),
         ),
-      ),
-      // Une box neuve, en mode Bluetooth, n'est pas encore sur le réseau :
-      // la TV ne peut pas la voir, et lui donner le WiFi demanderait de taper
-      // le mot de passe à la télécommande.
-      const Padding(
-        padding: EdgeInsets.only(top: 18),
-        child: Row(
+        const SizedBox(height: 22),
+        Text(
+          _scanning
+              ? 'Recherche des box sur ce réseau…'
+              : _found.isEmpty
+              ? 'Aucune box trouvée sur ce réseau.'
+              : 'Sur ce réseau : ${_found.map((b) => b.name).join(', ')}',
+          style: const TextStyle(fontSize: 15, color: TvColors.muted),
+        ),
+        const SizedBox(height: 14),
+        // Une box neuve, en mode Bluetooth, n'est pas encore sur le réseau :
+        // la TV ne peut pas la voir, et lui donner le WiFi demanderait de
+        // taper le mot de passe à la télécommande.
+        const Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Icon(Icons.bluetooth, color: TvColors.muted, size: 20),
@@ -340,23 +192,16 @@ class _TvPairingScreenState extends State<TvPairingScreen> {
             Expanded(
               child: Text(
                 'Box neuve, pas encore sur le WiFi ? Configurez-la d\'abord avec '
-                'LiXee-Assist sur le téléphone : elle apparaîtra ensuite ici.',
+                'LiXee-Assist sur le téléphone.',
                 style: TextStyle(fontSize: 15, color: TvColors.muted),
               ),
             ),
           ],
         ),
-      ),
-    ];
-    return ListView(
-      clipBehavior: Clip.none,
-      padding: const EdgeInsets.all(6),
-      children: items,
+      ],
     );
   }
 
-  /// QR code à gauche, marche à suivre à droite : empilés, ils débordaient
-  /// d'un écran 720p.
   Widget _qrPanel() {
     final url = _url;
     final server = _server;
@@ -364,20 +209,11 @@ class _TvPairingScreenState extends State<TvPairingScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (url == null || server == null)
-          Text(
-            _target == null
-                ? 'Choisissez une box à gauche.'
-                : 'Préparation du QR code…',
-            style: const TextStyle(fontSize: 18, color: TvColors.muted),
+          const Text(
+            'Préparation du QR code…',
+            style: TextStyle(fontSize: 18, color: TvColors.muted),
           )
-        else ...[
-          Text(
-            'Ajouter ${_target!.name}',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 14),
+        else
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -397,16 +233,22 @@ class _TvPairingScreenState extends State<TvPairingScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      '1. Scannez ce code avec le téléphone.',
+                      '1. Sur le téléphone, ouvrez LiXee-Assist, menu ⋮, '
+                      'puis Envoyer vers une TV.',
                       style: TextStyle(fontSize: 16),
                     ),
                     const SizedBox(height: 8),
                     const Text(
-                      '2. Envoyez la box depuis LiXee-Assist, ou saisissez '
-                      'ses identifiants dans la page qui s\'ouvre.',
+                      '2. Scannez ce code, puis choisissez les box à envoyer.',
                       style: TextStyle(fontSize: 16),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Sans l\'app : l\'appareil photo du téléphone ouvre un '
+                      'formulaire.',
+                      style: TextStyle(fontSize: 14, color: TvColors.muted),
+                    ),
+                    const SizedBox(height: 14),
                     const Text(
                       'Code de vérification',
                       style: TextStyle(fontSize: 14, color: TvColors.muted),
@@ -425,9 +267,8 @@ class _TvPairingScreenState extends State<TvPairingScreen> {
               ),
             ],
           ),
-        ],
         if (_message != null) ...[
-          const SizedBox(height: 16),
+          const SizedBox(height: 18),
           Text(
             _message!,
             style: TextStyle(
@@ -437,6 +278,59 @@ class _TvPairingScreenState extends State<TvPairingScreen> {
             ),
           ),
         ],
+      ],
+    );
+  }
+}
+
+class _Choice extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final String? badge;
+
+  const _Choice({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    this.badge,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, size: 36, color: TvColors.focus),
+        const SizedBox(width: 18),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Flexible(
+                    child: Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 21,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  if (badge != null) ...[
+                    const SizedBox(width: 10),
+                    TvPill(badge!, TvColors.ok),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                subtitle,
+                style: const TextStyle(fontSize: 15, color: TvColors.muted),
+              ),
+            ],
+          ),
+        ),
       ],
     );
   }

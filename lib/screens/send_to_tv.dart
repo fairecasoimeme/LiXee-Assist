@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -26,15 +27,16 @@ Uri? pairingAddress(String raw) {
   final uri = Uri.tryParse(raw.trim());
   if (uri == null || uri.scheme != 'http') return null;
   final s = uri.pathSegments;
-  final ok = s.length == 2 && s[0] == 'p' && RegExp(r'^[0-9a-f]{32}$').hasMatch(s[1]);
+  final ok =
+      s.length == 2 && s[0] == 'p' && RegExp(r'^[0-9a-f]{32}$').hasMatch(s[1]);
   return ok ? uri.replace(query: null, fragment: null) : null;
 }
 
 /// Ouvre l'appareil photo sur le QR code de la TV, puis propose l'envoi.
 Future<void> scanAndSendToTv(BuildContext context) async {
-  final base = await Navigator.of(context).push<Uri>(
-    MaterialPageRoute(builder: (_) => const _ScanTvScreen()),
-  );
+  final base = await Navigator.of(
+    context,
+  ).push<Uri>(MaterialPageRoute(builder: (_) => const _ScanTvScreen()));
   if (base != null && context.mounted) await _send(context, base);
 }
 
@@ -42,9 +44,22 @@ Future<void> _send(BuildContext context, Uri base) async {
   final messenger = ScaffoldMessenger.of(context);
   final info = await _getJson(base.replace(path: '${base.path}/info'));
   if (info == null) {
-    messenger.showSnackBar(const SnackBar(
-      content: Text('La TV ne répond pas. Rouvrez l\'écran d\'ajout sur la TV et rescannez le code.'),
-    ));
+    // Cause la plus fréquente : le téléphone est en données mobiles, d'où
+    // il ne peut pas joindre une adresse du réseau local.
+    final links = await Connectivity().checkConnectivity();
+    final onWifi =
+        links.contains(ConnectivityResult.wifi) ||
+        links.contains(ConnectivityResult.ethernet);
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          onWifi
+              ? 'La TV ne répond pas. Vérifiez que le téléphone est sur le même WiFi que la TV, rouvrez l\'écran d\'ajout et rescannez le code.'
+              : 'Le téléphone n\'est pas en WiFi : connectez-le au même réseau que la TV, puis rescannez le code.',
+        ),
+        duration: const Duration(seconds: 6),
+      ),
+    );
     return;
   }
 
@@ -56,37 +71,45 @@ Future<void> _send(BuildContext context, Uri base) async {
   ];
   if (!context.mounted) return;
   if (boxes.isEmpty) {
-    messenger.showSnackBar(const SnackBar(
-      content: Text('Aucune box enregistrée sur ce téléphone : saisissez les identifiants dans la page ouverte par le QR code.'),
-    ));
+    messenger.showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Aucune box enregistrée sur ce téléphone : saisissez les identifiants dans la page ouverte par le QR code.',
+        ),
+      ),
+    );
     return;
   }
 
-  final wanted = '${info['box']}'.toLowerCase();
-  final initial = boxes.indexWhere((b) => b.device.name.toLowerCase() == wanted);
-  final chosen = await showDialog<String>(
+  final chosen = await showDialog<List<String>>(
     context: context,
-    builder: (context) => _SendDialog(
-      boxes: [for (final b in boxes) (entry: b.entry, name: b.device.name)],
-      initial: initial < 0 ? 0 : initial,
-      code: '${info['code']}',
-      tvBox: '${info['box']}',
+    builder:
+        (context) => _SendDialog(
+          boxes: [for (final b in boxes) (entry: b.entry, name: b.device.name)],
+          code: '${info['code']}',
+        ),
+  );
+  if (chosen == null || chosen.isEmpty) return;
+
+  messenger.showSnackBar(
+    const SnackBar(
+      content: Text('Envoi vers la TV… La TV vérifie chaque box.'),
     ),
   );
-  if (chosen == null) return;
-
-  messenger.showSnackBar(const SnackBar(content: Text('Envoi vers la TV…')));
-  final result = await _postJson(
-    base.replace(path: '${base.path}/entry'),
-    {'entry': chosen},
-  );
+  final result = await _postJson(base.replace(path: '${base.path}/entries'), {
+    'entries': chosen,
+  });
   messenger.hideCurrentSnackBar();
-  messenger.showSnackBar(SnackBar(
-    content: Text(result == null
-        ? 'La TV ne répond plus.'
-        : '${result['message'] ?? (result['ok'] == true ? 'Box envoyée.' : 'Échec.')}'),
-    backgroundColor: result?['ok'] == true ? Colors.green : null,
-  ));
+  messenger.showSnackBar(
+    SnackBar(
+      content: Text(
+        result == null
+            ? 'La TV ne répond plus.'
+            : '${result['message'] ?? (result['ok'] == true ? 'Box envoyée.' : 'Échec.')}',
+      ),
+      backgroundColor: result?['ok'] == true ? Colors.green : null,
+    ),
+  );
 }
 
 /// Viseur plein écran. Il ne retient que les QR codes d'appairage LiXee :
@@ -99,7 +122,9 @@ class _ScanTvScreen extends StatefulWidget {
 }
 
 class _ScanTvScreenState extends State<_ScanTvScreen> {
-  final _controller = MobileScannerController(formats: const [BarcodeFormat.qrCode]);
+  final _controller = MobileScannerController(
+    formats: const [BarcodeFormat.qrCode],
+  );
   bool _done = false;
   bool _wrongCode = false;
 
@@ -112,7 +137,8 @@ class _ScanTvScreenState extends State<_ScanTvScreen> {
   void _onDetect(BarcodeCapture capture) {
     if (_done) return;
     for (final code in capture.barcodes) {
-      final base = code.rawValue == null ? null : pairingAddress(code.rawValue!);
+      final base =
+          code.rawValue == null ? null : pairingAddress(code.rawValue!);
       if (base != null) {
         _done = true;
         Navigator.of(context).pop(base);
@@ -136,19 +162,20 @@ class _ScanTvScreenState extends State<_ScanTvScreen> {
           MobileScanner(
             controller: _controller,
             onDetect: _onDetect,
-            errorBuilder: (context, error) => Center(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Text(
-                  error.errorCode == MobileScannerErrorCode.permissionDenied
-                      ? 'LiXee-Assist n\'a pas accès à l\'appareil photo. '
-                          'Autorisez-le dans les réglages du téléphone.'
-                      : 'L\'appareil photo ne répond pas.',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.white, fontSize: 16),
+            errorBuilder:
+                (context, error) => Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Text(
+                      error.errorCode == MobileScannerErrorCode.permissionDenied
+                          ? 'LiXee-Assist n\'a pas accès à l\'appareil photo. '
+                              'Autorisez-le dans les réglages du téléphone.'
+                          : 'L\'appareil photo ne répond pas.',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.white, fontSize: 16),
+                    ),
+                  ),
                 ),
-              ),
-            ),
           ),
           Center(
             child: Container(
@@ -179,31 +206,30 @@ class _ScanTvScreenState extends State<_ScanTvScreen> {
   }
 }
 
+/// Choix des box à envoyer : toutes cochées, puisque le cas courant est de
+/// retrouver sur la TV les mêmes box que sur le téléphone.
 class _SendDialog extends StatefulWidget {
   final List<({String entry, String name})> boxes;
-  final int initial;
   final String code;
-  final String tvBox;
 
-  const _SendDialog({
-    required this.boxes,
-    required this.initial,
-    required this.code,
-    required this.tvBox,
-  });
+  const _SendDialog({required this.boxes, required this.code});
 
   @override
   State<_SendDialog> createState() => _SendDialogState();
 }
 
 class _SendDialogState extends State<_SendDialog> {
-  late int _selected = widget.initial;
+  late final Set<int> _selected = {
+    for (var i = 0; i < widget.boxes.length; i++) i,
+  };
 
   @override
   Widget build(BuildContext context) {
-    final code = widget.code.length == 6
-        ? '${widget.code.substring(0, 3)} ${widget.code.substring(3)}'
-        : widget.code;
+    final code =
+        widget.code.length == 6
+            ? '${widget.code.substring(0, 3)} ${widget.code.substring(3)}'
+            : widget.code;
+    final count = _selected.length;
     return AlertDialog(
       title: const Text('Envoyer vers la TV'),
       content: SingleChildScrollView(
@@ -211,27 +237,33 @@ class _SendDialogState extends State<_SendDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('La TV attend ${widget.tvBox}.'),
-            const SizedBox(height: 6),
-            Text.rich(TextSpan(children: [
-              const TextSpan(text: 'Code affiché sur la TV : '),
+            Text.rich(
               TextSpan(
-                text: code,
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontFamily: 'monospace',
-                  letterSpacing: 2,
-                ),
+                children: [
+                  const TextSpan(text: 'Code affiché sur la TV : '),
+                  TextSpan(
+                    text: code,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'monospace',
+                      letterSpacing: 2,
+                    ),
+                  ),
+                ],
               ),
-            ])),
-            const SizedBox(height: 12),
+            ),
+            const SizedBox(height: 8),
+            const Text('Box à retrouver sur la TV :'),
             for (final (i, box) in widget.boxes.indexed)
-              RadioListTile<int>(
-                value: i,
-                groupValue: _selected,
-                onChanged: (v) => setState(() => _selected = v ?? _selected),
+              CheckboxListTile(
+                value: _selected.contains(i),
+                onChanged:
+                    (on) => setState(
+                      () => on == true ? _selected.add(i) : _selected.remove(i),
+                    ),
                 title: Text(box.name),
                 contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
               ),
           ],
         ),
@@ -242,8 +274,14 @@ class _SendDialogState extends State<_SendDialog> {
           child: const Text('Annuler'),
         ),
         FilledButton(
-          onPressed: () => Navigator.pop(context, widget.boxes[_selected].entry),
-          child: const Text('Envoyer'),
+          onPressed:
+              count == 0
+                  ? null
+                  : () => Navigator.pop(context, [
+                    for (final i in _selected.toList()..sort())
+                      widget.boxes[i].entry,
+                  ]),
+          child: Text(count <= 1 ? 'Envoyer' : 'Envoyer $count box'),
         ),
       ],
     );
@@ -267,13 +305,16 @@ Future<Map<String, dynamic>?> _getJson(Uri url) async {
 
 /// La TV vérifie les identifiants auprès de la box avant de répondre : on
 /// lui laisse le temps d'un login par le tunnel.
-Future<Map<String, dynamic>?> _postJson(Uri url, Map<String, Object?> body) async {
+Future<Map<String, dynamic>?> _postJson(
+  Uri url,
+  Map<String, Object?> body,
+) async {
   final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
   try {
     final request = await client.postUrl(url);
     request.headers.contentType = ContentType.json;
     request.add(utf8.encode(jsonEncode(body)));
-    final response = await request.close().timeout(const Duration(seconds: 30));
+    final response = await request.close().timeout(const Duration(seconds: 60));
     final decoded = jsonDecode(await utf8.decoder.bind(response).join());
     return decoded is Map<String, dynamic> ? decoded : null;
   } catch (_) {

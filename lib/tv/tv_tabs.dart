@@ -1238,8 +1238,8 @@ class _TvWebTabState extends State<TvWebTab> {
           children: [
             const Text(
               'Pour la configuration avancée de la box. Les flèches passent '
-              'd\'un bouton ou d\'un champ au suivant ; Menu bascule sur un '
-              'pointeur libre.',
+              'd\'un bouton ou d\'un champ au suivant ; OK maintenu bascule '
+              'sur un pointeur libre.',
               style: TextStyle(fontSize: 18, color: TvColors.muted),
             ),
             const SizedBox(height: 24),

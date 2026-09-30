@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -103,9 +105,42 @@ class TvFocusable extends StatefulWidget {
 class _TvFocusableState extends State<TvFocusable> {
   bool _focused = false;
 
+  /// OK enfoncé sur un élément qui a aussi une action Menu : on attend de
+  /// savoir si l'appui est court (OK) ou long (Menu). Beaucoup de
+  /// télécommandes, dont celle de Google TV, n'ont pas de touche Menu.
+  Timer? _longPress;
+  bool _longPressFired = false;
+
+  static const _longPressDelay = Duration(milliseconds: 600);
+
+  @override
+  void dispose() {
+    _longPress?.cancel();
+    super.dispose();
+  }
+
   KeyEventResult _handleKey(FocusNode node, KeyEvent event) {
     final custom = widget.onKey?.call(event);
     if (custom == KeyEventResult.handled) return custom!;
+
+    if (isSelectKey(event.logicalKey) && widget.onMenu != null) {
+      if (event is KeyDownEvent) {
+        _longPressFired = false;
+        _longPress?.cancel();
+        _longPress = Timer(_longPressDelay, () {
+          _longPressFired = true;
+          widget.onMenu!();
+        });
+      } else if (event is KeyUpEvent) {
+        final wasLong = _longPressFired;
+        _longPress?.cancel();
+        _longPress = null;
+        if (!wasLong) widget.onSelect?.call();
+      }
+      // Les répétitions de la touche maintenue sont absorbées.
+      return KeyEventResult.handled;
+    }
+
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
     if (isSelectKey(event.logicalKey) && widget.onSelect != null) {
       widget.onSelect!();
@@ -229,21 +264,16 @@ class TvHeader extends StatelessWidget {
         Expanded(
           child: Row(
             children: [
-              const Text.rich(
-                TextSpan(
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.w700,
-                    color: TvColors.text,
-                  ),
-                  children: [
-                    TextSpan(text: 'li'),
-                    TextSpan(
-                      text: 'X',
-                      style: TextStyle(color: TvColors.focus),
-                    ),
-                    TextSpan(text: 'ee Assist'),
-                  ],
+              // Le logo de l'app mobile, en variante à lettres blanches pour
+              // le fond sombre, suivi de « Assist » comme dans sa barre.
+              Image.asset('assets/logo_white.png', height: 30),
+              const SizedBox(width: 8),
+              const Text(
+                'Assist',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w500,
+                  color: TvColors.text,
                 ),
               ),
               for (final (i, step) in trail.indexed) ...[

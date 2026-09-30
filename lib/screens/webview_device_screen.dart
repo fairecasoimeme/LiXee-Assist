@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -297,6 +298,32 @@ class _WebViewDeviceScreenState extends State<WebViewDeviceScreen> {
 
 
 
+  Timer? _okLongPress;
+  bool _okWasLong = false;
+
+  /// Bascule entre le saut d'élément en élément et le pointeur libre, gardé
+  /// pour les pages que le premier ne sait pas parcourir.
+  void _toggleCursorMode() {
+    setState(() => _cursorMode = !_cursorMode);
+    if (_cursorMode) {
+      _controller?.evaluateJavascript(source: 'window.__lxNav && __lxNav.clear()');
+    }
+  }
+
+  /// Clic de la touche OK : sur l'élément sélectionné, ou sous le pointeur.
+  Future<void> _clickHere() async {
+    if (!_cursorMode) {
+      await _controller?.evaluateJavascript(
+        source: 'window.__lxNav && __lxNav.activate()',
+      );
+      return;
+    }
+    setState(() => _showClickFeedback = true);
+    await _simulateClickAt(cursorX, cursorY);
+    await Future.delayed(const Duration(milliseconds: 200));
+    if (mounted) setState(() => _showClickFeedback = false);
+  }
+
   /// Calcule le step avec accélération : appuis rapides = mouvement plus grand.
   double _getAcceleratedStep() {
     final now = DateTime.now();
@@ -334,11 +361,22 @@ class _WebViewDeviceScreenState extends State<WebViewDeviceScreen> {
       autofocus: true,
       onKeyEvent: (KeyEvent event) async {
         if (event is KeyDownEvent && isMenuKey(event.logicalKey)) {
-          // Menu bascule entre le saut d'élément en élément et le pointeur
-          // libre, gardé pour les pages que le premier ne sait pas parcourir.
-          setState(() => _cursorMode = !_cursorMode);
-          if (_cursorMode) {
-            _controller?.evaluateJavascript(source: 'window.__lxNav && __lxNav.clear()');
+          _toggleCursorMode();
+          return;
+        }
+        // OK : court, il clique ; maintenu, il bascule de mode — la plupart
+        // des télécommandes n'ont pas de touche Menu.
+        if (isSelectKey(event.logicalKey)) {
+          if (event is KeyDownEvent) {
+            _okLongPress?.cancel();
+            _okWasLong = false;
+            _okLongPress = Timer(const Duration(milliseconds: 600), () {
+              _okWasLong = true;
+              _toggleCursorMode();
+            });
+          } else if (event is KeyUpEvent) {
+            _okLongPress?.cancel();
+            if (!_okWasLong) await _clickHere();
           }
           return;
         }
@@ -353,10 +391,6 @@ class _WebViewDeviceScreenState extends State<WebViewDeviceScreen> {
           if (direction != null) {
             await _controller?.evaluateJavascript(
               source: 'window.__lxNav && __lxNav.move("$direction")',
-            );
-          } else if (event is KeyDownEvent && isSelectKey(event.logicalKey)) {
-            await _controller?.evaluateJavascript(
-              source: 'window.__lxNav && __lxNav.activate()',
             );
           }
           return;
@@ -376,13 +410,6 @@ class _WebViewDeviceScreenState extends State<WebViewDeviceScreen> {
           } else if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
             setState(() => cursorX = (cursorX + step).clamp(0, size.width));
             _scrollWebViewIfNeeded(step, 'right');
-          } else if (event.logicalKey == LogicalKeyboardKey.select ||
-              event.logicalKey == LogicalKeyboardKey.enter) {
-            // Retour visuel au clic
-            setState(() => _showClickFeedback = true);
-            await _simulateClickAt(cursorX, cursorY);
-            await Future.delayed(const Duration(milliseconds: 200));
-            if (mounted) setState(() => _showClickFeedback = false);
           }
         }
       },
@@ -403,8 +430,8 @@ class _WebViewDeviceScreenState extends State<WebViewDeviceScreen> {
                 ),
                 child: Text(
                   _cursorMode
-                      ? 'Pointeur libre · ☰ revenir aux éléments'
-                      : '← → ↑ ↓ éléments · OK cliquer · ☰ pointeur libre',
+                      ? 'Pointeur libre · OK maintenu : revenir aux éléments'
+                      : '← → ↑ ↓ éléments · OK cliquer · OK maintenu : pointeur libre',
                   style: const TextStyle(color: Colors.white, fontSize: 13),
                 ),
               ),

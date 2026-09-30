@@ -98,6 +98,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/logo.png
+    - assets/logo_white.png
     - assets/logo_x.png
     - web/js/
     - web/css/
