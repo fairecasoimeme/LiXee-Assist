@@ -52,8 +52,11 @@ Future<AuthMode> detectAuthMode(String targetBaseUrl) async {
       }
     }
 
-    // Cas 3 : 401 Unauthorized → vérifier si /login existe avec un formulaire
-    if (response.statusCode == 401) {
+    // Cas 3 : 401 ou 404 → vérifier si /login existe avec un formulaire.
+    // Certaines box répondent 404 à la racine demandée par l'app, tout en
+    // n'acceptant que le formulaire : conclure au Basic sur ce 404 privait
+    // l'accès local de toute authentification valable.
+    if (response.statusCode == 401 || response.statusCode == 404) {
       try {
         final loginUri = uri.resolve('/login');
         print('[AUTH-DETECT] 401 detected, trying GET $loginUri');

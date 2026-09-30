@@ -12,7 +12,9 @@ import 'about_screen.dart';
 import '../services/session_manager.dart';
 import '../services/session_pool.dart';
 import 'package:home_widget/home_widget.dart';
+import 'package:app_links/app_links.dart';
 import '../main.dart' show TVDetector;
+import 'send_to_tv.dart';
 
 // ✅ Instance globale des notifications - référence celle du main.dart
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
@@ -609,7 +611,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _loadDevices();
     _startAutoRefresh();
     _listenForWidgetLaunch();
+    // Lien « lixee://pair » : la page du QR code d'une TV propose d'y
+    // envoyer une box enregistrée ici. Le flux rend aussi le lien de
+    // démarrage, quand c'est lui qui a lancé l'app.
+    _pairLinks = AppLinks().uriLinkStream.listen((uri) {
+      if (uri.scheme == 'lixee' && uri.host == 'pair' && mounted) {
+        showSendToTv(context, uri);
+      }
+    });
   }
+
+  StreamSubscription<Uri>? _pairLinks;
 
   /// Ouvre directement la box choisie quand l'app est lancée depuis un widget.
   ///
@@ -720,6 +732,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _refreshTimer?.cancel();
     _widgetClicks?.cancel();
+    _pairLinks?.cancel();
     // Les sessions appartiennent à SessionPool et sont partagées avec le
     // relevé des métriques : cet écran n'a pas à les fermer.
     super.dispose();
@@ -1817,6 +1830,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 tooltip: "Plus d'options",
                 onSelected: (value) {
                   switch (value) {
+                    case 'send_to_tv':
+                      scanAndSendToTv(context);
+                      break;
                     case 'about':
                       Navigator.push(
                         context,
@@ -1832,6 +1848,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   }
                 },
                 itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: 'send_to_tv',
+                    child: Row(
+                      children: [
+                        Icon(Icons.tv, color: Color(0xFF1B75BC)),
+                        SizedBox(width: 12),
+                        Text("Envoyer vers une TV"),
+                      ],
+                    ),
+                  ),
                   PopupMenuItem(
                     value: 'about',
                     child: Row(

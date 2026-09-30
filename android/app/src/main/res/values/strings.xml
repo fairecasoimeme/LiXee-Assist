@@ -149,4 +149,16 @@
         <item quantity="one">%d zone</item>
         <item quantity="other">%d zones</item>
     </plurals>
+
+    <!-- Écran de veille Android TV -->
+    <string name="dream_label">LiXee — Énergie et thermostats</string>
+    <string name="dream_empty">Ouvrez LiXee-Assist une fois pour relever vos box.</string>
+    <string name="dream_injection">Injection +%1$s VA</string>
+    <string name="dream_reading_at">Relevé à %1$s</string>
+    <string name="dream_setpoint">Consigne %1$s °C</string>
+    <string name="dream_measured">mesuré %1$s °C</string>
+    <string name="dream_thermo_heating">chauffe</string>
+    <string name="dream_thermo_cooling">refroidit</string>
+    <string name="dream_thermo_idle">en attente</string>
+    <string name="dream_thermo_off">arrêt</string>
 </resources>

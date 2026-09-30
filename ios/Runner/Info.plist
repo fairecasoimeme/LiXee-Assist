@@ -24,6 +24,10 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<!-- Les liens lixee:// sont lus par app_links et home_widget : Flutter ne
+	     doit pas en faire une route de navigation. -->
+	<key>FlutterDeepLinkingEnabled</key>
+	<false/>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -53,6 +57,8 @@
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>LiXee-Assist a besoin d'accéder au réseau local pour détecter et se connecter à vos appareils LiXee</string>
+	<key>NSCameraUsageDescription</key>
+	<string>LiXee-Assist utilise l'appareil photo pour scanner le QR code affiché par une TV, afin d'y envoyer une de vos box.</string>
 	<key>NSBluetoothAlwaysUsageDescription</key>
 	<string>LiXee-Assist utilise Bluetooth pour configurer et se connecter à vos appareils LIXEE</string>
 	<key>NSBluetoothPeripheralUsageDescription</key>

@@ -23,6 +23,8 @@ import 'services/device_control_service.dart';
 import 'services/thermostat_service.dart';
 import 'services/home_widget_bridge.dart';
 import 'package:home_widget/home_widget.dart';
+import 'tv/tv_home_screen.dart';
+import 'tv/tv_theme.dart' show tvTheme;
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
 
@@ -34,6 +36,11 @@ class TVDetector {
   static bool get isTV => _isTV;
 
   static Future<void> init() async {
+    // --dart-define=FORCE_TV=true : essayer l'interface TV sur un téléphone.
+    if (const bool.fromEnvironment('FORCE_TV')) {
+      _isTV = true;
+      return;
+    }
     if (Platform.isAndroid) {
       try {
         final info = await DeviceInfoPlugin().androidInfo;
@@ -793,7 +800,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'LiXee-Assist',
-      theme: ThemeData(
+      theme: TVDetector.isTV ? tvTheme() : ThemeData(
         primarySwatch: Colors.blue,
         focusColor: lixeeBlue.withOpacity(0.2),
         hoverColor: lixeeBlue.withOpacity(0.1),
@@ -841,7 +848,7 @@ class MyApp extends StatelessWidget {
           ),
         ),
       ),
-      home: HomeScreen(),
+      home: TVDetector.isTV ? const TvHomeScreen() : HomeScreen(),
     );
   }
 }

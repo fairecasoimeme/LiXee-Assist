@@ -40,6 +40,19 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
+
+            <!-- lixee://pair?u=… : la page du QR code d'une TV propose d'y
+                 envoyer une box enregistrée sur le téléphone. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="lixee" android:host="pair" />
+            </intent-filter>
+
+            <!-- Les liens sont lus par app_links : sans cela, Flutter tenterait
+                 aussi d'en faire une route, que l'app ne déclare pas. -->
+            <meta-data android:name="flutter_deeplinking_enabled" android:value="false" />
         </activity>
 
         <!-- Choix de la box, au dépôt du widget. Exportée car lancée par le
@@ -53,6 +66,23 @@
                 <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
             </intent-filter>
         </activity>
+
+        <!-- Écran de veille Android TV : énergie et thermostats en grand.
+             Exporté et protégé par BIND_DREAM_SERVICE : seul le système peut
+             le lancer. -->
+        <service
+            android:name=".LixeeDreamService"
+            android:exported="true"
+            android:label="@string/dream_label"
+            android:permission="android.permission.BIND_DREAM_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.dreams.DreamService" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.dream"
+                android:resource="@xml/dream_info" />
+        </service>
 
         <!-- Réveille un isolate Dart quand on appuie sur la jauge du widget,
              pour relever sans ouvrir l'app. Fourni par le plugin home_widget.
@@ -244,6 +274,11 @@
 
     </application>
 
+    <!-- L'appareil photo ne sert qu'à scanner le QR code d'une TV : sans ces
+         deux lignes, sa permission rendrait l'app introuvable sur les TV et
+         les appareils sans caméra du Play Store. -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
