@@ -93,6 +93,13 @@
     <string name="widget_action_title">%1$s ?</string>
     <string name="widget_action_message">Envoyer « %1$s » à « %2$s » ?</string>
     <string name="widget_action_confirm">Envoyer</string>
+    <!-- Noms d'action des gabarits (UP, DOWN, STOP…), traduits. -->
+    <string name="widget_action_up">Monter</string>
+    <string name="widget_action_down">Descendre</string>
+    <string name="widget_action_stop">Stop</string>
+    <string name="widget_action_on">Allumer</string>
+    <string name="widget_action_off">Éteindre</string>
+    <string name="widget_action_toggle">Basculer</string>
 
     <!-- Widget de groupe d'actions. -->
     <string name="widget_group_label">LiXee — Groupe d\'actions</string>
