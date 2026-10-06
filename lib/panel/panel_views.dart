@@ -522,7 +522,7 @@ class _ActionsSheetState extends State<_ActionsSheet> {
               spacing: 8,
               runSpacing: 8,
               children: [
-                for (final action in device.actions)
+                for (final action in device.buttons)
                   SizedBox(
                     width: 142,
                     height: 62,
@@ -552,6 +552,18 @@ class _ActionsSheetState extends State<_ActionsSheet> {
                   ),
               ],
             ),
+            if (device.positionAction case final position?) ...[
+              const SizedBox(height: 12),
+              _PositionSlider(
+                // Reparti de la position lue quand elle change.
+                key: ValueKey('${device.key}@${primary?.value}'),
+                initial: primary?.name == 'current_position'
+                    ? primary?.value
+                    : null,
+                onChosen:
+                    (percent) => widget.onAction(position.withValue(percent)),
+              ),
+            ],
             const SizedBox(height: 10),
             Text(
               status ?? 'Touchez une commande',
@@ -562,6 +574,87 @@ class _ActionsSheetState extends State<_ActionsSheet> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Curseur de position d'un volet. La commande part quand le doigt se
+/// lève : pendant le glissement, seul le pourcentage affiché bouge.
+class _PositionSlider extends StatefulWidget {
+  final double? initial;
+  final ValueChanged<int> onChosen;
+
+  const _PositionSlider({super.key, this.initial, required this.onChosen});
+
+  @override
+  State<_PositionSlider> createState() => _PositionSliderState();
+}
+
+class _PositionSliderState extends State<_PositionSlider> {
+  late double _value = (widget.initial ?? 50).clamp(0, 100).toDouble();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 8, 14, 4),
+      decoration: BoxDecoration(
+        color: TvColors.panelHigh,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Position',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                ),
+              ),
+              Text(
+                '${_value.round()} %',
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: TvColors.focus,
+                ),
+              ),
+            ],
+          ),
+          SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              trackHeight: 8,
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 14),
+              overlayShape: const RoundSliderOverlayShape(overlayRadius: 24),
+              activeTrackColor: TvColors.focus,
+              inactiveTrackColor: TvColors.panel,
+              thumbColor: TvColors.text,
+            ),
+            child: Slider(
+              value: _value,
+              min: 0,
+              max: 100,
+              divisions: 100,
+              onChanged: (v) => setState(() => _value = v),
+              onChangeEnd: (v) => widget.onChosen(v.round()),
+            ),
+          ),
+          const Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Fermé',
+                style: TextStyle(fontSize: 12, color: TvColors.muted),
+              ),
+              Text(
+                'Ouvert',
+                style: TextStyle(fontSize: 12, color: TvColors.muted),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

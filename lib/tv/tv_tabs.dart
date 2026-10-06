@@ -725,7 +725,7 @@ class _ActionsDialogState extends State<_ActionsDialog> {
               spacing: 12,
               runSpacing: 12,
               children: [
-                for (final (i, action) in device.actions.indexed)
+                for (final (i, action) in device.buttons.indexed)
                   TvFocusable(
                     autofocus: i == 0,
                     focusScale: 1.06,
@@ -747,6 +747,21 @@ class _ActionsDialogState extends State<_ActionsDialog> {
                   ),
               ],
             ),
+            if (device.positionAction case final position?) ...[
+              const SizedBox(height: 14),
+              _TvPosition(
+                key: ValueKey(
+                  '${device.key}@${tvShownReadings(device).firstOrNull?.value}',
+                ),
+                initial:
+                    tvShownReadings(device).firstOrNull?.name ==
+                            'current_position'
+                        ? tvShownReadings(device).firstOrNull?.value
+                        : null,
+                onChosen:
+                    (percent) => widget.onAction(position.withValue(percent)),
+              ),
+            ],
             const SizedBox(height: 16),
             Text(
               status ?? 'OK envoie la commande · Retour ferme',
@@ -757,6 +772,76 @@ class _ActionsDialogState extends State<_ActionsDialog> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Position d'un volet à la télécommande : gauche et droite règlent le
+/// pourcentage par pas de 5, OK l'envoie.
+class _TvPosition extends StatefulWidget {
+  final double? initial;
+  final ValueChanged<int> onChosen;
+
+  const _TvPosition({super.key, this.initial, required this.onChosen});
+
+  @override
+  State<_TvPosition> createState() => _TvPositionState();
+}
+
+class _TvPositionState extends State<_TvPosition> {
+  late int _value = (widget.initial ?? 50).clamp(0, 100).round();
+
+  KeyEventResult _onKey(KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return KeyEventResult.ignored;
+    }
+    final step =
+        event.logicalKey == LogicalKeyboardKey.arrowRight
+            ? 5
+            : event.logicalKey == LogicalKeyboardKey.arrowLeft
+            ? -5
+            : 0;
+    if (step == 0) return KeyEventResult.ignored;
+    setState(() => _value = (_value + step).clamp(0, 100));
+    return KeyEventResult.handled;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return TvFocusable(
+      focusScale: 1,
+      color: TvColors.panelHigh,
+      onKey: _onKey,
+      onSelect: () => widget.onChosen(_value),
+      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+      child: Row(
+        children: [
+          const Text('Position', style: TextStyle(fontSize: 18)),
+          const SizedBox(width: 18),
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(99),
+              child: LinearProgressIndicator(
+                value: _value / 100,
+                minHeight: 8,
+                backgroundColor: TvColors.panel,
+                color: TvColors.focus,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          const Icon(Icons.chevron_left, color: TvColors.muted, size: 28),
+          SizedBox(
+            width: 76,
+            child: Text(
+              '$_value %',
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+            ),
+          ),
+          const Icon(Icons.chevron_right, color: TvColors.muted, size: 28),
+        ],
       ),
     );
   }
