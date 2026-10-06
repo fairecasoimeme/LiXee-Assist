@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../main.dart' show boxListChanged;
 import 'package:flutter/services.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -837,6 +838,7 @@ class _BleProvisionScreenState extends State<BleProvisionScreen> {
       if (!savedDevices.contains(deviceEntry)) {
         savedDevices.add(deviceEntry);
         await prefs.setStringList('saved_devices', savedDevices);
+    boxListChanged();
         print("💾 Appareil sauvegardé: $deviceEntry");
       } else {
         print("⚠️ Appareil déjà existant: $deviceEntry");

@@ -451,8 +451,75 @@ void callbackDispatcher() {
   });
 }
 
+bool _widgetRefreshRunning = false;
+bool _widgetRefreshQueued = false;
+
+/// Relève tout ce qui alimente les widgets : Linky, appareils, groupes
+/// d'actions, thermostats.
+///
+/// Un appel pendant un relevé en cours n'en lance pas un second en
+/// parallèle : il en demande un nouveau à la suite.
+Future<void> refreshAllWidgetData() async {
+  if (_widgetRefreshRunning) {
+    _widgetRefreshQueued = true;
+    return;
+  }
+  _widgetRefreshRunning = true;
+  try {
+    do {
+      _widgetRefreshQueued = false;
+      try {
+        await refreshWidgetMetrics();
+      } catch (e) {
+        print('[WIDGET-DATA] Relevé échoué: $e');
+      }
+      // Après le Linky : c'est le relevé des appareils qui alimente le
+      // catalogue de l'écran de configuration, sans lequel aucun widget
+      // d'appareil ne peut être posé.
+      try {
+        await refreshDeviceMetrics();
+      } catch (e) {
+        print('[DEVICES] Relevé échoué: $e');
+      }
+      try {
+        await refreshActionGroups();
+      } catch (e) {
+        print('[GROUPES] Relevé échoué: $e');
+      }
+      try {
+        await refreshThermostats();
+      } catch (e) {
+        print('[THERMO] Relevé échoué: $e');
+      }
+    } while (_widgetRefreshQueued);
+  } finally {
+    _widgetRefreshRunning = false;
+  }
+}
+
+/// À appeler dès qu'une box est ajoutée, modifiée ou retirée : sa liste est
+/// republiée pour les widgets, puis ses données sont relevées.
+void boxListChanged() {
+  () async {
+    try {
+      await HomeWidgetBridge.publishSavedBoxes();
+    } catch (e) {
+      print('[WIDGET-DATA] Liste des box non publiée: $e');
+    }
+    await refreshAllWidgetData();
+  }();
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Avant tout appel réseau : un widget posé dès le lancement doit déjà
+  // pouvoir proposer les box.
+  try {
+    await HomeWidgetBridge.publishSavedBoxes();
+  } catch (e) {
+    print('[WIDGET-DATA] Liste des box non publiée: $e');
+  }
 
   // Initialiser Firebase
   await Firebase.initializeApp();
@@ -489,31 +556,7 @@ void main() async {
 
   // Premier relevé au démarrage, sans bloquer l'UI : le widget dispose d'une
   // valeur fraîche sans attendre le prochain tour du worker (15 min).
-  () async {
-    try {
-      await refreshWidgetMetrics();
-    } catch (e) {
-      print('[WIDGET-DATA] Relevé initial échoué: $e');
-    }
-    // Après le Linky : c'est le relevé des appareils qui alimente le catalogue
-    // de l'écran de configuration, sans lequel aucun widget d'appareil ne peut
-    // être posé.
-    try {
-      await refreshDeviceMetrics();
-    } catch (e) {
-      print('[DEVICES] Relevé initial échoué: $e');
-    }
-    try {
-      await refreshActionGroups();
-    } catch (e) {
-      print('[GROUPES] Relevé initial échoué: $e');
-    }
-    try {
-      await refreshThermostats();
-    } catch (e) {
-      print('[THERMO] Relevé initial échoué: $e');
-    }
-  }();
+  refreshAllWidgetData();
 
   // Écouter les refresh de token FCM → ré-enregistrer automatiquement
   FirebaseMessaging.instance.onTokenRefresh.listen((newToken) {

@@ -14,7 +14,7 @@ import '../services/session_pool.dart';
 import 'package:home_widget/home_widget.dart';
 import 'package:app_links/app_links.dart';
 import '../services/box_client.dart' show redactEntry;
-import '../main.dart' show TVDetector;
+import '../main.dart' show TVDetector, boxListChanged;
 import 'send_to_tv.dart';
 
 // ✅ Instance globale des notifications - référence celle du main.dart
@@ -1158,6 +1158,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
                     saved.add(newEntry);
                     await prefs.setStringList('saved_devices', saved);
+    boxListChanged();
 
                     print("✅ Sauvegardé: ${saved.length} box");
 
@@ -1238,6 +1239,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     devices.remove(entry);
     await prefs.setStringList('saved_devices', devices);
+    boxListChanged();
     setState(() {});
   }
 
@@ -1257,6 +1259,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (!saved.contains(entry)) {
       saved.add(entry);
       await prefs.setStringList('saved_devices', saved);
+    boxListChanged();
       setState(() => _loadDevices());
     }
   }
@@ -1440,6 +1443,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       saved.add(newEntry);
     }
     await prefs.setStringList('saved_devices', saved);
+    boxListChanged();
     print('[DEVICE] Entry mise à jour: ${redactEntry(newEntry)}');
     return newEntry;
   }

@@ -8,7 +8,7 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:file_picker/file_picker.dart';
 import '../services/proxy_server.dart';
-import '../main.dart' show TVDetector;
+import '../main.dart' show TVDetector, boxListChanged;
 import '../tv/tv_theme.dart' show isMenuKey, isSelectKey;
 import '../tv/tv_web_navigation.dart';
 
@@ -192,6 +192,7 @@ class _WebViewDeviceScreenState extends State<WebViewDeviceScreen> {
       saved.removeWhere((e) => e.startsWith("${parts[0]}|${parts[1]}"));
       saved.add(updatedEntry);
       await prefs.setStringList('saved_devices', saved);
+    boxListChanged();
 
       // Mettre à jour les credentials en mémoire
       login = tempLogin;
