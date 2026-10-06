@@ -54,18 +54,41 @@ jobs:
           KEYSTORE_B64: ${{ secrets.FDROID_KEYSTORE_B64 }}
           KEYSTORE_PASS: ${{ secrets.FDROID_KEYSTORE_PASS }}
         run: |
+          # Chaque échec est annoncé en clair : une annotation se lit depuis
+          # la page de l'exécution, sans ouvrir le journal.
+          fail() { echo "::error::$1"; exit 1; }
+
+          [ -n "$KEYSTORE_B64" ] || fail "Le secret FDROID_KEYSTORE_B64 est absent ou vide."
+          [ -n "$KEYSTORE_PASS" ] || fail "Le secret FDROID_KEYSTORE_PASS est absent ou vide."
+
           cd fdroid
-          echo "$KEYSTORE_B64" | base64 -d > keystore.p12
+          # Un copier-coller ajoute volontiers des espaces et des retours à
+          # la ligne.
+          echo "$KEYSTORE_B64" | tr -d '[:space:]' | base64 -d > keystore.p12 \
+            || fail "FDROID_KEYSTORE_B64 n'est pas un texte base64 valide."
+          keytool -list -keystore keystore.p12 -storepass:env KEYSTORE_PASS \
+            -alias lixee-fdroid > /dev/null 2> keytool.err \
+            || fail "Magasin de clés illisible (mot de passe ou alias ?) : $(tail -n 1 keytool.err)"
+
+          # Les mots de passe restent dans l'environnement : fdroidserver les
+          # y lit, et aucun caractère spécial ne peut casser le fichier.
           {
             cat config.base.yml
             echo "keystore: keystore.p12"
             echo "repo_keyalias: lixee-fdroid"
-            echo "keystorepass: \"$KEYSTORE_PASS\""
-            echo "keypass: \"$KEYSTORE_PASS\""
+            echo "keystorepass: {env: KEYSTORE_PASS}"
+            echo "keypass: {env: KEYSTORE_PASS}"
           } > config.yml
           chmod 600 config.yml keystore.p12
-          fdroid update
-          rm -f config.yml keystore.p12
+          mkdir -p repo/icons
+          cp icon.png repo/icons/icon.png
+
+          if ! fdroid update --verbose > update.log 2>&1; then
+            tail -n 60 update.log
+            fail "fdroid update a échoué : $(grep -iE 'error|critical|exception|traceback' update.log | tail -n 3 | tr '\n' ' ' | cut -c1-600)"
+          fi
+          tail -n 15 update.log
+          rm -f config.yml keystore.p12 keytool.err update.log
 
       - name: Préparer le site
         run: |
