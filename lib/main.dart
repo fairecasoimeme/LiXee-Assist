@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
@@ -7,8 +8,6 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:workmanager/workmanager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:device_info_plus/device_info_plus.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:dio/dio.dart';
 import 'dart:io';
 import 'dart:convert';
@@ -16,6 +15,7 @@ import 'screens/wifi_provision_screen.dart';
 import 'screens/home_screen.dart';
 import 'services/session_manager.dart';
 import 'services/session_pool.dart';
+import 'services/push_backend.dart';
 import 'services/push_register_service.dart';
 import 'services/widget_data_service.dart';
 import 'services/action_group_service.dart';
@@ -24,6 +24,9 @@ import 'services/thermostat_service.dart';
 import 'services/home_widget_bridge.dart';
 import 'package:home_widget/home_widget.dart';
 import 'tv/tv_home_screen.dart';
+import 'panel/panel_backlight.dart';
+import 'panel/panel_home.dart';
+import 'panel/panel_mode.dart';
 import 'tv/tv_theme.dart' show tvTheme;
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
@@ -48,17 +51,6 @@ class TVDetector {
       } catch (_) {}
     }
   }
-}
-
-/// Handler Firebase pour les messages reçus en arrière-plan (doit être top-level).
-@pragma('vm:entry-point')
-Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  await Firebase.initializeApp();
-  print('[FCM] ======= BACKGROUND MESSAGE =======');
-  print('[FCM] messageId: ${message.messageId}');
-  print('[FCM] notification: ${message.notification?.title} / ${message.notification?.body}');
-  print('[FCM] data: ${message.data}');
-  print('[FCM] ====================================');
 }
 
 /// Relève les métriques Linky de chaque box et les persiste pour le widget.
@@ -454,21 +446,12 @@ void callbackDispatcher() {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialiser Firebase
-  await Firebase.initializeApp();
-  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-
-  // Demander la permission notifications push (FCM)
-  final messaging = FirebaseMessaging.instance;
-  await messaging.requestPermission(
-    alert: true,
-    badge: true,
-    sound: true,
-  );
+  // Notifications push : Firebase, et la permission de les afficher
+  await PushBackend.init();
 
   // Récupérer le token FCM et l'enregistrer sur remote.lixee-box.fr
   try {
-    final fcmToken = await messaging.getToken();
+    final fcmToken = await PushBackend.token();
     print('[FCM] Token: $fcmToken');
 
     // Enregistrer le token FCM pour tous les devices avec credentials tunnel
@@ -515,28 +498,13 @@ void main() async {
     }
   }();
 
-  // Écouter les refresh de token FCM → ré-enregistrer automatiquement
-  FirebaseMessaging.instance.onTokenRefresh.listen((newToken) {
-    print('[FCM] Token refreshed: $newToken');
-    PushRegisterService.forceReRegister(newToken);
-  });
-
-  // Écouter les messages FCM en foreground
-  FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-    print('[FCM] ======= MESSAGE REÇU =======');
-    print('[FCM] messageId: ${message.messageId}');
-    print('[FCM] notification: ${message.notification?.title} / ${message.notification?.body}');
-    print('[FCM] data: ${message.data}');
-    print('[FCM] from: ${message.from}');
-    print('[FCM] ==============================');
-
-    // Extraire titre et body (notification payload OU data payload)
-    String? title = message.notification?.title ?? message.data['title'];
-    String? body = message.notification?.body ?? message.data['body'] ?? message.data['message'];
-
-    if (title != null || body != null) {
+  // Jeton renouvelé → ré-enregistrement ; message au premier plan → affiché
+  PushBackend.listen(
+    onTokenRefresh: PushRegisterService.forceReRegister,
+    onMessage: (id, title, body) {
+      if (title == null && body == null) return;
       flutterLocalNotificationsPlugin.show(
-        message.hashCode,
+        id,
         title ?? 'LiXee-Box',
         body ?? '',
         const NotificationDetails(
@@ -550,8 +518,8 @@ void main() async {
           ),
         ),
       );
-    }
-  });
+    },
+  );
 
   // Initialiser WorkManager
   await Workmanager().initialize(callbackDispatcher);
@@ -594,6 +562,12 @@ void main() async {
 
   // Détecter si l'appareil est une Android TV (une seule fois)
   await TVDetector.init();
+  // Un panneau mural n'est pas une TV : le kiosque tactile lui est réservé.
+  if (!TVDetector.isTV) await PanelDetector.init();
+  if (PanelDetector.isPanel) {
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    await PanelBacklight.init();
+  }
 
   runApp(MyApp());
 }
@@ -800,7 +774,12 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'LiXee-Assist',
-      theme: TVDetector.isTV ? tvTheme() : ThemeData(
+      builder:
+          PanelDetector.isPanel
+              ? (context, child) =>
+                  PanelWake(child: PanelScale(child: child!))
+              : null,
+      theme: TVDetector.isTV || PanelDetector.isPanel ? tvTheme() : ThemeData(
         primarySwatch: Colors.blue,
         focusColor: lixeeBlue.withOpacity(0.2),
         hoverColor: lixeeBlue.withOpacity(0.1),
@@ -848,7 +827,12 @@ class MyApp extends StatelessWidget {
           ),
         ),
       ),
-      home: TVDetector.isTV ? const TvHomeScreen() : HomeScreen(),
+      home:
+          TVDetector.isTV
+              ? const TvHomeScreen()
+              : PanelDetector.isPanel
+              ? const PanelHomeScreen()
+              : HomeScreen(),
     );
   }
 }

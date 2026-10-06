@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:dio/dio.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
+import 'push_backend.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'network_scope.dart';
@@ -23,7 +23,7 @@ class PushRegisterService {
   /// Appelé au démarrage de l'app et lors d'un refresh de token.
   static Future<void> registerFcmTokenForAllDevices({String? fcmToken}) async {
     // Récupérer le token FCM
-    fcmToken ??= await FirebaseMessaging.instance.getToken();
+    fcmToken ??= await PushBackend.token();
     if (fcmToken == null) {
       print('[PUSH] Pas de token FCM disponible');
       return;

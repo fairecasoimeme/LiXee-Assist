@@ -272,6 +272,19 @@
             android:name="com.google.firebase.messaging.default_notification_color"
             android:resource="@color/notification_color" />
 
+        <!-- Panneau mural : le kiosque se lance au démarrage, et revient au
+             premier plan après un passage par l'écran du constructeur.
+             Sans effet sur un téléphone ou une TV (voir PanelKiosk). -->
+        <receiver
+            android:name=".PanelBootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+        <receiver
+            android:name=".PanelReturnReceiver"
+            android:exported="false" />
     </application>
 
     <!-- L'appareil photo ne sert qu'à scanner le QR code d'une TV : sans ces
@@ -280,6 +293,7 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />

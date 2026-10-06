@@ -12,6 +12,7 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private val WIFI_BINDER_CHANNEL = "wifi_force_binder"
     private val APP_CHANNEL = "app.channel.shared.data"
+    private val PANEL_CHANNEL = "com.lixee.assist/panel"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -21,6 +22,19 @@ class MainActivity : FlutterActivity() {
         // ✅ Channel existant pour le WiFi Force Binder
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, WIFI_BINDER_CHANNEL)
             .setMethodCallHandler(WiFiForceBinder(this))
+
+        // Rétroéclairage des panneaux muraux (voir PanelBacklight)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, PANEL_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "backlightSupported" -> result.success(PanelBacklight.supported(this))
+                    "setBacklight" ->
+                        result.success(PanelBacklight.set(this, call.arguments as? Boolean ?: true))
+                    "backlightLevel" -> result.success(PanelBacklight.level())
+                    "takeQuietLaunch" -> result.success(PanelKiosk.takeQuietLaunch())
+                    else -> result.notImplemented()
+                }
+            }
 
         // ✅ NOUVEAU: Channel pour ouvrir les paramètres système
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, APP_CHANNEL)
@@ -59,6 +73,16 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        PanelKiosk.cancelReturn(this)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        PanelKiosk.scheduleReturn(this)
     }
 
     /**
