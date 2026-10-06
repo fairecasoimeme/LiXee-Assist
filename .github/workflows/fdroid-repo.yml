@@ -20,13 +20,26 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  actions: write
 
 concurrency:
   group: pages
   cancel-in-progress: false
 
 jobs:
+  # Une version publiée déclenche le workflow sur son étiquette, et GitHub
+  # Pages n'accepte un déploiement que depuis la branche par défaut : on
+  # relance donc le workflow sur master, qui fait le travail.
+  relay:
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run fdroid-repo.yml --repo "${{ github.repository }}" --ref "${{ github.event.repository.default_branch }}"
+
   build:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
