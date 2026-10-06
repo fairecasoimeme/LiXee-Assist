@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../main.dart' show boxListChanged;
 import 'package:dio/dio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -37,6 +38,7 @@ class _WebViewWifiPostScreenState extends State<WebViewWifiPostScreen> {
     if (!devices.contains(deviceName)) {
       devices.add(deviceName);
       await prefs.setStringList('saved_devices', devices);
+    boxListChanged();
       print("✅ Appareil enregistré : $deviceName");
     } else {
       print("ℹ Appareil déjà enregistré !");

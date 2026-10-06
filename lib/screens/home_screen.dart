@@ -13,7 +13,8 @@ import '../services/session_manager.dart';
 import '../services/session_pool.dart';
 import 'package:home_widget/home_widget.dart';
 import 'package:app_links/app_links.dart';
-import '../main.dart' show TVDetector;
+import '../services/box_client.dart' show redactEntry;
+import '../main.dart' show TVDetector, boxListChanged;
 import 'send_to_tv.dart';
 
 // ✅ Instance globale des notifications - référence celle du main.dart
@@ -984,7 +985,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     print("📋 ${rawDevices.length} devices dans SharedPreferences:");
     for (int i = 0; i < rawDevices.length; i++) {
-      print("   [$i] '${rawDevices[i]}'");
+      print("   [$i] '${redactEntry(rawDevices[i])}'");
     }
 
     List<String> validDevices = [];
@@ -1004,7 +1005,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         validDevices.add(entry);
         print("🔐 Device avec auth + fallback: '${parts[0]}' -> '${parts[1]}' (fallback: '${parts[5]}')");
       } else {
-        print("⚠️ Format invalide ignoré: '$entry'");
+        print("⚠️ Format invalide ignoré: '${redactEntry(entry)}'");
       }
     }
 
@@ -1026,7 +1027,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void _showEditDialog(String originalEntry) {
-    print("🔧 _showEditDialog pour: '$originalEntry'");
+    print("🔧 _showEditDialog pour: '${redactEntry(originalEntry)}'");
 
     final parsed = _parseDeviceEntry(originalEntry);
     if (parsed == null) return;
@@ -1147,7 +1148,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       fallback: newFallback,
                     );
 
-                    print("🔧 Modification: '$originalEntry' -> '$newEntry'");
+                    print("🔧 Modification: '${redactEntry(originalEntry)}' -> '${redactEntry(newEntry)}'");
 
                     SharedPreferences prefs = await SharedPreferences.getInstance();
                     List<String> saved = prefs.getStringList('saved_devices') ?? [];
@@ -1157,8 +1158,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
                     saved.add(newEntry);
                     await prefs.setStringList('saved_devices', saved);
+    boxListChanged();
 
-                    print("✅ Sauvegardé: $saved");
+                    print("✅ Sauvegardé: ${saved.length} box");
 
                     Navigator.of(context).pop();
                     _loadDevices();
@@ -1237,6 +1239,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     devices.remove(entry);
     await prefs.setStringList('saved_devices', devices);
+    boxListChanged();
     setState(() {});
   }
 
@@ -1256,6 +1259,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (!saved.contains(entry)) {
       saved.add(entry);
       await prefs.setStringList('saved_devices', saved);
+    boxListChanged();
       setState(() => _loadDevices());
     }
   }
@@ -1439,16 +1443,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       saved.add(newEntry);
     }
     await prefs.setStringList('saved_devices', saved);
-    print('[DEVICE] Entry mise à jour: $newEntry');
+    boxListChanged();
+    print('[DEVICE] Entry mise à jour: ${redactEntry(newEntry)}');
     return newEntry;
   }
 
   Future<void> _openDevice(String entry) async {
-    print("_openDevice DEBUT pour: '$entry'");
+    print("_openDevice DEBUT pour: '${redactEntry(entry)}'");
 
     final parsed = _parseDeviceEntry(entry);
     if (parsed == null) {
-      print("Format invalide: $entry");
+      print("Format invalide: ${redactEntry(entry)}");
       return;
     }
 

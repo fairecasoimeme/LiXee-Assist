@@ -44,7 +44,7 @@ class PushBackend {
     required void Function(int id, String? title, String? body) onMessage,
   }) {
     FirebaseMessaging.instance.onTokenRefresh.listen((newToken) {
-      print('[FCM] Token refreshed: $newToken');
+      print('[FCM] Token renouvelé');
       onTokenRefresh(newToken);
     });
 

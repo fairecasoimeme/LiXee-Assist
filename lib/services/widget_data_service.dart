@@ -377,7 +377,7 @@ class WidgetDataService {
   }) async {
     final device = BoxDevice.tryParse(deviceEntry);
     if (device == null) {
-      print('[WIDGET-DATA] Entrée illisible: $deviceEntry');
+      print('[WIDGET-DATA] Entrée illisible: ${redactEntry(deviceEntry)}');
       return null;
     }
 

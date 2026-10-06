@@ -94,6 +94,13 @@ class HomeWidgetBridge {
     await HomeWidget.saveWidgetData<String>(keyDeviceList, jsonEncode(names));
   }
 
+  /// Publie les box enregistrées, sans aucun appel réseau : l'écran de choix
+  /// d'un widget les propose aussitôt.
+  static Future<void> publishSavedBoxes() async {
+    await init();
+    await publishDeviceList(await WidgetDataService.savedDeviceNames());
+  }
+
   /// Horodatage de la dernière tentative infructueuse. Comparé à celui du
   /// relevé, il dit si la box a cessé de répondre depuis.
   static const suffixFailedAt = '.failedat';

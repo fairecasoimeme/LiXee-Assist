@@ -9,7 +9,7 @@
     <string name="widget_open_confirm">Ouvrir</string>
 
     <string name="widget_no_device">Box non choisie</string>
-    <string name="widget_tap_to_configure">Retirez et reposez le widget</string>
+    <string name="widget_tap_to_configure">Touchez pour choisir</string>
     <string name="widget_never_updated">Jamais relevé</string>
     <!-- La box n'a pas répondu à la dernière tentative. On garde l'âge des
          chiffres affichés : sans lui, on ne sait pas ce qu'on regarde. -->
@@ -20,7 +20,7 @@
     <string name="widget_refreshing">Mise à jour…</string>
 
     <string name="widget_config_title">Quelle LiXee-Box afficher ?</string>
-    <string name="widget_config_empty">Aucune box enregistrée. Ajoutez-en une dans LiXee-Assist, puis reposez le widget.</string>
+    <string name="widget_config_empty">Aucune box trouvée. Ouvrez LiXee-Assist une fois, vérifiez qu\'une box y est enregistrée, puis touchez à nouveau le widget.</string>
     <string name="widget_placeholder">—</string>
     <string name="widget_unit_power">VA</string>
     <!-- Deux symboles de même nature, lisibles à petite taille : l'éclair et la
@@ -76,7 +76,7 @@
         <item quantity="one">%d appareil</item>
         <item quantity="other">%d appareils</item>
     </plurals>
-    <string name="widget_device_config_empty">Aucun appareil relevé pour l\'instant. Ouvrez LiXee-Assist une fois, puis reposez le widget.</string>
+    <string name="widget_device_config_empty">Aucun appareil relevé pour l\'instant. Ouvrez LiXee-Assist une fois, puis touchez à nouveau le widget.</string>
     <!-- Intitulés lisibles des grandeurs les plus courantes. Tout autre nom
          s'affiche tel que le gabarit le donne. -->
     <string name="widget_reading_position">Position</string>
@@ -106,7 +106,7 @@
     <string name="widget_group_description">Un bouton qui déclenche un groupe d\'actions configuré sur la box</string>
     <string name="widget_group_config_title">Quel groupe d\'actions ?</string>
     <string name="widget_group_config_group">Quel groupe sur « %1$s » ?</string>
-    <string name="widget_group_config_empty">Aucun groupe d\'actions trouvé. Créez-en un sur la box (config → Groupes d\'actions), ouvrez LiXee-Assist une fois, puis reposez le widget.</string>
+    <string name="widget_group_config_empty">Aucun groupe d\'actions trouvé. Créez-en un sur la box (config → Groupes d\'actions), ouvrez LiXee-Assist une fois, puis touchez à nouveau le widget.</string>
     <string name="widget_group_running">Envoi…</string>
     <string name="widget_group_failed">Échec</string>
     <!-- Ce que le dernier appui a donné : le nombre compte, un groupe peut
@@ -132,7 +132,7 @@
     <string name="widget_thermo_description">Consigne, mesure et forçage d\'une zone du thermostat de la box</string>
     <string name="widget_thermo_config_title">Quelle zone de thermostat ?</string>
     <string name="widget_thermo_config_zone">Quelle zone sur « %1$s » ?</string>
-    <string name="widget_thermo_config_empty">Aucune zone de thermostat trouvée. Créez-en une sur la box, ouvrez LiXee-Assist une fois, puis reposez le widget.</string>
+    <string name="widget_thermo_config_empty">Aucune zone de thermostat trouvée. Créez-en une sur la box, ouvrez LiXee-Assist une fois, puis touchez à nouveau le widget.</string>
     <string name="widget_thermo_gauge_description">Température mesurée et consigne sur une échelle de 5 à 35 °C</string>
     <string name="widget_thermo_setpoint">%1$s °C</string>
     <!-- La sonde ne répond pas : la consigne ne régule alors rien, et
