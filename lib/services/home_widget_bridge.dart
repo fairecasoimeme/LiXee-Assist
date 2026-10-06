@@ -315,7 +315,7 @@ class HomeWidgetBridge {
         // le natif les renvoie tels quels à l'appui, ce qui évite de relire
         // tout l'inventaire de la box avant d'émettre la commande.
         'actions': [
-          for (final a in device.actions)
+          for (final a in device.buttons)
             {
               'name': a.name,
               'command': a.command,

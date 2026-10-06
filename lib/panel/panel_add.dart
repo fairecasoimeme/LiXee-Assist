@@ -104,6 +104,59 @@ class _PanelAddScreenState extends State<PanelAddScreen> {
     if (added == true) _finish();
   }
 
+  Widget _qr(Uri? url, double maxSide) {
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: maxSide, maxHeight: maxSide),
+      child: AspectRatio(
+        aspectRatio: 1,
+        child: Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child:
+              url == null
+                  ? const SizedBox()
+                  : CustomPaint(painter: TvQrPainter(url.toString())),
+        ),
+      ),
+    );
+  }
+
+  Widget _instructions(TvPairingServer? server, {required bool centered}) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment:
+          centered ? CrossAxisAlignment.center : CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Sur le téléphone, ouvrez LiXee-Assist, puis le menu '
+          '« Envoyer vers une TV », et scannez ce code.',
+          textAlign: centered ? TextAlign.center : TextAlign.start,
+          style: TextStyle(fontSize: centered ? 16 : 14, height: 1.25),
+        ),
+        const SizedBox(height: 10),
+        const Text(
+          'Code de vérification',
+          style: TextStyle(fontSize: 12, color: TvColors.muted),
+        ),
+        Text(
+          server == null
+              ? '— — —'
+              : '${server.code.substring(0, 3)} ${server.code.substring(3)}',
+          style: TextStyle(
+            fontSize: centered ? 30 : 24,
+            fontFamily: 'monospace',
+            letterSpacing: 2,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final url = _url;
@@ -114,65 +167,31 @@ class _PanelAddScreenState extends State<PanelAddScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                // Le QR code prend la hauteur disponible, sans dépasser 210.
-                Flexible(
-                  flex: 10,
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 210),
-                    child: AspectRatio(
-                      aspectRatio: 1,
-                      child: Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child:
-                            url == null
-                                ? const SizedBox()
-                                : CustomPaint(
-                                  painter: TvQrPainter(url.toString()),
-                                ),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  flex: 11,
-                  child: Column(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                // Écran vertical : le code en grand, la consigne dessous.
+                // Écran carré : côte à côte, faute de hauteur.
+                if (constraints.maxHeight > constraints.maxWidth) {
+                  return Column(
                     mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        'Sur le téléphone, ouvrez LiXee-Assist, puis le menu '
-                        '« Envoyer vers une TV », et scannez ce code.',
-                        style: TextStyle(fontSize: 14, height: 1.25),
-                      ),
-                      const SizedBox(height: 10),
-                      const Text(
-                        'Code de vérification',
-                        style: TextStyle(fontSize: 12, color: TvColors.muted),
-                      ),
-                      Text(
-                        server == null
-                            ? '— — —'
-                            : '${server.code.substring(0, 3)} '
-                                '${server.code.substring(3)}',
-                        style: const TextStyle(
-                          fontSize: 24,
-                          fontFamily: 'monospace',
-                          letterSpacing: 2,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
+                      Flexible(child: _qr(url, 320)),
+                      const SizedBox(height: 18),
+                      _instructions(server, centered: true),
                     ],
-                  ),
-                ),
-              ],
+                  );
+                }
+                return Row(
+                  children: [
+                    Flexible(flex: 10, child: _qr(url, 210)),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      flex: 11,
+                      child: _instructions(server, centered: false),
+                    ),
+                  ],
+                );
+              },
             ),
           ),
           if (_message != null)
@@ -283,6 +302,9 @@ class _PanelManualAddScreenState extends State<PanelManualAddScreen> {
       InputDecoration(
         labelText: label,
         hintText: hint,
+        // Nettement plus pâle que le texte saisi : sinon l'exemple passe
+        // pour une adresse déjà remplie.
+        hintStyle: TextStyle(color: TvColors.muted.withValues(alpha: 0.45)),
         isDense: true,
         filled: true,
         fillColor: TvColors.panel,

@@ -27,6 +27,11 @@ Widget _card({required Widget child, EdgeInsetsGeometry? padding}) => Container(
 
 /// La puissance en grand, le bilan sur 24 h, et le graphe heure par heure :
 /// ce qu'on lit d'un coup d'œil en passant devant le panneau.
+///
+/// Sur un écran carré, la jauge et le bilan se partagent le haut. Sur un
+/// écran vertical, la jauge prend toute la largeur et le bilan passe en
+/// bandeau dessous : côte à côte, ils laisseraient deux colonnes à moitié
+/// vides.
 class PanelEnergyView extends StatelessWidget {
   final LinkySnapshot snapshot;
 
@@ -34,8 +39,15 @@ class PanelEnergyView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final s = snapshot;
-    final production = s.productionPowerVA;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final tall = constraints.maxHeight > constraints.maxWidth * 1.25;
+        return tall ? _tall() : _square();
+      },
+    );
+  }
+
+  Widget _square() {
     return Column(
       children: [
         Expanded(
@@ -43,24 +55,7 @@ class PanelEnergyView extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Expanded(
-                flex: 10,
-                child: _card(
-                  padding: const EdgeInsets.all(8),
-                  child: TvArcGauge(
-                    ratio:
-                        s.subscribedPowerVA == null || s.subscribedPowerVA == 0
-                            ? 0
-                            : (s.apparentPowerVA ?? 0) / s.subscribedPowerVA!,
-                    color: TvColors.focus,
-                    value: tvNumber(s.apparentPowerVA ?? 0),
-                    caption:
-                        s.subscribedPowerVA == null
-                            ? 'VA'
-                            : 'VA sur ${tvNumber(s.subscribedPowerVA!)}',
-                  ),
-                ),
-              ),
+              Expanded(flex: 10, child: _gauge()),
               const SizedBox(width: 8),
               Expanded(
                 flex: 9,
@@ -76,48 +71,12 @@ class PanelEnergyView extends StatelessWidget {
                       FittedBox(
                         fit: BoxFit.scaleDown,
                         alignment: Alignment.centerLeft,
-                        child: _figure(
-                          s.dailyTotalWh == null
-                              ? '—'
-                              : tvNumber(s.dailyTotalWh! / 1000, decimals: 2),
-                          'kWh',
-                          32,
-                        ),
+                        child: _energy(32),
                       ),
-                      if (s.dailyCostEur != null)
-                        _figure(
-                          tvNumber(s.dailyCostEur!, decimals: 2),
-                          '€',
-                          24,
-                        ),
-                      if (production != null && production > 0)
-                        Text(
-                          'Injection +${tvNumber(production)} VA',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 13,
-                            color: TvColors.solar,
-                          ),
-                        )
-                      else if (s.dailyProductionWh != null)
-                        Text(
-                          'Produit ${tvNumber(s.dailyProductionWh! / 1000, decimals: 2)} kWh',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 13,
-                            color: TvColors.solar,
-                          ),
-                        ),
+                      if (snapshot.dailyCostEur != null) _cost(24),
+                      if (_solar() case final solar?) solar,
                       const SizedBox(height: 4),
-                      Text(
-                        'Relevé ${tvAge(s.timestamp)}',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: TvColors.muted,
-                        ),
-                      ),
+                      _age(),
                     ],
                   ),
                 ),
@@ -126,34 +85,143 @@ class PanelEnergyView extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 8),
-        Expanded(
-          flex: 8,
-          child: _card(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Heure par heure',
-                  style: TextStyle(fontSize: 13, color: TvColors.muted),
+        Expanded(flex: 8, child: _chart()),
+      ],
+    );
+  }
+
+  Widget _tall() {
+    return Column(
+      children: [
+        Expanded(flex: 10, child: _gauge()),
+        const SizedBox(height: 8),
+        _card(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Sur 24 h',
+                      style: TextStyle(fontSize: 13, color: TvColors.muted),
+                    ),
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.baseline,
+                        textBaseline: TextBaseline.alphabetic,
+                        children: [
+                          _energy(30),
+                          if (snapshot.dailyCostEur != null) ...[
+                            const SizedBox(width: 18),
+                            _cost(24),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 4),
-                Expanded(
-                  child:
-                      s.hourly.isEmpty
-                          ? const Center(
-                            child: Text(
-                              'Historique indisponible',
-                              style: TextStyle(color: TvColors.muted),
-                            ),
-                          )
-                          : TvHourlyChart(samples: s.hourly),
-                ),
-              ],
-            ),
+              ),
+              const SizedBox(width: 10),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  if (_solar() case final solar?) solar,
+                  _age(),
+                ],
+              ),
+            ],
           ),
         ),
+        const SizedBox(height: 8),
+        Expanded(flex: 8, child: _chart()),
       ],
+    );
+  }
+
+  Widget _gauge() {
+    final s = snapshot;
+    return _card(
+      padding: const EdgeInsets.all(8),
+      child: TvArcGauge(
+        ratio:
+            s.subscribedPowerVA == null || s.subscribedPowerVA == 0
+                ? 0
+                : (s.apparentPowerVA ?? 0) / s.subscribedPowerVA!,
+        color: TvColors.focus,
+        value: tvNumber(s.apparentPowerVA ?? 0),
+        caption:
+            s.subscribedPowerVA == null
+                ? 'VA'
+                : 'VA sur ${tvNumber(s.subscribedPowerVA!)}',
+        scaleText: true,
+      ),
+    );
+  }
+
+  Widget _energy(double size) => _figure(
+    snapshot.dailyTotalWh == null
+        ? '—'
+        : tvNumber(snapshot.dailyTotalWh! / 1000, decimals: 2),
+    'kWh',
+    size,
+  );
+
+  Widget _cost(double size) =>
+      _figure(tvNumber(snapshot.dailyCostEur!, decimals: 2), '€', size);
+
+  /// L'injection en cours si la maison produit, sinon la production du jour.
+  Widget? _solar() {
+    final production = snapshot.productionPowerVA;
+    final String text;
+    if (production != null && production > 0) {
+      text = 'Injection +${tvNumber(production)} VA';
+    } else if (snapshot.dailyProductionWh != null) {
+      text =
+          'Produit ${tvNumber(snapshot.dailyProductionWh! / 1000, decimals: 2)} kWh';
+    } else {
+      return null;
+    }
+    return Text(
+      text,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: const TextStyle(fontSize: 13, color: TvColors.solar),
+    );
+  }
+
+  Widget _age() => Text(
+    'Relevé ${tvAge(snapshot.timestamp)}',
+    style: const TextStyle(fontSize: 12, color: TvColors.muted),
+  );
+
+  Widget _chart() {
+    return _card(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Heure par heure',
+            style: TextStyle(fontSize: 13, color: TvColors.muted),
+          ),
+          const SizedBox(height: 4),
+          Expanded(
+            child:
+                snapshot.hourly.isEmpty
+                    ? const Center(
+                      child: Text(
+                        'Historique indisponible',
+                        style: TextStyle(color: TvColors.muted),
+                      ),
+                    )
+                    : TvHourlyChart(samples: snapshot.hourly),
+          ),
+        ],
+      ),
     );
   }
 
@@ -454,7 +522,7 @@ class _ActionsSheetState extends State<_ActionsSheet> {
               spacing: 8,
               runSpacing: 8,
               children: [
-                for (final action in device.actions)
+                for (final action in device.buttons)
                   SizedBox(
                     width: 142,
                     height: 62,
@@ -484,6 +552,18 @@ class _ActionsSheetState extends State<_ActionsSheet> {
                   ),
               ],
             ),
+            if (device.positionAction case final position?) ...[
+              const SizedBox(height: 12),
+              _PositionSlider(
+                // Reparti de la position lue quand elle change.
+                key: ValueKey('${device.key}@${primary?.value}'),
+                initial: primary?.name == 'current_position'
+                    ? primary?.value
+                    : null,
+                onChosen:
+                    (percent) => widget.onAction(position.withValue(percent)),
+              ),
+            ],
             const SizedBox(height: 10),
             Text(
               status ?? 'Touchez une commande',
@@ -494,6 +574,87 @@ class _ActionsSheetState extends State<_ActionsSheet> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Curseur de position d'un volet. La commande part quand le doigt se
+/// lève : pendant le glissement, seul le pourcentage affiché bouge.
+class _PositionSlider extends StatefulWidget {
+  final double? initial;
+  final ValueChanged<int> onChosen;
+
+  const _PositionSlider({super.key, this.initial, required this.onChosen});
+
+  @override
+  State<_PositionSlider> createState() => _PositionSliderState();
+}
+
+class _PositionSliderState extends State<_PositionSlider> {
+  late double _value = (widget.initial ?? 50).clamp(0, 100).toDouble();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 8, 14, 4),
+      decoration: BoxDecoration(
+        color: TvColors.panelHigh,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Position',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                ),
+              ),
+              Text(
+                '${_value.round()} %',
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w700,
+                  color: TvColors.focus,
+                ),
+              ),
+            ],
+          ),
+          SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              trackHeight: 8,
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 14),
+              overlayShape: const RoundSliderOverlayShape(overlayRadius: 24),
+              activeTrackColor: TvColors.focus,
+              inactiveTrackColor: TvColors.panel,
+              thumbColor: TvColors.text,
+            ),
+            child: Slider(
+              value: _value,
+              min: 0,
+              max: 100,
+              divisions: 100,
+              onChanged: (v) => setState(() => _value = v),
+              onChangeEnd: (v) => widget.onChosen(v.round()),
+            ),
+          ),
+          const Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Fermé',
+                style: TextStyle(fontSize: 12, color: TvColors.muted),
+              ),
+              Text(
+                'Ouvert',
+                style: TextStyle(fontSize: 12, color: TvColors.muted),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

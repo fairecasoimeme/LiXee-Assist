@@ -194,6 +194,10 @@ class TvArcGauge extends StatelessWidget {
   /// mesurée face à la consigne.
   final double? marker;
 
+  /// Le texte grandit avec la jauge, au lieu de garder la taille prévue
+  /// pour la TV : sur un panneau, la jauge occupe parfois tout l'écran.
+  final bool scaleText;
+
   const TvArcGauge({
     super.key,
     required this.ratio,
@@ -201,6 +205,7 @@ class TvArcGauge extends StatelessWidget {
     required this.value,
     required this.caption,
     this.marker,
+    this.scaleText = false,
   });
 
   @override
@@ -213,12 +218,16 @@ class TvArcGauge extends StatelessWidget {
           constraints.maxWidth.isFinite ? constraints.maxWidth : 260.0,
           constraints.maxHeight.isFinite ? constraints.maxHeight : 260.0,
         );
-        return Center(child: SizedBox.square(dimension: side, child: _gauge()));
+        return Center(
+          child: SizedBox.square(dimension: side, child: _gauge(side)),
+        );
       },
     );
   }
 
-  Widget _gauge() {
+  Widget _gauge(double side) {
+    final valueSize = scaleText ? (side * 0.2).clamp(40.0, 96.0) : 40.0;
+    final captionSize = scaleText ? (side * 0.058).clamp(13.0, 26.0) : 13.0;
     return CustomPaint(
       painter: _ArcPainter(ratio.clamp(0, 1).toDouble(), color, marker),
       // Marge intérieure : le texte ne doit pas chevaucher l'arc.
@@ -231,8 +240,8 @@ class TvArcGauge extends StatelessWidget {
               FittedBox(
                 child: Text(
                   value,
-                  style: const TextStyle(
-                    fontSize: 40,
+                  style: TextStyle(
+                    fontSize: valueSize,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -240,7 +249,7 @@ class TvArcGauge extends StatelessWidget {
               Text(
                 caption,
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 13, color: TvColors.muted),
+                style: TextStyle(fontSize: captionSize, color: TvColors.muted),
               ),
             ],
           ),
@@ -277,7 +286,28 @@ class _ArcPainter extends CustomPainter {
           ..strokeCap = StrokeCap.round;
     canvas.drawArc(rect, _start, _sweep, false, track);
     if (ratio > 0) {
-      canvas.drawArc(rect, _start, _sweep * ratio, false, track..color = color);
+      // Bout droit à l'avant, arrondi au départ seulement : avec deux bouts
+      // arrondis, une faible valeur se réduisait à une pastille, qui ne
+      // disait plus où s'arrêtait la mesure.
+      canvas.drawArc(
+        rect,
+        _start,
+        _sweep * ratio,
+        false,
+        Paint()
+          ..color = color
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = stroke
+          ..strokeCap = StrokeCap.butt,
+      );
+      canvas.drawCircle(
+        Offset(
+          rect.center.dx + rect.width / 2 * math.cos(_start),
+          rect.center.dy + rect.width / 2 * math.sin(_start),
+        ),
+        stroke / 2,
+        Paint()..color = color,
+      );
     }
     if (marker != null) {
       final angle = _start + _sweep * marker!.clamp(0, 1);
@@ -695,7 +725,7 @@ class _ActionsDialogState extends State<_ActionsDialog> {
               spacing: 12,
               runSpacing: 12,
               children: [
-                for (final (i, action) in device.actions.indexed)
+                for (final (i, action) in device.buttons.indexed)
                   TvFocusable(
                     autofocus: i == 0,
                     focusScale: 1.06,
@@ -717,6 +747,21 @@ class _ActionsDialogState extends State<_ActionsDialog> {
                   ),
               ],
             ),
+            if (device.positionAction case final position?) ...[
+              const SizedBox(height: 14),
+              _TvPosition(
+                key: ValueKey(
+                  '${device.key}@${tvShownReadings(device).firstOrNull?.value}',
+                ),
+                initial:
+                    tvShownReadings(device).firstOrNull?.name ==
+                            'current_position'
+                        ? tvShownReadings(device).firstOrNull?.value
+                        : null,
+                onChosen:
+                    (percent) => widget.onAction(position.withValue(percent)),
+              ),
+            ],
             const SizedBox(height: 16),
             Text(
               status ?? 'OK envoie la commande · Retour ferme',
@@ -727,6 +772,76 @@ class _ActionsDialogState extends State<_ActionsDialog> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Position d'un volet à la télécommande : gauche et droite règlent le
+/// pourcentage par pas de 5, OK l'envoie.
+class _TvPosition extends StatefulWidget {
+  final double? initial;
+  final ValueChanged<int> onChosen;
+
+  const _TvPosition({super.key, this.initial, required this.onChosen});
+
+  @override
+  State<_TvPosition> createState() => _TvPositionState();
+}
+
+class _TvPositionState extends State<_TvPosition> {
+  late int _value = (widget.initial ?? 50).clamp(0, 100).round();
+
+  KeyEventResult _onKey(KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return KeyEventResult.ignored;
+    }
+    final step =
+        event.logicalKey == LogicalKeyboardKey.arrowRight
+            ? 5
+            : event.logicalKey == LogicalKeyboardKey.arrowLeft
+            ? -5
+            : 0;
+    if (step == 0) return KeyEventResult.ignored;
+    setState(() => _value = (_value + step).clamp(0, 100));
+    return KeyEventResult.handled;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return TvFocusable(
+      focusScale: 1,
+      color: TvColors.panelHigh,
+      onKey: _onKey,
+      onSelect: () => widget.onChosen(_value),
+      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+      child: Row(
+        children: [
+          const Text('Position', style: TextStyle(fontSize: 18)),
+          const SizedBox(width: 18),
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(99),
+              child: LinearProgressIndicator(
+                value: _value / 100,
+                minHeight: 8,
+                backgroundColor: TvColors.panel,
+                color: TvColors.focus,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          const Icon(Icons.chevron_left, color: TvColors.muted, size: 28),
+          SizedBox(
+            width: 76,
+            child: Text(
+              '$_value %',
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+            ),
+          ),
+          const Icon(Icons.chevron_right, color: TvColors.muted, size: 28),
+        ],
       ),
     );
   }
