@@ -62,10 +62,13 @@ jobs:
           [ -n "$KEYSTORE_PASS" ] || fail "Le secret FDROID_KEYSTORE_PASS est absent ou vide."
 
           cd fdroid
-          # Un copier-coller ajoute volontiers des retours à la ligne.
-          echo "$KEYSTORE_B64" | tr -d ' 
-' | base64 -d > keystore.p12             || fail "FDROID_KEYSTORE_B64 n'est pas un texte base64 valide."
-          keytool -list -keystore keystore.p12 -storepass:env KEYSTORE_PASS             -alias lixee-fdroid > /dev/null 2> keytool.err             || fail "Magasin de clés illisible (mot de passe ou alias ?) : $(tail -n 1 keytool.err)"
+          # Un copier-coller ajoute volontiers des espaces et des retours à
+          # la ligne.
+          echo "$KEYSTORE_B64" | tr -d '[:space:]' | base64 -d > keystore.p12 \
+            || fail "FDROID_KEYSTORE_B64 n'est pas un texte base64 valide."
+          keytool -list -keystore keystore.p12 -storepass:env KEYSTORE_PASS \
+            -alias lixee-fdroid > /dev/null 2> keytool.err \
+            || fail "Magasin de clés illisible (mot de passe ou alias ?) : $(tail -n 1 keytool.err)"
 
           # Les mots de passe restent dans l'environnement : fdroidserver les
           # y lit, et aucun caractère spécial ne peut casser le fichier.
@@ -82,8 +85,7 @@ jobs:
 
           if ! fdroid update --verbose > update.log 2>&1; then
             tail -n 60 update.log
-            fail "fdroid update a échoué : $(grep -iE 'error|critical|exception|traceback' update.log | tail -n 3 | tr '
-' ' ' | cut -c1-600)"
+            fail "fdroid update a échoué : $(grep -iE 'error|critical|exception|traceback' update.log | tail -n 3 | tr '\n' ' ' | cut -c1-600)"
           fi
           tail -n 15 update.log
           rm -f config.yml keystore.p12 keytool.err update.log
