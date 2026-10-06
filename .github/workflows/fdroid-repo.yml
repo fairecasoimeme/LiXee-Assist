@@ -31,10 +31,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Pas le paquet d'Ubuntu : son androguard, trop ancien, ne lit pas les
+      # APK des outils Android récents (« res1 must be zero! »).
       - name: Installer fdroidserver
         run: |
           sudo apt-get update
-          sudo apt-get install -y fdroidserver
+          sudo apt-get install -y apksigner
+          pipx install fdroidserver
+          pipx inject fdroidserver 'androguard>=4.1.2'
+          fdroid --version
 
       - name: Rassembler les APK libres des versions publiées
         env:
