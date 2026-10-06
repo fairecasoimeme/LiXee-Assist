@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -652,6 +653,16 @@ class _PanelSettingsScreenState extends State<PanelSettingsScreen> {
               _nextReturnDelay,
             ),
           ],
+          const SizedBox(height: 6),
+          // Rend la main à l'écran du panneau. Le kiosque y reviendra de
+          // lui-même si le retour automatique est réglé.
+          PanelButton(
+            label: 'Quitter le kiosque',
+            icon: Icons.logout,
+            color: TvColors.panelHigh,
+            textColor: TvColors.text,
+            onTap: () => SystemNavigator.pop(),
+          ),
           const SizedBox(height: 16),
           Center(
             child: Text(
