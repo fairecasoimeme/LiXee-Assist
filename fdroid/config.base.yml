@@ -1,0 +1,9 @@
+# Réglages publics du dépôt F-Droid LiXee. La clé de signature et son mot de
+# passe sont ajoutés à la compilation, depuis les secrets GitHub.
+repo_url: https://fairecasoimeme.github.io/LiXee-Assist/fdroid/repo
+repo_name: LiXee
+repo_description: >-
+  Applications LiXee en version libre, sans services Google : LiXee-Assist
+  pour téléphone, Android TV et panneau mural Sonoff NSPanel Pro.
+archive_older: 3
+keydname: CN=LiXee F-Droid, O=LIXEE SAS, C=FR

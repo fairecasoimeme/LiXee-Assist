@@ -402,7 +402,7 @@ String tvActionLabel(String name) => switch (name.toUpperCase()) {
   _ => name,
 };
 
-String _readingLabel(String name) => switch (name) {
+String tvReadingLabel(String name) => switch (name) {
   'current_position' => 'Position',
   'temperature' || 'Temperature' || 'local_temperature' => 'Température',
   'humidity' || 'Humidity' => 'Humidité',
@@ -414,7 +414,7 @@ String _readingLabel(String name) => switch (name) {
 
 /// Valeur mise en forme, avec « ouvert » et « fermé » aux deux bouts d'un
 /// volet, à un point près : les modules s'arrêtent souvent à 99 ou 1 %.
-String _readingValue(DeviceReading r) {
+String tvReadingValue(DeviceReading r) {
   final v = r.value;
   if (v == null) return '—';
   final text = v == v.roundToDouble() ? tvNumber(v) : tvNumber(v, decimals: 1);
@@ -429,11 +429,11 @@ String _readingValue(DeviceReading r) {
 
 /// Lectures qui valent la peine d'être montrées : une valeur, et pas un
 /// réglage du module (« Window covering type », « Config status »).
-List<DeviceReading> _shownReadings(DeviceSnapshot d) =>
+List<DeviceReading> tvShownReadings(DeviceSnapshot d) =>
     d.readings.where((r) => r.value != null).toList();
 
 /// Grandeurs qu'on comprend sans leur nom, à leur unité.
-const _selfExplanatory = {
+const tvSelfExplanatory = {
   'current_position',
   'temperature',
   'Temperature',
@@ -442,7 +442,7 @@ const _selfExplanatory = {
 
 /// Le compteur Linky a son propre onglet : le répéter ici n'apporte que des
 /// libellés bruts.
-bool _isMeter(DeviceSnapshot d) =>
+bool tvIsMeter(DeviceSnapshot d) =>
     d.model.toLowerCase().startsWith('zlinky') ||
     d.label.toLowerCase().startsWith('zlinky');
 
@@ -466,7 +466,7 @@ class _TvDevicesTabState extends State<TvDevicesTab> {
   final Map<String, String> _status = {};
 
   List<DeviceSnapshot> get _shown =>
-      widget.devices.where((d) => !_isMeter(d)).toList();
+      widget.devices.where((d) => !tvIsMeter(d)).toList();
 
   Future<void> _send(DeviceSnapshot device, DeviceAction action) async {
     setState(() => _status[device.key] = '${tvActionLabel(action.name)}…');
@@ -558,7 +558,7 @@ class _DeviceSummary extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final readings = _shownReadings(device);
+    final readings = tvShownReadings(device);
     final primary = readings.isEmpty ? null : readings.first;
     final secondary = readings.skip(1).take(large ? 3 : 1);
     final isPosition = primary?.name == 'current_position';
@@ -586,9 +586,9 @@ class _DeviceSummary extends StatelessWidget {
                 ? 'Pas de mesure'
                 // Position et température se lisent d'elles-mêmes ; une
                 // batterie seule à « 100 % » ne dirait pas de quoi il s'agit.
-                : _selfExplanatory.contains(primary.name)
-                ? _readingValue(primary)
-                : '${_readingLabel(primary.name)} ${_readingValue(primary)}',
+                : tvSelfExplanatory.contains(primary.name)
+                ? tvReadingValue(primary)
+                : '${tvReadingLabel(primary.name)} ${tvReadingValue(primary)}',
             style: TextStyle(
               fontSize: primary == null ? 18 : (large ? 34 : 27),
               fontWeight: FontWeight.w700,
@@ -612,7 +612,7 @@ class _DeviceSummary extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(top: 4),
             child: Text(
-              '${_readingLabel(r.name)} ${_readingValue(r)}',
+              '${tvReadingLabel(r.name)} ${tvReadingValue(r)}',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontSize: 14, color: TvColors.muted),
@@ -795,7 +795,7 @@ class _TvGroupsTabState extends State<TvGroupsTab> {
                 child:
                     group.iconPath != null
                         ? CustomPaint(
-                          painter: _IconPainter(group.iconPath!, tint),
+                          painter: TvIconPainter(group.iconPath!, tint),
                         )
                         : Center(
                           child: Text(
@@ -842,11 +842,11 @@ class _TvGroupsTabState extends State<TvGroupsTab> {
 }
 
 /// Icône Material Design Icons, tracée depuis son chemin SVG (grille 24×24).
-class _IconPainter extends CustomPainter {
+class TvIconPainter extends CustomPainter {
   final String data;
   final Color color;
 
-  _IconPainter(this.data, this.color);
+  TvIconPainter(this.data, this.color);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -860,7 +860,7 @@ class _IconPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_IconPainter old) =>
+  bool shouldRepaint(TvIconPainter old) =>
       old.data != data || old.color != color;
 }
 

@@ -1,0 +1,88 @@
+# Dépôt F-Droid LiXee, servi par GitHub Pages.
+#
+# À chaque version publiée (ou à la demande), les APK « libres » joints aux
+# versions GitHub sont rassemblés, indexés et signés par fdroidserver, puis
+# mis en ligne. L'adresse à donner à F-Droid :
+#
+#   https://fairecasoimeme.github.io/LiXee-Assist/fdroid/repo
+#
+# Secrets attendus (voir doc/fdroid/README.md) :
+#   FDROID_KEYSTORE_B64   le magasin de clés du dépôt, encodé en base64
+#   FDROID_KEYSTORE_PASS  son mot de passe
+name: Dépôt F-Droid
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Installer fdroidserver
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fdroidserver
+
+      - name: Rassembler les APK libres des versions publiées
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p fdroid/repo
+          for tag in $(gh release list --limit 30 --json tagName -q '.[].tagName'); do
+            gh release download "$tag" --pattern 'lixee-assist-libre-*.apk' \
+              --dir fdroid/repo --skip-existing || true
+          done
+          ls -l fdroid/repo
+          # Sans APK, l'index serait vide : mieux vaut échouer que le publier.
+          ls fdroid/repo/*.apk > /dev/null
+
+      - name: Indexer et signer le dépôt
+        env:
+          KEYSTORE_B64: ${{ secrets.FDROID_KEYSTORE_B64 }}
+          KEYSTORE_PASS: ${{ secrets.FDROID_KEYSTORE_PASS }}
+        run: |
+          cd fdroid
+          echo "$KEYSTORE_B64" | base64 -d > keystore.p12
+          {
+            cat config.base.yml
+            echo "keystore: keystore.p12"
+            echo "repo_keyalias: lixee-fdroid"
+            echo "keystorepass: \"$KEYSTORE_PASS\""
+            echo "keypass: \"$KEYSTORE_PASS\""
+          } > config.yml
+          chmod 600 config.yml keystore.p12
+          fdroid update
+          rm -f config.yml keystore.p12
+
+      - name: Préparer le site
+        run: |
+          mkdir -p site/fdroid
+          cp -r fdroid/repo site/fdroid/repo
+          cp fdroid/index.html site/index.html
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
