@@ -1,0 +1,20 @@
+LiXee-Assist is the companion app of the LiXee-Box, a Zigbee gateway that reads the French Linky electricity meter through the ZLinky module.
+
+<b>On a phone</b>
+* set up the box over Bluetooth and connect it to your WiFi;
+* open the box's interface, locally or remotely through its tunnel;
+* home screen widgets: consumption, production, balance, device, action group, thermostat.
+
+<b>On a wall panel (Sonoff NSPanel Pro)</b>
+The app opens as a touch kiosk, without a browser:
+* Energy: live power, 24 h consumption and cost, hour by hour;
+* Devices: Zigbee shutters, plugs and sensors, with their commands;
+* Action groups, started with one tap;
+* Thermostats: setpoint and mode of each zone.
+
+Boxes are added to the panel by scanning a QR code with the phone, or with the on-screen keyboard.
+
+<b>On Android TV</b>
+A remote-control interface with the same views.
+
+This build is fully free software: it contains neither Firebase nor Google services. It therefore receives no push notifications and has no built-in QR code reader (the phone's camera app replaces it).

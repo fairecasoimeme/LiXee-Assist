@@ -1,0 +1,20 @@
+LiXee-Assist accompagne la LiXee-Box, une passerelle Zigbee qui lit le compteur Linky par le module ZLinky.
+
+<b>Sur un téléphone</b>
+* installation de la box en Bluetooth et connexion à votre WiFi ;
+* accès à l'interface de la box, en local ou à distance par son tunnel ;
+* widgets d'écran d'accueil : consommation, production, bilan, appareil, groupe d'actions, thermostat.
+
+<b>Sur un panneau mural (Sonoff NSPanel Pro)</b>
+L'application s'ouvre en kiosque tactile, sans navigateur :
+* Énergie : puissance en direct, consommation et coût sur 24 h, heure par heure ;
+* Appareils : volets, prises et capteurs Zigbee, avec leurs commandes ;
+* Groupes d'actions, lancés d'un appui ;
+* Thermostats : consigne et mode de chaque zone.
+
+Les box s'ajoutent au panneau en scannant un QR code avec le téléphone, ou au clavier tactile.
+
+<b>Sur Android TV</b>
+Une interface à la télécommande, avec les mêmes vues.
+
+Cette version est entièrement libre : elle ne contient ni Firebase ni services Google. Elle ne reçoit donc pas de notifications push, et n'a pas de lecteur de QR code intégré (l'appareil photo du téléphone le remplace).
