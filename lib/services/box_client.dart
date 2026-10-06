@@ -14,6 +14,16 @@ enum LinkySource { local, remote }
 ///
 /// Formats supportés : `name|url`, `name|url|fallback`,
 /// `name|url|auth|login|pass`, `name|url|auth|login|pass|fallback`.
+/// Entrée de box prête pour le journal : le mot de passe y est masqué.
+///
+/// Le journal d'Android se lit avec un simple accès ADB ; une entrée
+/// enregistrée n'a pas à y figurer en clair.
+String redactEntry(String entry) {
+  final parts = entry.split('|');
+  if (parts.length > 4) parts[4] = '***';
+  return parts.join('|');
+}
+
 class BoxDevice {
   final String name;
   final String primaryUrl;

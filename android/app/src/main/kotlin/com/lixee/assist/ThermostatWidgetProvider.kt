@@ -103,6 +103,12 @@ class ThermostatWidgetProvider : HomeWidgetProvider() {
                     context.getString(R.string.widget_tap_to_configure)
                 )
                 views.setViewVisibility(R.id.thermo_row_modes, View.GONE)
+                views.setOnClickPendingIntent(
+                    R.id.thermo_root,
+                    WidgetConfigure.intent(
+                        context, widgetId, ThermostatWidgetConfigActivity::class.java
+                    )
+                )
                 return views
             }
 

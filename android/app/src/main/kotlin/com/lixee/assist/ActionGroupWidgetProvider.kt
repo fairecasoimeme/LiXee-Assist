@@ -93,6 +93,12 @@ class ActionGroupWidgetProvider : HomeWidgetProvider() {
                     R.id.group_footer,
                     context.getString(R.string.widget_tap_to_configure)
                 )
+                views.setOnClickPendingIntent(
+                    R.id.group_root,
+                    WidgetConfigure.intent(
+                        context, widgetId, ActionGroupWidgetConfigActivity::class.java
+                    )
+                )
                 return views
             }
 

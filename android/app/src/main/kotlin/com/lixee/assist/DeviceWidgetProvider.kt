@@ -130,6 +130,12 @@ class DeviceWidgetProvider : HomeWidgetProvider() {
                     context.getString(R.string.widget_tap_to_configure)
                 )
                 hideButtonsFrom(views, 0)
+                views.setOnClickPendingIntent(
+                    R.id.device_root,
+                    WidgetConfigure.intent(
+                        context, widgetId, DeviceWidgetConfigActivity::class.java
+                    )
+                )
                 return views
             }
 

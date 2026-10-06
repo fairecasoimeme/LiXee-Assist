@@ -160,7 +160,7 @@ class _WifiProvisionScreenState extends State<WifiProvisionScreen> {
     String last4Chars = ssid.substring(ssid.length - 4);
     String password = "admin$last4Chars";
 
-    print("🔌 Tentative de connexion à $ssid avec le mot de passe : $password");
+    print("🔌 Tentative de connexion à $ssid");
     print("📱 Plateforme détectée : ${Platform.isIOS ? 'iOS' : 'Android'}");
 
     try {

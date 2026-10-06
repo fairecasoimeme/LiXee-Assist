@@ -9,7 +9,7 @@
     <string name="widget_open_confirm">Ouvrir</string>
 
     <string name="widget_no_device">Box non choisie</string>
-    <string name="widget_tap_to_configure">Retirez et reposez le widget</string>
+    <string name="widget_tap_to_configure">Touchez pour choisir</string>
     <string name="widget_never_updated">Jamais relevé</string>
     <!-- La box n'a pas répondu à la dernière tentative. On garde l'âge des
          chiffres affichés : sans lui, on ne sait pas ce qu'on regarde. -->

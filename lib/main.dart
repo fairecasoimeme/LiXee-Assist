@@ -469,7 +469,7 @@ void main() async {
   // Récupérer le token FCM et l'enregistrer sur remote.lixee-box.fr
   try {
     final fcmToken = await messaging.getToken();
-    print('[FCM] Token: $fcmToken');
+    print('[FCM] Token ${fcmToken == null ? 'absent' : 'reçu'}');
 
     // Enregistrer le token FCM pour tous les devices avec credentials tunnel
     if (fcmToken != null) {
@@ -517,7 +517,7 @@ void main() async {
 
   // Écouter les refresh de token FCM → ré-enregistrer automatiquement
   FirebaseMessaging.instance.onTokenRefresh.listen((newToken) {
-    print('[FCM] Token refreshed: $newToken');
+    print('[FCM] Token renouvelé');
     PushRegisterService.forceReRegister(newToken);
   });
 

@@ -294,10 +294,19 @@ abstract class LixeeWidgetProvider(private val theme: WidgetTheme) :
             theme: WidgetTheme,
             widgetId: Int
         ) {
+            if (device == null) {
+                // Rien à relever ni à ouvrir : l'appui mène au choix de la box.
+                val configure = WidgetConfigure.intent(
+                    context, widgetId, WidgetConfigActivity::class.java
+                )
+                views.setOnClickPendingIntent(R.id.widget_gauge, configure)
+                views.setOnClickPendingIntent(R.id.widget_root, configure)
+                return
+            }
             // Encodé : un nom de box est libre et peut contenir espaces ou
             // accents, qui casseraient l'URI — et donc la distinction entre
             // les PendingIntent de deux widgets.
-            val suffix = Uri.encode(device ?: "unconfigured")
+            val suffix = Uri.encode(device)
             // Vers notre propre receveur, pas directement vers celui du
             // plugin : il faut accuser réception avant de relayer.
             views.setOnClickPendingIntent(
