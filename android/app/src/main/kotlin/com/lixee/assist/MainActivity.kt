@@ -32,6 +32,20 @@ class MainActivity : FlutterActivity() {
                         result.success(PanelBacklight.set(this, call.arguments as? Boolean ?: true))
                     "backlightLevel" -> result.success(PanelBacklight.level())
                     "takeQuietLaunch" -> result.success(PanelKiosk.takeQuietLaunch())
+                    "goHome" -> {
+                        // Vers l'accueil, explicitement : fermer l'activité
+                        // rendrait la main à la dernière application ouverte.
+                        try {
+                            startActivity(
+                                Intent(Intent.ACTION_MAIN)
+                                    .addCategory(Intent.CATEGORY_HOME)
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.success(false)
+                        }
+                    }
                     else -> result.notImplemented()
                 }
             }

@@ -103,6 +103,16 @@ class PanelBacklight {
     }
   }
 
+  /// Quitte le kiosque pour l'écran d'accueil du panneau.
+  static Future<void> goHome() async {
+    try {
+      final ok = await _channel.invokeMethod<bool>('goHome') ?? false;
+      if (!ok) await SystemNavigator.pop();
+    } catch (_) {
+      await SystemNavigator.pop();
+    }
+  }
+
   /// Incrémenté quand le délai de veille change, pour relancer la minuterie.
   static final changes = ValueNotifier<int>(0);
 }

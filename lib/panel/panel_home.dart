@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -661,7 +660,7 @@ class _PanelSettingsScreenState extends State<PanelSettingsScreen> {
             icon: Icons.logout,
             color: TvColors.panelHigh,
             textColor: TvColors.text,
-            onTap: () => SystemNavigator.pop(),
+            onTap: PanelBacklight.goHome,
           ),
           const SizedBox(height: 16),
           Center(
