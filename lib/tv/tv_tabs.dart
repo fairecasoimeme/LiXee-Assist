@@ -194,6 +194,10 @@ class TvArcGauge extends StatelessWidget {
   /// mesurée face à la consigne.
   final double? marker;
 
+  /// Le texte grandit avec la jauge, au lieu de garder la taille prévue
+  /// pour la TV : sur un panneau, la jauge occupe parfois tout l'écran.
+  final bool scaleText;
+
   const TvArcGauge({
     super.key,
     required this.ratio,
@@ -201,6 +205,7 @@ class TvArcGauge extends StatelessWidget {
     required this.value,
     required this.caption,
     this.marker,
+    this.scaleText = false,
   });
 
   @override
@@ -213,12 +218,16 @@ class TvArcGauge extends StatelessWidget {
           constraints.maxWidth.isFinite ? constraints.maxWidth : 260.0,
           constraints.maxHeight.isFinite ? constraints.maxHeight : 260.0,
         );
-        return Center(child: SizedBox.square(dimension: side, child: _gauge()));
+        return Center(
+          child: SizedBox.square(dimension: side, child: _gauge(side)),
+        );
       },
     );
   }
 
-  Widget _gauge() {
+  Widget _gauge(double side) {
+    final valueSize = scaleText ? (side * 0.2).clamp(40.0, 96.0) : 40.0;
+    final captionSize = scaleText ? (side * 0.058).clamp(13.0, 26.0) : 13.0;
     return CustomPaint(
       painter: _ArcPainter(ratio.clamp(0, 1).toDouble(), color, marker),
       // Marge intérieure : le texte ne doit pas chevaucher l'arc.
@@ -231,8 +240,8 @@ class TvArcGauge extends StatelessWidget {
               FittedBox(
                 child: Text(
                   value,
-                  style: const TextStyle(
-                    fontSize: 40,
+                  style: TextStyle(
+                    fontSize: valueSize,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -240,7 +249,7 @@ class TvArcGauge extends StatelessWidget {
               Text(
                 caption,
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 13, color: TvColors.muted),
+                style: TextStyle(fontSize: captionSize, color: TvColors.muted),
               ),
             ],
           ),
@@ -277,7 +286,28 @@ class _ArcPainter extends CustomPainter {
           ..strokeCap = StrokeCap.round;
     canvas.drawArc(rect, _start, _sweep, false, track);
     if (ratio > 0) {
-      canvas.drawArc(rect, _start, _sweep * ratio, false, track..color = color);
+      // Bout droit à l'avant, arrondi au départ seulement : avec deux bouts
+      // arrondis, une faible valeur se réduisait à une pastille, qui ne
+      // disait plus où s'arrêtait la mesure.
+      canvas.drawArc(
+        rect,
+        _start,
+        _sweep * ratio,
+        false,
+        Paint()
+          ..color = color
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = stroke
+          ..strokeCap = StrokeCap.butt,
+      );
+      canvas.drawCircle(
+        Offset(
+          rect.center.dx + rect.width / 2 * math.cos(_start),
+          rect.center.dy + rect.width / 2 * math.sin(_start),
+        ),
+        stroke / 2,
+        Paint()..color = color,
+      );
     }
     if (marker != null) {
       final angle = _start + _sweep * marker!.clamp(0, 1);

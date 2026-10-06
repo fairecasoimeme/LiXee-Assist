@@ -157,6 +157,7 @@ class PanelEnergyView extends StatelessWidget {
             s.subscribedPowerVA == null
                 ? 'VA'
                 : 'VA sur ${tvNumber(s.subscribedPowerVA!)}',
+        scaleText: true,
       ),
     );
   }
