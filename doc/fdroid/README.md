@@ -27,8 +27,13 @@ Adresse à donner aux utilisateurs :
 
 2. **Ajouter deux secrets** au dépôt GitHub (Settings → Secrets and
    variables → Actions) :
-   - `FDROID_KEYSTORE_B64` : le fichier `lixee-fdroid.p12` encodé en base64
-     (`base64 -w0 lixee-fdroid.p12`) ;
+   - `FDROID_KEYSTORE_B64` : le fichier `lixee-fdroid.p12` encodé en base64.
+     Sous Linux ou macOS : `base64 -w0 lixee-fdroid.p12`. Sous Windows, dans
+     PowerShell, cette commande met le texte dans le presse-papiers, prêt à
+     coller dans GitHub :
+
+         [Convert]::ToBase64String([IO.File]::ReadAllBytes("lixee-fdroid.p12")) | Set-Clipboard
+
    - `FDROID_KEYSTORE_PASS` : son mot de passe.
 
 3. **Activer GitHub Pages** (Settings → Pages), source « GitHub Actions ».
