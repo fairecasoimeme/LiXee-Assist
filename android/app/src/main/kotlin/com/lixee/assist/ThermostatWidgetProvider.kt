@@ -28,10 +28,16 @@ class ThermostatWidgetProvider : HomeWidgetProvider() {
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == ACTION_THERMOSTAT) {
+            if (!WidgetIntentGuard.isOurs(context, intent)) return
             acknowledge(context, intent)
             WidgetRefreshWorker.enqueue(context, intent.data?.toString())
             return
         }
+        val handled = ExposureRefresh.handle(context, intent, javaClass) { data, id ->
+            data.getString(bindingKeyFor(id), null)
+                ?.let { "lixee://thermorefresh/${Uri.encode(it)}" }
+        }
+        if (handled) return
         super.onReceive(context, intent)
     }
 
@@ -97,6 +103,12 @@ class ThermostatWidgetProvider : HomeWidgetProvider() {
                     context.getString(R.string.widget_tap_to_configure)
                 )
                 views.setViewVisibility(R.id.thermo_row_modes, View.GONE)
+                views.setOnClickPendingIntent(
+                    R.id.thermo_root,
+                    WidgetConfigure.intent(
+                        context, widgetId, ThermostatWidgetConfigActivity::class.java
+                    )
+                )
                 return views
             }
 
@@ -360,10 +372,13 @@ class ThermostatWidgetProvider : HomeWidgetProvider() {
             widgetId: Int,
             slot: Int
         ): PendingIntent {
-            val intent = Intent(ACTION_THERMOSTAT)
-                .setClassName(context.packageName, ThermostatWidgetProvider::class.java.name)
-                .setData(target(key, query))
-                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
+            val intent = WidgetIntentGuard.sign(
+                context,
+                Intent(ACTION_THERMOSTAT)
+                    .setClassName(context.packageName, ThermostatWidgetProvider::class.java.name)
+                    .setData(target(key, query))
+                    .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
+            )
             return PendingIntent.getBroadcast(
                 context, widgetId * 16 + slot, intent, flags()
             )

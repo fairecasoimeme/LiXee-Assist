@@ -23,6 +23,8 @@ import 'services/device_control_service.dart';
 import 'services/thermostat_service.dart';
 import 'services/home_widget_bridge.dart';
 import 'package:home_widget/home_widget.dart';
+import 'tv/tv_home_screen.dart';
+import 'tv/tv_theme.dart' show tvTheme;
 
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
 
@@ -34,6 +36,11 @@ class TVDetector {
   static bool get isTV => _isTV;
 
   static Future<void> init() async {
+    // --dart-define=FORCE_TV=true : essayer l'interface TV sur un téléphone.
+    if (const bool.fromEnvironment('FORCE_TV')) {
+      _isTV = true;
+      return;
+    }
     if (Platform.isAndroid) {
       try {
         final info = await DeviceInfoPlugin().androidInfo;
@@ -183,13 +190,20 @@ Future<void> refreshActionGroups({bool closeSessions = false}) async {
 }
 
 /// Relève les thermostats virtuels de chaque box.
-Future<void> refreshThermostats({bool closeSessions = false}) async {
+///
+/// [onlyBox] restreint le relevé à une box ; le catalogue des autres est
+/// conservé tel quel.
+Future<void> refreshThermostats({
+  bool closeSessions = false,
+  String? onlyBox,
+}) async {
   try {
     await SessionPool.loadPersisted();
     final catalogue = <ThermostatZone>[];
     final refreshed = <String>{};
 
     for (final box in await DeviceControlService.savedBoxes()) {
+      if (onlyBox != null && box.name != onlyBox) continue;
       final zones = await ThermostatService.fetchAll(
         box,
         mdnsResolver: resolveMdnsIP,
@@ -242,7 +256,9 @@ Future<void> _runThermostatCommand(Uri uri) async {
   // La box régule en continu : relire tout de suite donnerait la consigne
   // d'avant. Un court délai suffit, l'actionneur n'est pas dans la boucle.
   await Future<void>.delayed(const Duration(seconds: 2));
-  await refreshThermostats();
+  // Seule la box commandée a changé : interroger les autres ferait attendre
+  // le widget sur chaque box injoignable.
+  await refreshThermostats(onlyBox: boxName);
 }
 
 /// Déclenche un groupe d'actions depuis son widget.
@@ -328,7 +344,12 @@ Future<void> _runDeviceAction(Uri uri) async {
   // Relectures espacées : la première attrape les mouvements courts, la
   // dernière la position d'arrivée. S'arrêter à la première afficherait la
   // valeur d'avant l'appui, ce qui ressemblerait à une commande sans effet.
-  for (final delay in const [Duration(seconds: 4), Duration(seconds: 12)]) {
+  // La troisième, à 30 s, couvre la course complète d'un volet.
+  for (final delay in const [
+    Duration(seconds: 4),
+    Duration(seconds: 12),
+    Duration(seconds: 14),
+  ]) {
     await Future<void>.delayed(delay);
     await refreshDeviceMetrics(only: deviceKey, forceRead: true);
   }
@@ -344,6 +365,7 @@ Future<void> _runDeviceAction(Uri uri) async {
 @pragma('vm:entry-point')
 Future<void> widgetInteractionCallback(Uri? uri) async {
   if (uri == null) return;
+  final watch = Stopwatch()..start();
   await HomeWidgetBridge.init();
   print('[WIDGET-DATA] Appui widget ($uri)');
 
@@ -356,7 +378,7 @@ Future<void> widgetInteractionCallback(Uri? uri) async {
         final device =
             uri.pathSegments.isEmpty ? null : uri.pathSegments.first;
         try {
-          await refreshWidgetMetrics(closeSessions: true, only: device);
+          await refreshWidgetMetrics(only: device);
         } catch (e) {
           print('[WIDGET-DATA] Relevé sur appui échoué: $e');
           if (device != null) await HomeWidgetBridge.pushFailure(device);
@@ -364,7 +386,7 @@ Future<void> widgetInteractionCallback(Uri? uri) async {
 
       case 'devrefresh':
         final key = uri.pathSegments.isEmpty ? null : uri.pathSegments.first;
-        await refreshDeviceMetrics(closeSessions: true, only: key);
+        await refreshDeviceMetrics(only: key);
 
       case 'devaction':
         if (uri.pathSegments.length < 2) return;
@@ -382,10 +404,16 @@ Future<void> widgetInteractionCallback(Uri? uri) async {
         await _runThermostatCommand(uri);
 
       case 'thermorefresh':
-        await refreshThermostats();
+        // La clé vaut « box~zone » : seule la box du widget est relevée.
+        final key = uri.pathSegments.isEmpty ? null : uri.pathSegments.first;
+        await refreshThermostats(onlyBox: key?.split('~').first);
     }
   } finally {
-    WidgetDataService.disposeAll();
+    // Les sessions restent ouvertes : le moteur survit quelques minutes à
+    // l'appui (WidgetRefreshWorker), et l'appui suivant repart de la même
+    // connexion, sans login ni poignée de main TLS. Les fermer ici couperait
+    // aussi un relevé encore en vol sur ce même isolate.
+    print('[WIDGET] Appui ${uri.host} ${watch.elapsedMilliseconds} ms');
   }
 }
 
@@ -423,8 +451,75 @@ void callbackDispatcher() {
   });
 }
 
+bool _widgetRefreshRunning = false;
+bool _widgetRefreshQueued = false;
+
+/// Relève tout ce qui alimente les widgets : Linky, appareils, groupes
+/// d'actions, thermostats.
+///
+/// Un appel pendant un relevé en cours n'en lance pas un second en
+/// parallèle : il en demande un nouveau à la suite.
+Future<void> refreshAllWidgetData() async {
+  if (_widgetRefreshRunning) {
+    _widgetRefreshQueued = true;
+    return;
+  }
+  _widgetRefreshRunning = true;
+  try {
+    do {
+      _widgetRefreshQueued = false;
+      try {
+        await refreshWidgetMetrics();
+      } catch (e) {
+        print('[WIDGET-DATA] Relevé échoué: $e');
+      }
+      // Après le Linky : c'est le relevé des appareils qui alimente le
+      // catalogue de l'écran de configuration, sans lequel aucun widget
+      // d'appareil ne peut être posé.
+      try {
+        await refreshDeviceMetrics();
+      } catch (e) {
+        print('[DEVICES] Relevé échoué: $e');
+      }
+      try {
+        await refreshActionGroups();
+      } catch (e) {
+        print('[GROUPES] Relevé échoué: $e');
+      }
+      try {
+        await refreshThermostats();
+      } catch (e) {
+        print('[THERMO] Relevé échoué: $e');
+      }
+    } while (_widgetRefreshQueued);
+  } finally {
+    _widgetRefreshRunning = false;
+  }
+}
+
+/// À appeler dès qu'une box est ajoutée, modifiée ou retirée : sa liste est
+/// republiée pour les widgets, puis ses données sont relevées.
+void boxListChanged() {
+  () async {
+    try {
+      await HomeWidgetBridge.publishSavedBoxes();
+    } catch (e) {
+      print('[WIDGET-DATA] Liste des box non publiée: $e');
+    }
+    await refreshAllWidgetData();
+  }();
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Avant tout appel réseau : un widget posé dès le lancement doit déjà
+  // pouvoir proposer les box.
+  try {
+    await HomeWidgetBridge.publishSavedBoxes();
+  } catch (e) {
+    print('[WIDGET-DATA] Liste des box non publiée: $e');
+  }
 
   // Initialiser Firebase
   await Firebase.initializeApp();
@@ -441,7 +536,7 @@ void main() async {
   // Récupérer le token FCM et l'enregistrer sur remote.lixee-box.fr
   try {
     final fcmToken = await messaging.getToken();
-    print('[FCM] Token: $fcmToken');
+    print('[FCM] Token ${fcmToken == null ? 'absent' : 'reçu'}');
 
     // Enregistrer le token FCM pour tous les devices avec credentials tunnel
     if (fcmToken != null) {
@@ -461,35 +556,11 @@ void main() async {
 
   // Premier relevé au démarrage, sans bloquer l'UI : le widget dispose d'une
   // valeur fraîche sans attendre le prochain tour du worker (15 min).
-  () async {
-    try {
-      await refreshWidgetMetrics();
-    } catch (e) {
-      print('[WIDGET-DATA] Relevé initial échoué: $e');
-    }
-    // Après le Linky : c'est le relevé des appareils qui alimente le catalogue
-    // de l'écran de configuration, sans lequel aucun widget d'appareil ne peut
-    // être posé.
-    try {
-      await refreshDeviceMetrics();
-    } catch (e) {
-      print('[DEVICES] Relevé initial échoué: $e');
-    }
-    try {
-      await refreshActionGroups();
-    } catch (e) {
-      print('[GROUPES] Relevé initial échoué: $e');
-    }
-    try {
-      await refreshThermostats();
-    } catch (e) {
-      print('[THERMO] Relevé initial échoué: $e');
-    }
-  }();
+  refreshAllWidgetData();
 
   // Écouter les refresh de token FCM → ré-enregistrer automatiquement
   FirebaseMessaging.instance.onTokenRefresh.listen((newToken) {
-    print('[FCM] Token refreshed: $newToken');
+    print('[FCM] Token renouvelé');
     PushRegisterService.forceReRegister(newToken);
   });
 
@@ -772,7 +843,7 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'LiXee-Assist',
-      theme: ThemeData(
+      theme: TVDetector.isTV ? tvTheme() : ThemeData(
         primarySwatch: Colors.blue,
         focusColor: lixeeBlue.withOpacity(0.2),
         hoverColor: lixeeBlue.withOpacity(0.1),
@@ -820,7 +891,7 @@ class MyApp extends StatelessWidget {
           ),
         ),
       ),
-      home: HomeScreen(),
+      home: TVDetector.isTV ? const TvHomeScreen() : HomeScreen(),
     );
   }
 }

@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:shared_preferences/shared_preferences.dart';
+
 import 'network_scope.dart';
 import 'session_manager.dart' show AuthMode;
 import 'session_pool.dart';
@@ -12,6 +14,16 @@ enum LinkySource { local, remote }
 ///
 /// Formats supportés : `name|url`, `name|url|fallback`,
 /// `name|url|auth|login|pass`, `name|url|auth|login|pass|fallback`.
+/// Entrée de box prête pour le journal : le mot de passe y est masqué.
+///
+/// Le journal d'Android se lit avec un simple accès ADB ; une entrée
+/// enregistrée n'a pas à y figurer en clair.
+String redactEntry(String entry) {
+  final parts = entry.split('|');
+  if (parts.length > 4) parts[4] = '***';
+  return parts.join('|');
+}
+
 class BoxDevice {
   final String name;
   final String primaryUrl;
@@ -97,7 +109,12 @@ class BoxClient {
 
   /// Dernière URL ayant répondu, par box. Évite de retenter systématiquement
   /// l'IP locale en timeout quand on n'est pas sur le réseau de la box.
+  ///
+  /// Copiée dans les préférences : un appui sur widget démarre souvent un
+  /// isolate neuf, qui sans elle repartirait de l'URL principale et paierait
+  /// trois secondes d'attente chaque fois que ce n'est pas la bonne.
   static final Map<String, String> _lastGoodUrl = {};
+  static const _prefsLastGoodPrefix = 'box_last_good_';
 
   /// Ferme les sessions ouvertes.
   ///
@@ -108,7 +125,19 @@ class BoxClient {
   /// Note l'URL qui vient d'aboutir, pour la tenter en premier la prochaine
   /// fois.
   static void remember(BoxDevice device, String candidate) {
+    if (_lastGoodUrl[device.key] == candidate) return;
     _lastGoodUrl[device.key] = candidate;
+    SharedPreferences.getInstance().then(
+      (prefs) => prefs.setString(_prefsLastGoodPrefix + device.key, candidate),
+    );
+  }
+
+  /// Relit l'URL retenue par un autre isolate, si celui-ci n'en a pas.
+  static Future<void> _recall(BoxDevice device) async {
+    if (_lastGoodUrl.containsKey(device.key)) return;
+    final prefs = await SharedPreferences.getInstance();
+    final stored = prefs.getString(_prefsLastGoodPrefix + device.key);
+    if (stored != null) _lastGoodUrl[device.key] = stored;
   }
 
   /// Les voies à tenter pour joindre [device], la meilleure d'abord.
@@ -121,6 +150,7 @@ class BoxClient {
     Duration localTimeout = defaultLocalTimeout,
     Duration remoteTimeout = defaultRemoteTimeout,
   }) async* {
+    await _recall(device);
     for (final candidate in _orderedCandidates(device)) {
       final baseUrl = await _resolve(candidate, device.name, mdnsResolver);
       if (baseUrl == null) continue;
@@ -141,10 +171,20 @@ class BoxClient {
   /// GET authentifié sur la box, quel que soit le mode d'auth.
   ///
   /// [path] commence par `/`. Retourne `null` si la requête n'aboutit pas.
-  static Future<String?> get(BoxRoute route, String path) async {
+  ///
+  /// [allowEmpty] : pour une commande, la box répond 200 sans corps. Sans ce
+  /// drapeau, ce silence passerait pour un échec, et la commande repartirait
+  /// par l'authentification suivante — puis par la voie suivante : un volet
+  /// recevait ainsi sa commande deux ou trois fois, et un interrupteur qui
+  /// bascule se serait remis dans son état de départ.
+  static Future<String?> get(
+    BoxRoute route,
+    String path, {
+    bool allowEmpty = false,
+  }) async {
     final device = route.device;
     if (!device.hasAuth) {
-      return rawGet('${route.baseUrl}$path', route.timeout);
+      return rawGet('${route.baseUrl}$path', route.timeout, allowEmpty: allowEmpty);
     }
 
     final basic =
@@ -159,6 +199,7 @@ class BoxClient {
         '${route.baseUrl}$path',
         route.timeout,
         authHeader: basic,
+        allowEmpty: allowEmpty,
       );
       if (body != null) return body;
       print('[BOX] Basic refusé sur ${route.baseUrl}, bascule sur le formulaire');
@@ -169,7 +210,7 @@ class BoxClient {
       final session =
           SessionPool.session(route.baseUrl, device.login!, device.password!);
       final result = await session.authenticatedGet(path).timeout(route.timeout);
-      if (result.statusCode == 200 && result.body.isNotEmpty) {
+      if (result.statusCode == 200 && (allowEmpty || result.body.isNotEmpty)) {
         return result.body;
       }
       print('[BOX] Formulaire KO (${result.statusCode}) sur ${route.baseUrl}$path');
@@ -178,7 +219,12 @@ class BoxClient {
     // Inutile de rejouer le Basic si la voie LAN l'a déjà refusé.
     return basicTried
         ? null
-        : rawGet('${route.baseUrl}$path', route.timeout, authHeader: basic);
+        : rawGet(
+            '${route.baseUrl}$path',
+            route.timeout,
+            authHeader: basic,
+            allowEmpty: allowEmpty,
+          );
   }
 
   /// POST authentifié, en formulaire. Retourne `null` si rien n'aboutit.
@@ -259,6 +305,7 @@ class BoxClient {
     String url,
     Duration timeout, {
     String? authHeader,
+    bool allowEmpty = false,
   }) async {
     final client = scopedHttpClient(url, connectionTimeout: timeout);
     try {
@@ -270,7 +317,9 @@ class BoxClient {
       request.followRedirects = false;
       final response = await request.close().timeout(timeout);
       final body = await response.transform(utf8.decoder).join();
-      return response.statusCode == 200 && body.isNotEmpty ? body : null;
+      return response.statusCode == 200 && (allowEmpty || body.isNotEmpty)
+          ? body
+          : null;
     } finally {
       client.close(force: true);
     }

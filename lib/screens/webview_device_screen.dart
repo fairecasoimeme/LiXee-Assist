@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -7,7 +8,9 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:file_picker/file_picker.dart';
 import '../services/proxy_server.dart';
-import '../main.dart' show TVDetector;
+import '../main.dart' show TVDetector, boxListChanged;
+import '../tv/tv_theme.dart' show isMenuKey, isSelectKey;
+import '../tv/tv_web_navigation.dart';
 
 class WebViewDeviceScreen extends StatefulWidget {
   final String deviceEntry;
@@ -37,6 +40,9 @@ class _WebViewDeviceScreenState extends State<WebViewDeviceScreen> {
   );
 
   bool _isLoading = true;
+
+  /// TV : pointeur libre au lieu du saut d'élément en élément (touche Menu).
+  bool _cursorMode = false;
   bool _hasTriedAuth = false;
   bool _proxyReady = false;
   bool _isDisposed = false;
@@ -186,6 +192,7 @@ class _WebViewDeviceScreenState extends State<WebViewDeviceScreen> {
       saved.removeWhere((e) => e.startsWith("${parts[0]}|${parts[1]}"));
       saved.add(updatedEntry);
       await prefs.setStringList('saved_devices', saved);
+    boxListChanged();
 
       // Mettre à jour les credentials en mémoire
       login = tempLogin;
@@ -292,6 +299,32 @@ class _WebViewDeviceScreenState extends State<WebViewDeviceScreen> {
 
 
 
+  Timer? _okLongPress;
+  bool _okWasLong = false;
+
+  /// Bascule entre le saut d'élément en élément et le pointeur libre, gardé
+  /// pour les pages que le premier ne sait pas parcourir.
+  void _toggleCursorMode() {
+    setState(() => _cursorMode = !_cursorMode);
+    if (_cursorMode) {
+      _controller?.evaluateJavascript(source: 'window.__lxNav && __lxNav.clear()');
+    }
+  }
+
+  /// Clic de la touche OK : sur l'élément sélectionné, ou sous le pointeur.
+  Future<void> _clickHere() async {
+    if (!_cursorMode) {
+      await _controller?.evaluateJavascript(
+        source: 'window.__lxNav && __lxNav.activate()',
+      );
+      return;
+    }
+    setState(() => _showClickFeedback = true);
+    await _simulateClickAt(cursorX, cursorY);
+    await Future.delayed(const Duration(milliseconds: 200));
+    if (mounted) setState(() => _showClickFeedback = false);
+  }
+
   /// Calcule le step avec accélération : appuis rapides = mouvement plus grand.
   double _getAcceleratedStep() {
     final now = DateTime.now();
@@ -328,6 +361,41 @@ class _WebViewDeviceScreenState extends State<WebViewDeviceScreen> {
       focusNode: _focusNode,
       autofocus: true,
       onKeyEvent: (KeyEvent event) async {
+        if (event is KeyDownEvent && isMenuKey(event.logicalKey)) {
+          _toggleCursorMode();
+          return;
+        }
+        // OK : court, il clique ; maintenu, il bascule de mode — la plupart
+        // des télécommandes n'ont pas de touche Menu.
+        if (isSelectKey(event.logicalKey)) {
+          if (event is KeyDownEvent) {
+            _okLongPress?.cancel();
+            _okWasLong = false;
+            _okLongPress = Timer(const Duration(milliseconds: 600), () {
+              _okWasLong = true;
+              _toggleCursorMode();
+            });
+          } else if (event is KeyUpEvent) {
+            _okLongPress?.cancel();
+            if (!_okWasLong) await _clickHere();
+          }
+          return;
+        }
+        if (!_cursorMode && (event is KeyDownEvent || event is KeyRepeatEvent)) {
+          final direction = switch (event.logicalKey) {
+            LogicalKeyboardKey.arrowUp => 'up',
+            LogicalKeyboardKey.arrowDown => 'down',
+            LogicalKeyboardKey.arrowLeft => 'left',
+            LogicalKeyboardKey.arrowRight => 'right',
+            _ => null,
+          };
+          if (direction != null) {
+            await _controller?.evaluateJavascript(
+              source: 'window.__lxNav && __lxNav.move("$direction")',
+            );
+          }
+          return;
+        }
         if (event is KeyDownEvent || event is KeyRepeatEvent) {
           final size = MediaQuery.of(context).size;
           final step = _getAcceleratedStep();
@@ -343,13 +411,6 @@ class _WebViewDeviceScreenState extends State<WebViewDeviceScreen> {
           } else if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
             setState(() => cursorX = (cursorX + step).clamp(0, size.width));
             _scrollWebViewIfNeeded(step, 'right');
-          } else if (event.logicalKey == LogicalKeyboardKey.select ||
-              event.logicalKey == LogicalKeyboardKey.enter) {
-            // Retour visuel au clic
-            setState(() => _showClickFeedback = true);
-            await _simulateClickAt(cursorX, cursorY);
-            await Future.delayed(const Duration(milliseconds: 200));
-            if (mounted) setState(() => _showClickFeedback = false);
           }
         }
       },
@@ -357,7 +418,28 @@ class _WebViewDeviceScreenState extends State<WebViewDeviceScreen> {
         children: [
           _buildInAppWebView(),
           if (_isLoading) _buildLoadingOverlay(),
+          // Rappel discret du mode en cours et de la touche qui en change.
+          Positioned(
+            right: 16,
+            bottom: 12,
+            child: IgnorePointer(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.65),
+                  borderRadius: BorderRadius.circular(99),
+                ),
+                child: Text(
+                  _cursorMode
+                      ? 'Pointeur libre · OK maintenu : revenir aux éléments'
+                      : '← → ↑ ↓ éléments · OK cliquer · OK maintenu : pointeur libre',
+                  style: const TextStyle(color: Colors.white, fontSize: 13),
+                ),
+              ),
+            ),
+          ),
           // Curseur TV (plus grand, avec ombre et feedback de clic)
+          if (_cursorMode)
           Positioned(
             left: cursorX - 12,
             top: cursorY - 12,
@@ -455,11 +537,13 @@ class _WebViewDeviceScreenState extends State<WebViewDeviceScreen> {
           setState(() => _isLoading = false);
         }
 
-        // TV : zoom à 60% pour afficher plus de contenu sur grand écran
+        // TV : zoom à 60% pour afficher plus de contenu sur grand écran, et
+        // navigation aux flèches d'élément en élément.
         if (TVDetector.isTV) {
           await controller.evaluateJavascript(
             source: "document.body.style.zoom = '60%';",
           );
+          await controller.evaluateJavascript(source: tvWebNavigationScript);
         }
 
         // Détecter si la page de login ESP32 s'affiche dans la WebView

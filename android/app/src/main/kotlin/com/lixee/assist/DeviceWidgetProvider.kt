@@ -32,11 +32,17 @@ class DeviceWidgetProvider : HomeWidgetProvider() {
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
             ACTION_DEVICE_REFRESH, ACTION_DEVICE_COMMAND -> {
+                if (!WidgetIntentGuard.isOurs(context, intent)) return
                 acknowledge(context, intent)
                 WidgetRefreshWorker.enqueue(context, intent.data?.toString())
                 return
             }
         }
+        val handled = ExposureRefresh.handle(context, intent, javaClass) { data, id ->
+            data.getString(bindingKeyFor(id), null)
+                ?.let { "lixee://devrefresh/${Uri.encode(it)}" }
+        }
+        if (handled) return
         super.onReceive(context, intent)
     }
 
@@ -124,6 +130,12 @@ class DeviceWidgetProvider : HomeWidgetProvider() {
                     context.getString(R.string.widget_tap_to_configure)
                 )
                 hideButtonsFrom(views, 0)
+                views.setOnClickPendingIntent(
+                    R.id.device_root,
+                    WidgetConfigure.intent(
+                        context, widgetId, DeviceWidgetConfigActivity::class.java
+                    )
+                )
                 return views
             }
 
@@ -197,7 +209,10 @@ class DeviceWidgetProvider : HomeWidgetProvider() {
             for (i in 0 until count) {
                 val action = actions!!.getJSONObject(i)
                 views.setViewVisibility(buttonId(i), View.VISIBLE)
-                views.setTextViewText(buttonId(i), action.optString("name"))
+                views.setTextViewText(
+                    buttonId(i),
+                    actionLabel(context, action.optString("name"))
+                )
                 views.setOnClickPendingIntent(
                     buttonId(i),
                     confirmIntent(
@@ -234,6 +249,22 @@ class DeviceWidgetProvider : HomeWidgetProvider() {
          * comportement — reconnaître un nom ne donne aucun privilège à
          * l'attribut, il s'affiche comme les autres.
          */
+        /**
+         * Nom d'action d'un gabarit, traduit pour l'écran. Les gabarits de la
+         * box les écrivent en anglais (`UP`, `DOWN`, `STOP`) ; un nom inconnu
+         * s'affiche tel quel.
+         */
+        fun actionLabel(context: Context, name: String): String =
+            when (name.uppercase(Locale.ROOT)) {
+                "UP", "OPEN" -> context.getString(R.string.widget_action_up)
+                "DOWN", "CLOSE" -> context.getString(R.string.widget_action_down)
+                "STOP" -> context.getString(R.string.widget_action_stop)
+                "ON" -> context.getString(R.string.widget_action_on)
+                "OFF" -> context.getString(R.string.widget_action_off)
+                "TOGGLE" -> context.getString(R.string.widget_action_toggle)
+                else -> name
+            }
+
         private fun label(context: Context, name: String): String = when (name) {
             "current_position" -> context.getString(R.string.widget_reading_position)
             "temperature", "Temperature", "local_temperature" ->
@@ -361,10 +392,13 @@ class DeviceWidgetProvider : HomeWidgetProvider() {
             key: String,
             widgetId: Int
         ): PendingIntent {
-            val intent = Intent(ACTION_DEVICE_REFRESH)
-                .setClassName(context.packageName, DeviceWidgetProvider::class.java.name)
-                .setData(Uri.parse("lixee://devrefresh/${Uri.encode(key)}"))
-                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
+            val intent = WidgetIntentGuard.sign(
+                context,
+                Intent(ACTION_DEVICE_REFRESH)
+                    .setClassName(context.packageName, DeviceWidgetProvider::class.java.name)
+                    .setData(Uri.parse("lixee://devrefresh/${Uri.encode(key)}"))
+                    .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
+            )
             return PendingIntent.getBroadcast(context, widgetId, intent, flags())
         }
 
@@ -405,6 +439,11 @@ class DeviceWidgetProvider : HomeWidgetProvider() {
 
             val intent = Intent(context, WidgetActionConfirmActivity::class.java)
                 .setData(target)
+                // L'URI garde le nom du gabarit ; l'écran affiche sa traduction.
+                .putExtra(
+                    WidgetActionConfirmActivity.EXTRA_ACTION,
+                    actionLabel(context, name)
+                )
                 .putExtra(WidgetActionConfirmActivity.EXTRA_LABEL, label)
                 .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
             // Le code de requête distingue les boutons d'un même widget : leurs
