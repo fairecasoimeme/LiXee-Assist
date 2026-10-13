@@ -216,7 +216,7 @@ class _TvBoxScreenState extends State<TvBoxScreen> {
   Widget _content(_Tab tab) {
     switch (tab) {
       case _Tab.energy:
-        return TvEnergyTab(snapshot: _box.snapshot!);
+        return TvEnergyTab(snapshot: _box.snapshot!, extras: _box.extras);
       case _Tab.devices:
         return TvDevicesTab(
           box: _box.device,

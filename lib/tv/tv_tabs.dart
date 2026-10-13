@@ -10,6 +10,7 @@ import '../screens/webview_device_screen.dart';
 import '../services/action_group_service.dart';
 import '../services/box_client.dart';
 import '../services/device_control_service.dart';
+import '../services/energy_detail_service.dart';
 import '../services/thermostat_service.dart';
 import '../services/widget_data_service.dart';
 import 'tv_data.dart';
@@ -21,8 +22,9 @@ import 'tv_theme.dart';
 
 class TvEnergyTab extends StatelessWidget {
   final LinkySnapshot snapshot;
+  final EnergyExtras? extras;
 
-  const TvEnergyTab({super.key, required this.snapshot});
+  const TvEnergyTab({super.key, required this.snapshot, this.extras});
 
   @override
   Widget build(BuildContext context) {
@@ -114,7 +116,33 @@ class TvEnergyTab extends StatelessWidget {
                         style: TextStyle(color: TvColors.muted),
                       ),
                     )
-                    : TvHourlyChart(samples: s.hourly),
+                    : Column(
+                      children: [
+                        Expanded(
+                          child: TvHourlyChart(
+                            samples: s.hourly,
+                            contract: s.contract,
+                            subMeterColors:
+                                extras?.subMeterColors ?? const {},
+                          ),
+                        ),
+                        if (extras?.utilities.isNotEmpty ?? false) ...[
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            height: 62,
+                            child: Row(
+                              children: [
+                                for (final (i, meter)
+                                    in extras!.utilities.indexed) ...[
+                                  if (i > 0) const SizedBox(width: 12),
+                                  Expanded(child: TvUtilityTile(meter: meter)),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
           ),
         ),
       ],
@@ -329,12 +357,102 @@ class _ArcPainter extends CustomPainter {
       old.ratio != ratio || old.color != color || old.marker != marker;
 }
 
-/// Graphe des 24 dernières heures. L'heure en cours, partielle, est la
-/// dernière barre, plus appuyée ; l'injection est en vert.
+/// Une série du graphe : un index tarifaire ou un sous-compteur.
+class TvEnergySeries {
+  final String label;
+  final Color color;
+
+  /// Énergie de la série pour une heure, en Wh.
+  final int Function(HourlySample) wh;
+
+  const TvEnergySeries(this.label, this.color, this.wh);
+}
+
+/// Couleur d'un index tarifaire. En Tempo, celle du jour : bleu, blanc,
+/// rouge, plus claire en heures creuses. Ailleurs, les heures creuses dans
+/// le bleu de l'application et les heures pleines plus soutenues.
+Color tvTariffColor(int attribute, String? contract) {
+  final c = (contract ?? '').toUpperCase();
+  final rank = (attribute - 256) ~/ 2;
+  const tempo = [
+    Color(0xFF5DADE2),
+    Color(0xFF2E86C1),
+    Color(0xFFECF0F1),
+    Color(0xFFAAB7B8),
+    Color(0xFFF1948A),
+    Color(0xFFE74C3C),
+  ];
+  const others = [
+    TvColors.focus,
+    Color(0xFF1F6FB5),
+    Color(0xFF7F8C8D),
+    Color(0xFFBDC3C7),
+    Color(0xFFE74C3C),
+    Color(0xFFC0392B),
+    Color(0xFFF5B041),
+    Color(0xFFD35400),
+    Color(0xFF8E44AD),
+    Color(0xFFA569BD),
+  ];
+  final palette = c.contains('BBR') || c.contains('TEMPO') ? tempo : others;
+  return rank >= 0 && rank < palette.length ? palette[rank] : TvColors.muted;
+}
+
+/// Les séries présentes sur 24 h : les index tarifaires dans leur ordre,
+/// puis les sous-compteurs, dans la couleur choisie sur la box.
+List<TvEnergySeries> tvEnergySeries(
+  List<HourlySample> samples, {
+  String? contract,
+  Map<String, int> subMeterColors = const {},
+}) {
+  const spare = [
+    Color(0xFFF5B041),
+    Color(0xFF9B59B6),
+    Color(0xFF1ABC9C),
+    Color(0xFFE67E22),
+    Color(0xFFEC7063),
+  ];
+  final attributes = <int>{for (final s in samples) ...s.tariffs.keys}.toList()
+    ..sort();
+  final meters = <String>{for (final s in samples) ...s.subMeters.keys};
+  return [
+    for (final attribute in attributes)
+      TvEnergySeries(
+        tariffLabel(attribute, contract),
+        tvTariffColor(attribute, contract),
+        (s) => s.tariffs[attribute] ?? 0,
+      ),
+    for (final (i, name) in meters.indexed)
+      TvEnergySeries(
+        name,
+        subMeterColors[name] == null
+            ? spare[i % spare.length]
+            : Color(0xFF000000 | subMeterColors[name]!),
+        (s) => s.subMeters[name] ?? 0,
+      ),
+  ];
+}
+
+/// Graphe des 24 dernières heures, empilé par tarif et par sous-compteur.
+/// L'heure en cours, partielle, est la dernière barre, plus appuyée ;
+/// l'injection, en vert, descend sous l'axe.
 class TvHourlyChart extends StatelessWidget {
   final List<HourlySample> samples;
 
-  const TvHourlyChart({super.key, required this.samples});
+  /// Contrat du compteur, qui donne leur nom aux index tarifaires.
+  final String? contract;
+  final Map<String, int> subMeterColors;
+
+  /// Corps des heures ; la légende est un cran en dessous.
+  final double legendSize;
+
+  const TvHourlyChart({
+    super.key,
+    required this.samples,
+    this.contract,
+    this.subMeterColors = const {},
+    this.legendSize = 14,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -344,12 +462,18 @@ class TvHourlyChart extends StatelessWidget {
       2 * samples.length ~/ 3,
       samples.length - 1,
     ];
+    final series = tvEnergySeries(
+      samples,
+      contract: contract,
+      subMeterColors: subMeterColors,
+    );
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Expanded(
           child: CustomPaint(
             size: Size.infinite,
-            painter: _BarsPainter(samples),
+            painter: _BarsPainter(samples, series),
           ),
         ),
         const SizedBox(height: 6),
@@ -360,13 +484,46 @@ class TvHourlyChart extends StatelessWidget {
               Text(
                 '${samples[index].hour}h',
                 style: TextStyle(
-                  fontSize: 14,
+                  fontSize: legendSize,
                   color:
                       i == marks.length - 1 ? TvColors.focus : TvColors.muted,
                 ),
               ),
           ],
         ),
+        // Une seule série n'a rien à distinguer : la légende ne dirait que
+        // ce que le total dit déjà.
+        if (series.length > 1) ...[
+          const SizedBox(height: 4),
+          Wrap(
+            spacing: legendSize,
+            runSpacing: 2,
+            children: [
+              for (final entry in series)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: legendSize * 0.7,
+                      height: legendSize * 0.7,
+                      decoration: BoxDecoration(
+                        color: entry.color,
+                        borderRadius: BorderRadius.circular(3),
+                      ),
+                    ),
+                    SizedBox(width: legendSize * 0.4),
+                    Text(
+                      '${entry.label} ${tvNumber(samples.fold<int>(0, (sum, s) => sum + entry.wh(s)) / 1000, decimals: 1)} kWh',
+                      style: TextStyle(
+                        fontSize: legendSize - 1,
+                        color: TvColors.muted,
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        ],
       ],
     );
   }
@@ -374,38 +531,72 @@ class TvHourlyChart extends StatelessWidget {
 
 class _BarsPainter extends CustomPainter {
   final List<HourlySample> samples;
+  final List<TvEnergySeries> series;
 
-  _BarsPainter(this.samples);
+  _BarsPainter(this.samples, this.series);
 
   @override
   void paint(Canvas canvas, Size size) {
-    final peak = samples.fold<int>(
-      1,
-      (m, s) => math.max(m, math.max(s.wh, s.productionWh)),
-    );
+    // La consommation monte au-dessus de l'axe, l'injection descend
+    // dessous : les deux gardent la même échelle, et l'axe se place selon
+    // la part de chacune.
+    final up = samples.fold<int>(1, (m, s) => math.max(m, s.wh));
+    final down = samples.fold<int>(0, (m, s) => math.max(m, s.productionWh));
+    final scale = size.height / (up + down);
+    final axis = up * scale;
     final slot = size.width / samples.length;
     final width = slot * 0.62;
-    final hasProduction = samples.any((s) => s.productionWh > 0);
+
+    if (down > 0) {
+      canvas.drawLine(
+        Offset(0, axis),
+        Offset(size.width, axis),
+        Paint()
+          ..color = TvColors.muted.withValues(alpha: 0.35)
+          ..strokeWidth = 1,
+      );
+    }
+
     for (final (i, s) in samples.indexed) {
       final current = i == samples.length - 1;
       final x = i * slot + (slot - width) / 2;
-      final drawnWidth = hasProduction ? width / 2 : width;
-      final h = size.height * s.wh / peak;
-      canvas.drawRRect(
+
+      // Les parts de l'heure, de l'axe vers le haut. Ce que le détail ne
+      // couvre pas — un relevé plus ancien, sans détail — reste dans la
+      // couleur d'origine, pour que la barre garde sa hauteur.
+      final parts = <(Color, int)>[
+        for (final entry in series)
+          if (entry.wh(s) > 0) (entry.color, entry.wh(s)),
+      ];
+      final covered = parts.fold<int>(0, (sum, p) => sum + p.$2);
+      if (s.wh > covered) parts.add((TvColors.focus, s.wh - covered));
+
+      final total = math.min(math.max(s.wh, covered), up) * scale;
+      canvas.save();
+      canvas.clipRRect(
         RRect.fromRectAndCorners(
-          Rect.fromLTWH(x, size.height - h, drawnWidth, h),
+          Rect.fromLTWH(x, axis - total, width, total),
           topLeft: const Radius.circular(3),
           topRight: const Radius.circular(3),
         ),
-        Paint()..color = TvColors.focus.withValues(alpha: current ? 1 : 0.55),
       );
-      if (hasProduction && s.productionWh > 0) {
-        final p = size.height * s.productionWh / peak;
+      var bottom = axis;
+      for (final (color, wh) in parts) {
+        final h = wh * scale;
+        canvas.drawRect(
+          Rect.fromLTWH(x, bottom - h, width, h),
+          Paint()..color = color.withValues(alpha: current ? 1 : 0.72),
+        );
+        bottom -= h;
+      }
+      canvas.restore();
+
+      if (s.productionWh > 0) {
         canvas.drawRRect(
           RRect.fromRectAndCorners(
-            Rect.fromLTWH(x + drawnWidth, size.height - p, drawnWidth, p),
-            topLeft: const Radius.circular(3),
-            topRight: const Radius.circular(3),
+            Rect.fromLTWH(x, axis, width, s.productionWh * scale),
+            bottomLeft: const Radius.circular(3),
+            bottomRight: const Radius.circular(3),
           ),
           Paint()..color = TvColors.solar.withValues(alpha: current ? 1 : 0.7),
         );
@@ -414,7 +605,133 @@ class _BarsPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_BarsPainter old) => old.samples != samples;
+  bool shouldRepaint(_BarsPainter old) =>
+      old.samples != samples || old.series.length != series.length;
+}
+
+/// Le compteur de gaz ou d'eau : son total sur 24 h, son coût, et ses
+/// heures en petites barres.
+class TvUtilityTile extends StatelessWidget {
+  final UtilityMeter meter;
+
+  /// Corps du total ; le libellé et l'icône en découlent.
+  final double size;
+
+  const TvUtilityTile({super.key, required this.meter, this.size = 20});
+
+  static const _gas = Color(0xFFE67E22);
+  static const _water = Color(0xFF3498DB);
+
+  @override
+  Widget build(BuildContext context) {
+    final gas = meter.kind == UtilityKind.gas;
+    final color = gas ? _gas : _water;
+    final total = meter.dailyTotal;
+    final cost = meter.dailyCostEur;
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: size * 0.6,
+        vertical: size * 0.3,
+      ),
+      decoration: BoxDecoration(
+        color: TvColors.panelHigh,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            gas ? Icons.local_fire_department : Icons.water_drop,
+            color: color,
+            size: size * 1.3,
+          ),
+          SizedBox(width: size * 0.4),
+          Flexible(
+            flex: 3,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    gas ? 'Gaz · 24 h' : 'Eau · 24 h',
+                    style: TextStyle(
+                      fontSize: size * 0.6,
+                      color: TvColors.muted,
+                    ),
+                  ),
+                  Text(
+                    total == null
+                        ? 'Aucun relevé'
+                        : cost == null
+                        ? _amount(total)
+                        : '${_amount(total)} · ${tvNumber(cost, decimals: 2)} €',
+                    style: TextStyle(
+                      fontSize: total == null ? size * 0.75 : size,
+                      fontWeight:
+                          total == null ? FontWeight.w400 : FontWeight.w700,
+                      color: total == null ? TvColors.muted : TvColors.text,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          SizedBox(width: size * 0.6),
+          Expanded(
+            flex: 2,
+            child:
+                total == null
+                    ? const SizedBox()
+                    : CustomPaint(
+                      size: Size.infinite,
+                      painter: _SparkPainter(meter.hourly, color),
+                    ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// La quantité dans son unité, avec assez de décimales pour une petite
+  /// valeur ; les Wh passent en kWh.
+  String _amount(double value) {
+    var unit = meter.unit;
+    if (unit == 'Wh') {
+      value /= 1000;
+      unit = 'kWh';
+    } else if (unit.toLowerCase() == 'm3') {
+      unit = 'm³';
+    }
+    final decimals = value < 10 ? 2 : (value < 100 ? 1 : 0);
+    return '${tvNumber(value, decimals: decimals)} $unit';
+  }
+}
+
+class _SparkPainter extends CustomPainter {
+  final List<UtilitySample> samples;
+  final Color color;
+
+  _SparkPainter(this.samples, this.color);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final peak = samples.fold<double>(0, (m, s) => math.max(m, s.value));
+    if (peak <= 0) return;
+    final slot = size.width / samples.length;
+    for (final (i, s) in samples.indexed) {
+      final h = size.height * s.value / peak;
+      canvas.drawRect(
+        Rect.fromLTWH(i * slot + slot * 0.2, size.height - h, slot * 0.6, h),
+        Paint()
+          ..color = color.withValues(alpha: i == samples.length - 1 ? 1 : 0.7),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_SparkPainter old) => old.samples != samples;
 }
 
 // ---------------------------------------------------------------------------

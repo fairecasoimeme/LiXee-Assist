@@ -361,7 +361,7 @@ class _PanelHomeScreenState extends State<PanelHomeScreen> {
     final box = _box!;
     switch (tab) {
       case _Tab.energy:
-        return PanelEnergyView(snapshot: box.snapshot!);
+        return PanelEnergyView(snapshot: box.snapshot!, extras: box.extras);
       case _Tab.devices:
         return PanelDevicesView(
           box: box.device,

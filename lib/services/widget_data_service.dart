@@ -73,12 +73,23 @@ class HourlySample {
   /// Revenu de l'injection sur l'heure, en euros.
   final double revenueEur;
 
+  /// Énergie par index tarifaire, en Wh, indexée par l'attribut du cluster
+  /// Metering (256 = HC ou base, 258 = HP, 260 à 266 = Tempo blanc et
+  /// rouge…). La box en a déjà retiré ce que mesurent les sous-compteurs :
+  /// tarifs et sous-compteurs s'additionnent pour donner [wh].
+  final Map<int, int> tariffs;
+
+  /// Énergie par sous-compteur, en Wh, indexée par son nom sur la box.
+  final Map<String, int> subMeters;
+
   const HourlySample(
     this.hour,
     this.wh, [
     this.costEur = 0,
     this.productionWh = 0,
     this.revenueEur = 0,
+    this.tariffs = const {},
+    this.subMeters = const {},
   ]);
 
   /// Solde de l'heure : positif si l'on a tiré du réseau, négatif si l'on y a
@@ -88,8 +99,16 @@ class HourlySample {
   /// Solde facturé. Négatif quand l'injection rapporte plus qu'elle ne coûte.
   double get netCostEur => costEur - revenueEur;
 
-  Map<String, dynamic> toJson() =>
-      {'h': hour, 'wh': wh, 'c': costEur, 'p': productionWh, 'r': revenueEur};
+  Map<String, dynamic> toJson() => {
+        'h': hour,
+        'wh': wh,
+        'c': costEur,
+        'p': productionWh,
+        'r': revenueEur,
+        if (tariffs.isNotEmpty)
+          't': {for (final e in tariffs.entries) '${e.key}': e.value},
+        if (subMeters.isNotEmpty) 'm': subMeters,
+      };
 
   factory HourlySample.fromJson(Map<String, dynamic> json) => HourlySample(
         json['h'] as int? ?? 0,
@@ -97,6 +116,17 @@ class HourlySample {
         (json['c'] as num?)?.toDouble() ?? 0,
         json['p'] as int? ?? 0,
         (json['r'] as num?)?.toDouble() ?? 0,
+        {
+          for (final MapEntry(:key, :value)
+              in (json['t'] as Map?)?.entries ?? const <MapEntry>[])
+            if (int.tryParse('$key') case final attribute?)
+              attribute: (value as num?)?.toInt() ?? 0,
+        },
+        {
+          for (final MapEntry(:key, :value)
+              in (json['m'] as Map?)?.entries ?? const <MapEntry>[])
+            '$key': (value as num?)?.toInt() ?? 0,
+        },
       );
 }
 
@@ -768,6 +798,21 @@ class WidgetDataService {
       (h) => h.toLowerCase().contains('revenu'),
     );
 
+    // Avant le total viennent les index tarifaires, puis les sous-compteurs,
+    // puis « Production » : la box n'émet que les colonnes qui ont une valeur.
+    final tariffColumns = <int, int>{};
+    final subMeterColumns = <int, String>{};
+    for (var i = 1; i < column; i++) {
+      final name = header[i].replaceFirst(_whSuffix, '').trim();
+      if (name.isEmpty || name.toLowerCase() == 'production') continue;
+      final attribute = tariffAttribute(name);
+      if (attribute != null) {
+        tariffColumns[i] = attribute;
+      } else {
+        subMeterColumns[i] = name;
+      }
+    }
+
     final samples = <HourlySample>[];
     for (final line in lines.skip(1)) {
       final cells = line.split(';');
@@ -783,9 +828,53 @@ class WidgetDataService {
         _cell(cells, costColumn),
         _cell(cells, productionColumn).round(),
         _cell(cells, revenueColumn),
+        {
+          for (final e in tariffColumns.entries)
+            if (_cell(cells, e.key).round() case final value when value > 0)
+              e.value: value,
+        },
+        {
+          for (final e in subMeterColumns.entries)
+            if (_cell(cells, e.key).round() case final value when value > 0)
+              e.value: value,
+        },
       ));
     }
     return samples;
+  }
+
+  /// L'unité en fin d'en-tête : « Véhicule (Wh) ».
+  static final _whSuffix = RegExp(r'\s*\(Wh\)\s*$');
+
+  /// Attribut Metering d'une colonne tarifaire de l'export, d'après son
+  /// en-tête ; `null` si la colonne est celle d'un sous-compteur.
+  ///
+  /// Les en-têtes viennent du gabarit du ZLinky et ne dépendent pas du
+  /// contrat : « HC / EJPHN / BBRHCJB / EASF01 », « BBRHCJW / EASF03 »… Seul
+  /// le libellé EASF les distingue sans ambiguïté, « BBRHPJB » figurant dans
+  /// deux d'entre eux. Le gabarit nomme « EASF10 » l'attribut 272, et laisse
+  /// le 274 sans nom.
+  @visibleForTesting
+  static int? tariffAttribute(String header) {
+    final name = header.toUpperCase();
+    if (name == 'BASE') return 256;
+    if (name == '274') return 274;
+    const byLabel = {
+      'EASF01': 256,
+      'EASF02': 258,
+      'EASF03': 260,
+      'EASF04': 262,
+      'EASF05': 264,
+      'EASF06': 266,
+      'EASF07': 268,
+      'EASF08': 270,
+      'EASF09': 272,
+      'EASF10': 272,
+    };
+    for (final e in byLabel.entries) {
+      if (name.endsWith(e.key)) return e.value;
+    }
+    return null;
   }
 
   /// Lit une cellule numérique. Les montants arrivent avec une virgule

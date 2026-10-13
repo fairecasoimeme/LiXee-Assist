@@ -6,6 +6,7 @@ import '../screens/home_screen.dart' show resolveMdnsIP;
 import '../services/action_group_service.dart';
 import '../services/box_client.dart';
 import '../services/device_control_service.dart';
+import '../services/energy_detail_service.dart';
 import '../services/thermostat_service.dart';
 import '../services/widget_data_service.dart';
 import '../tv/tv_tabs.dart';
@@ -34,8 +35,9 @@ Widget _card({required Widget child, EdgeInsetsGeometry? padding}) => Container(
 /// vides.
 class PanelEnergyView extends StatelessWidget {
   final LinkySnapshot snapshot;
+  final EnergyExtras? extras;
 
-  const PanelEnergyView({super.key, required this.snapshot});
+  const PanelEnergyView({super.key, required this.snapshot, this.extras});
 
   @override
   Widget build(BuildContext context) {
@@ -84,6 +86,7 @@ class PanelEnergyView extends StatelessWidget {
             ],
           ),
         ),
+        ..._utilities(44, 15),
         const SizedBox(height: 8),
         Expanded(flex: 8, child: _chart()),
       ],
@@ -136,10 +139,31 @@ class PanelEnergyView extends StatelessWidget {
             ],
           ),
         ),
+        ..._utilities(56, 18),
         const SizedBox(height: 8),
         Expanded(flex: 8, child: _chart()),
       ],
     );
+  }
+
+  /// Gaz et eau, côte à côte, quand la box en suit.
+  List<Widget> _utilities(double height, double size) {
+    final meters = extras?.utilities ?? const <UtilityMeter>[];
+    if (meters.isEmpty) return const [];
+    return [
+      const SizedBox(height: 8),
+      SizedBox(
+        height: height,
+        child: Row(
+          children: [
+            for (final (i, meter) in meters.indexed) ...[
+              if (i > 0) const SizedBox(width: 8),
+              Expanded(child: TvUtilityTile(meter: meter, size: size)),
+            ],
+          ],
+        ),
+      ),
+    ];
   }
 
   Widget _gauge() {
@@ -218,7 +242,12 @@ class PanelEnergyView extends StatelessWidget {
                         style: TextStyle(color: TvColors.muted),
                       ),
                     )
-                    : TvHourlyChart(samples: snapshot.hourly),
+                    : TvHourlyChart(
+                      samples: snapshot.hourly,
+                      contract: snapshot.contract,
+                      subMeterColors: extras?.subMeterColors ?? const {},
+                      legendSize: 12,
+                    ),
           ),
         ],
       ),
