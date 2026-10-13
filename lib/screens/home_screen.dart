@@ -16,6 +16,8 @@ import 'package:app_links/app_links.dart';
 import '../services/box_client.dart' show redactEntry;
 import '../main.dart' show TVDetector, boxListChanged;
 import 'send_to_tv.dart';
+import 'display_mode_screen.dart';
+import '../panel/app_mode.dart';
 
 // ✅ Instance globale des notifications - référence celle du main.dart
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
@@ -1838,6 +1840,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     case 'send_to_tv':
                       scanAndSendToTv(context);
                       break;
+                    case 'display_mode':
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const DisplayModeScreen(),
+                        ),
+                      );
+                      break;
                     case 'about':
                       Navigator.push(
                         context,
@@ -1863,6 +1873,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       ],
                     ),
                   ),
+                  if (AppMode.canSwitch)
+                    const PopupMenuItem(
+                      value: 'display_mode',
+                      child: Row(
+                        children: [
+                          Icon(Icons.dashboard_outlined, color: Color(0xFF1B75BC)),
+                          SizedBox(width: 12),
+                          Text('Mode kiosque'),
+                        ],
+                      ),
+                    ),
                   PopupMenuItem(
                     value: 'about',
                     child: Row(

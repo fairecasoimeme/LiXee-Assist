@@ -62,6 +62,7 @@ dependencies:
   firebase_core: ^4.5.0
   firebase_messaging: ^16.1.2
   home_widget: ^0.9.2+1
+  wakelock_plus: ^1.2.8
   flutter_secure_storage: ^10.3.2
   path_drawing: ^1.0.1
   qr: ^3.0.2

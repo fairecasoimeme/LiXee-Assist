@@ -10,6 +10,7 @@ import '../services/device_control_service.dart';
 import '../services/thermostat_service.dart';
 import '../tv/tv_data.dart';
 import '../tv/tv_theme.dart';
+import 'app_mode.dart';
 import 'panel_add.dart';
 import 'panel_backlight.dart';
 import 'panel_views.dart';
@@ -38,23 +39,36 @@ class _PanelHomeScreenState extends State<PanelHomeScreen> {
   List<DeviceSnapshot>? _devices;
   List<ActionGroup>? _groups;
   List<ThermostatZone>? _zones;
-  _Tab _current = _Tab.energy;
+  _Tab _current = _startTab;
   Timer? _timer;
 
-  static const _refreshEvery = Duration(seconds: 30);
   static const _boxPref = 'panel_box';
+
+  /// La vue choisie pour l'ouverture ; si la box n'a pas de quoi la
+  /// remplir, c'est la première vue disponible qui s'affiche.
+  static _Tab get _startTab => _Tab.values.byName(AppMode.kioskStartTab.name);
 
   @override
   void initState() {
     super.initState();
     _reload();
-    _timer = Timer.periodic(_refreshEvery, (_) => _refreshCurrent());
+    _schedule();
+    AppMode.refreshChanges.addListener(_schedule);
   }
 
   @override
   void dispose() {
+    AppMode.refreshChanges.removeListener(_schedule);
     _timer?.cancel();
     super.dispose();
+  }
+
+  void _schedule() {
+    _timer?.cancel();
+    _timer = Timer.periodic(
+      Duration(seconds: AppMode.kioskRefreshSeconds),
+      (_) => _refreshCurrent(),
+    );
   }
 
   Future<void> _reload() async {
@@ -73,7 +87,7 @@ class _PanelHomeScreenState extends State<PanelHomeScreen> {
         _devices = null;
         _groups = null;
         _zones = null;
-        _current = _Tab.energy;
+        _current = _startTab;
       }
     });
     if (box == null) {
@@ -85,6 +99,12 @@ class _PanelHomeScreenState extends State<PanelHomeScreen> {
 
   /// Sans box, le kiosque n'a rien à montrer : l'ajout s'ouvre d'office.
   Future<void> _addFirst() async {
+    // Sur un téléphone, les box s'ajoutent dans l'interface normale : le
+    // kiosque y renvoie plutôt que de proposer un QR code à scanner.
+    if (AppMode.canSwitch) {
+      await AppMode.leaveKiosk();
+      return;
+    }
     if (_adding) return;
     _adding = true;
     await Navigator.of(context).push<bool>(
@@ -110,7 +130,7 @@ class _PanelHomeScreenState extends State<PanelHomeScreen> {
   /// Seule la vue affichée est relevée périodiquement.
   void _refreshCurrent() {
     if (_box == null) return;
-    switch (_current) {
+    switch (_shown) {
       case _Tab.energy:
         _refreshEnergy();
       case _Tab.devices:
@@ -168,6 +188,11 @@ class _PanelHomeScreenState extends State<PanelHomeScreen> {
       setState(() => _zones = zones);
     }
   }
+
+  /// La vue affichée : celle demandée si la box peut la remplir, sinon la
+  /// première disponible.
+  _Tab get _shown =>
+      _tabs.contains(_current) ? _current : (_tabs.firstOrNull ?? _Tab.energy);
 
   List<_Tab> get _tabs => [
     if (_box?.snapshot?.apparentPowerVA != null) _Tab.energy,
@@ -437,6 +462,24 @@ class _PanelSettingsScreenState extends State<PanelSettingsScreen> {
   bool _autostart = true;
   int _returnMinutes = PanelBacklight.defaultReturnDelay;
 
+  /// Applique un réglage, puis redessine l'écran avec sa nouvelle valeur.
+  Future<void> _set(Future<void> Function() change) async {
+    await change();
+    if (mounted) setState(() {});
+  }
+
+  Widget _section(String title) => Padding(
+    padding: const EdgeInsets.fromLTRB(4, 18, 4, 0),
+    child: Text(
+      title.toUpperCase(),
+      style: const TextStyle(
+        fontSize: 12,
+        letterSpacing: 1.2,
+        color: TvColors.muted,
+      ),
+    ),
+  );
+
   @override
   void initState() {
     super.initState();
@@ -624,14 +667,66 @@ class _PanelSettingsScreenState extends State<PanelSettingsScreen> {
                 ),
               ),
             ),
-          const SizedBox(height: 6),
-          PanelButton(
-            label: 'Ajouter une box',
-            icon: Icons.add,
-            color: TvColors.panelHigh,
-            textColor: TvColors.text,
-            onTap: _add,
+          // Sur un téléphone, les box s'ajoutent dans l'interface normale.
+          if (!AppMode.canSwitch) ...[
+            const SizedBox(height: 6),
+            PanelButton(
+              label: 'Ajouter une box',
+              icon: Icons.add,
+              color: TvColors.panelHigh,
+              textColor: TvColors.text,
+              onTap: _add,
+            ),
+          ],
+          _section('Kiosque'),
+          _setting(
+            Icons.space_dashboard_outlined,
+            "Vue à l'ouverture",
+            AppMode.kioskStartTab.label,
+            () => _set(() {
+              const tabs = KioskTab.values;
+              return AppMode.setKioskStartTab(
+                tabs[(AppMode.kioskStartTab.index + 1) % tabs.length],
+              );
+            }),
           ),
+          _setting(
+            Icons.sync,
+            'Actualisation',
+            refreshLabel(AppMode.kioskRefreshSeconds),
+            () => _set(() {
+              const choices = AppMode.refreshChoices;
+              return AppMode.setKioskRefreshSeconds(
+                choices[(choices.indexOf(AppMode.kioskRefreshSeconds) + 1) %
+                    choices.length],
+              );
+            }),
+          ),
+          if (AppMode.canSwitch) ...[
+            _setting(
+              Icons.light_mode_outlined,
+              'Écran toujours allumé',
+              AppMode.kioskKeepAwake ? 'Oui' : 'Non',
+              () => _set(
+                () => AppMode.setKioskKeepAwake(!AppMode.kioskKeepAwake),
+              ),
+            ),
+            _setting(
+              Icons.fullscreen,
+              'Plein écran',
+              AppMode.kioskFullscreen ? 'Oui' : 'Non',
+              () => _set(
+                () => AppMode.setKioskFullscreen(!AppMode.kioskFullscreen),
+              ),
+            ),
+            _section('Modes'),
+            _setting(
+              Icons.rocket_launch_outlined,
+              'Au lancement',
+              AppMode.startInKiosk ? 'Kiosque' : 'Normal',
+              () => _set(() => AppMode.setStartInKiosk(!AppMode.startInKiosk)),
+            ),
+          ],
           if (PanelBacklight.supported) ...[
             _setting(
               Icons.bedtime_outlined,
@@ -653,15 +748,25 @@ class _PanelSettingsScreenState extends State<PanelSettingsScreen> {
             ),
           ],
           const SizedBox(height: 6),
-          // Rend la main à l'écran du panneau. Le kiosque y reviendra de
-          // lui-même si le retour automatique est réglé.
-          PanelButton(
-            label: 'Quitter le kiosque',
-            icon: Icons.logout,
-            color: TvColors.panelHigh,
-            textColor: TvColors.text,
-            onTap: PanelBacklight.goHome,
-          ),
+          if (AppMode.canSwitch)
+            // Retrouve la liste des box et leur interface complète.
+            PanelButton(
+              label: 'Revenir au mode normal',
+              icon: Icons.phone_android,
+              color: TvColors.panelHigh,
+              textColor: TvColors.text,
+              onTap: AppMode.leaveKiosk,
+            )
+          else
+            // Rend la main à l'écran du panneau. Le kiosque y reviendra de
+            // lui-même si le retour automatique est réglé.
+            PanelButton(
+              label: 'Quitter le kiosque',
+              icon: Icons.logout,
+              color: TvColors.panelHigh,
+              textColor: TvColors.text,
+              onTap: PanelBacklight.goHome,
+            ),
           const SizedBox(height: 16),
           Center(
             child: Text(
