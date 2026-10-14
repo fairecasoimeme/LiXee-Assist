@@ -131,10 +131,7 @@ class PanelEnergyView extends StatelessWidget {
               const SizedBox(width: 10),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  if (_solar() case final solar?) solar,
-                  _age(),
-                ],
+                children: [if (_solar() case final solar?) solar, _age()],
               ),
             ],
           ),
@@ -586,9 +583,8 @@ class _ActionsSheetState extends State<_ActionsSheet> {
               _PositionSlider(
                 // Reparti de la position lue quand elle change.
                 key: ValueKey('${device.key}@${primary?.value}'),
-                initial: primary?.name == 'current_position'
-                    ? primary?.value
-                    : null,
+                initial:
+                    primary?.name == 'current_position' ? primary?.value : null,
                 onChosen:
                     (percent) => widget.onAction(position.withValue(percent)),
               ),
@@ -810,11 +806,16 @@ class PanelThermostatsView extends StatefulWidget {
   final List<ThermostatZone> zones;
   final ValueChanged<List<ThermostatZone>> onChanged;
 
+  /// Appelé quand on glisse au-delà de la première ou de la dernière zone,
+  /// avec le sens du geste : −1 vers la vue précédente, +1 vers la suivante.
+  final ValueChanged<int>? onEdge;
+
   const PanelThermostatsView({
     super.key,
     required this.box,
     required this.zones,
     required this.onChanged,
+    this.onEdge,
   });
 
   @override
@@ -824,6 +825,21 @@ class PanelThermostatsView extends StatefulWidget {
 class _PanelThermostatsViewState extends State<PanelThermostatsView> {
   final _controller = PageController();
   int _page = 0;
+
+  /// Le geste en cours a-t-il déjà été passé à la vue voisine ?
+  bool _handedOver = false;
+
+  bool _onScroll(ScrollNotification n) {
+    if (n is ScrollStartNotification) _handedOver = false;
+    if (n is OverscrollNotification &&
+        n.dragDetails != null &&
+        !_handedOver &&
+        n.overscroll.abs() > 2) {
+      _handedOver = true;
+      widget.onEdge?.call(n.overscroll < 0 ? -1 : 1);
+    }
+    return false;
+  }
 
   @override
   void dispose() {
@@ -837,18 +853,21 @@ class _PanelThermostatsViewState extends State<PanelThermostatsView> {
     return Column(
       children: [
         Expanded(
-          child: PageView.builder(
-            controller: _controller,
-            itemCount: zones.length,
-            onPageChanged: (i) => setState(() => _page = i),
-            itemBuilder:
-                (context, i) => _ZonePage(
-                  // La clé garde l'écart de consigne en attente sur sa zone.
-                  key: ValueKey(zones[i].key),
-                  box: widget.box,
-                  zone: zones[i],
-                  onChanged: widget.onChanged,
-                ),
+          child: NotificationListener<ScrollNotification>(
+            onNotification: _onScroll,
+            child: PageView.builder(
+              controller: _controller,
+              itemCount: zones.length,
+              onPageChanged: (i) => setState(() => _page = i),
+              itemBuilder:
+                  (context, i) => _ZonePage(
+                    // La clé garde l'écart de consigne en attente sur sa zone.
+                    key: ValueKey(zones[i].key),
+                    box: widget.box,
+                    zone: zones[i],
+                    onChanged: widget.onChanged,
+                  ),
+            ),
           ),
         ),
         if (zones.length > 1)
