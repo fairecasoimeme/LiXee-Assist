@@ -965,7 +965,6 @@ class WidgetDataService {
   /// le libellé EASF les distingue sans ambiguïté, « BBRHPJB » figurant dans
   /// deux d'entre eux. Le gabarit nomme « EASF10 » l'attribut 272, et laisse
   /// le 274 sans nom.
-  @visibleForTesting
   static int? tariffAttribute(String header) {
     final name = header.toUpperCase();
     if (name == 'BASE') return 256;

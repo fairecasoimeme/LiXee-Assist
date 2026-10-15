@@ -566,6 +566,20 @@ void main() {
       expect(days.last.costEur, closeTo(1.48, 1e-9));
     });
 
+    test('les totaux HC et HP de chaque jour', () {
+      final days = EnergyDetailService.parseDailyCsv(
+        'Periode;HC / EJPHN / BBRHCJB / EASF01 (Wh);'
+        'HP / EJPHPM / BBRHPJB / EASF02 (Wh);'
+        'Consommation totale (Wh);Conso - Cout total (EUR)\r\n'
+        '01/10;3000;7000;10000;2,00\r\n',
+      );
+      expect(days.single.tariffs, {256: 3000, 258: 7000});
+      expect(DailySample.fromJson(days.single.toJson()).tariffs, {
+        256: 3000,
+        258: 7000,
+      });
+    });
+
     EnergyExtras history(List<int> wh, {double euro = 0}) => EnergyExtras(
       daily: [for (final (i, v) in wh.indexed) DailySample(i + 1, 10, v, euro)],
     );

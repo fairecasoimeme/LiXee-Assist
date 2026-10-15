@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/energy_advice.dart';
 import '../services/energy_detail_service.dart';
+import '../services/tariff_compare.dart';
 import '../services/widget_data_service.dart';
 import '../tv/tv_theme.dart';
 import 'panel_minicharts.dart';
@@ -290,6 +291,7 @@ class PanelSavingsView extends StatelessWidget {
             month,
           if (_floor() case final floor?) floor,
           if (_subscription(peaks.data ?? const {}) case final card?) card,
+          _TariffCard(snapshot: snapshot, extras: extras),
           _shedding(),
         ];
         final landscape =
@@ -581,6 +583,223 @@ class PanelSavingsView extends StatelessWidget {
               'Pour l\'activer, choisis ces appareils dans la box : menu '
               'Config, puis Linky, rubrique Délestage.',
             ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Le tarif réglementé dans ses trois options, appliqué à la consommation
+/// réelle de la maison : ce que chacune aurait coûté, et sur un an.
+class _TariffCard extends StatelessWidget {
+  final LinkySnapshot snapshot;
+  final EnergyExtras? extras;
+
+  const _TariffCard({required this.snapshot, this.extras});
+
+  static String _eur(double value) =>
+      '${tvNumber(value, decimals: value.abs() < 100 ? 2 : 0)} €';
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Map<DateTime, TempoColor>>(
+      future: TempoCalendar.load(),
+      builder: (context, colors) {
+        final today = DateTime.now();
+        final season = TempoCalendar.seasonCounts(
+          colors.data ?? const {},
+          TempoCalendar.seasonOf(DateTime(today.year - 1, today.month, 15)),
+        );
+        final result = TariffCompare.compare(
+          snapshot: snapshot,
+          daily: extras?.daily ?? const [],
+          colors: colors.data ?? const {},
+          season: season,
+        );
+        if (result == null) {
+          return _card(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _title(Icons.compare_arrows, 'Et avec un autre tarif ?'),
+                _body(
+                  colors.connectionState == ConnectionState.waiting
+                      ? 'Calcul en cours…'
+                      : 'Il faut au moins une semaine de relevés, et la '
+                          'puissance de ton abonnement, pour comparer les '
+                          'tarifs.',
+                ),
+              ],
+            ),
+          );
+        }
+        return _comparison(result);
+      },
+    );
+  }
+
+  Widget _comparison(TariffComparison r) {
+    final current = r.current;
+    final mine = current == null ? null : r.costOf(current);
+    final best = r.cheapest;
+    final yearMine = current == null ? null : r.costOf(current, yearly: true);
+    final yearBest = r.costOf(best.option, yearly: true);
+    final paid = (extras?.daily ?? const <DailySample>[])
+        .take((extras?.daily.length ?? 1) - 1)
+        .fold<double>(0, (sum, d) => sum + d.costEur);
+
+    final String verdict;
+    final Color color;
+    if (mine == null) {
+      color = TvColors.focus;
+      verdict =
+          'Sur un an, l\'option la moins chère pour toi serait '
+          '${best.option.label}, ≈ ${_eur(yearBest!.totalEur)}.';
+    } else if (best.option == current || mine.totalEur - best.totalEur < 0.5) {
+      color = TvColors.ok;
+      verdict =
+          'Ton option, ${current!.label}, est déjà la moins chère pour ta '
+          'consommation.';
+    } else {
+      color = TvColors.warn;
+      final saving = yearMine!.totalEur - yearBest!.totalEur;
+      verdict =
+          saving > 0
+              ? r.offPeakSource == OffPeakSource.daily
+                  ? 'Avec ${best.option.label}, tu paierais ≈ ${_eur(saving)} '
+                      'de moins par an.'
+                  // En Base, les heures sont supposées : une piste, pas
+                  // une certitude.
+                  : 'Avec ${best.option.label}, tu pourrais payer de l\'ordre '
+                      'de ${_eur(saving)} de moins par an : une estimation, à '
+                      'confirmer.'
+              : 'Sur ces jours, ${best.option.label} aurait coûté moins '
+                  'cher ; sur un an, avec l\'hiver, ce n\'est pas sûr.';
+    }
+
+    Widget row(OptionCost cost) {
+      final isMine = cost.option == current;
+      final isBest = cost.option == best.option;
+      final diff = mine == null ? null : cost.totalEur - mine.totalEur;
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: [
+            Icon(
+              isBest ? Icons.star_rounded : Icons.circle,
+              size: isBest ? 18 : 8,
+              color: isBest ? TvColors.ok : TvColors.muted,
+            ),
+            SizedBox(width: isBest ? 6 : 11),
+            Expanded(
+              child: Text(
+                '${cost.option.label}${isMine ? ' · ton option' : ''}'
+                '${cost.kva != (snapshot.subscribedPowerVA! / 1000).round() ? ' (${cost.kva} kVA)' : ''}',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: isMine ? FontWeight.w800 : FontWeight.w400,
+                ),
+              ),
+            ),
+            Text(
+              _eur(cost.totalEur),
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+            ),
+            SizedBox(
+              width: 74,
+              child: Text(
+                diff == null || isMine || diff.abs() < 0.01
+                    ? ''
+                    : '${diff > 0 ? '+' : '−'}${_eur(diff.abs())}',
+                textAlign: TextAlign.end,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: diff != null && diff < 0 ? TvColors.ok : TvColors.bad,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final notes = <String>[
+      switch (r.offPeakSource) {
+        OffPeakSource.daily =>
+          'Tes heures creuses : ${(r.offPeakShare * 100).round()} % de ta '
+              'consommation, d\'après les totaux de chaque jour.',
+        OffPeakSource.lastDay =>
+          'Tes heures creuses : ${(r.offPeakShare * 100).round()} % de ta '
+              'consommation, mesurées sur les dernières 24 heures seulement.',
+        OffPeakSource.assumed =>
+          'En Base, ta box ne garde pas l\'heure de ta consommation : la part '
+              'des heures creuses (${(r.offPeakShare * 100).round()} %) est '
+              'estimée sur les dernières 24 heures, de 22 h à 6 h. Heures '
+              'creuses et Tempo sont donc des estimations.',
+      },
+      if (r.redDays == 0)
+        'Aucun jour rouge sur ces ${r.days} jours : le calcul sur un an en '
+            'compte 22, l\'hiver. Si tu te chauffes à l\'électricité, ils '
+            'coûteront plus que ça.'
+      else
+        'Sur ces jours : ${r.redDays} jour${r.redDays > 1 ? 's' : ''} rouge'
+            '${r.redDays > 1 ? 's' : ''} et ${r.whiteDays} blanc'
+            '${r.whiteDays > 1 ? 's' : ''} en Tempo.',
+      if (r.costOf(TariffOption.base) == null)
+        'L\'option Base n\'existe plus au-delà de 15 kVA.',
+    ];
+
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _title(
+            Icons.compare_arrows,
+            'Et avec un autre tarif ?',
+            color: color,
+          ),
+          _body(
+            'Le tarif réglementé d\'EDF (Tarif Bleu) appliqué à ta '
+            'consommation des ${r.days} derniers jours, abonnement compris :',
+          ),
+          const SizedBox(height: 6),
+          for (final cost in r.period) row(cost),
+          if (paid > 0)
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                'Avec les prix saisis dans ta box : ${_eur(paid)}.',
+                style: const TextStyle(fontSize: 12.5, color: TvColors.muted),
+              ),
+            ),
+          const SizedBox(height: 6),
+          Text(
+            verdict,
+            style: TextStyle(
+              fontSize: 14,
+              height: 1.3,
+              fontWeight: FontWeight.w700,
+              color: color,
+            ),
+          ),
+          for (final note in notes)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                note,
+                style: const TextStyle(
+                  fontSize: 12.5,
+                  height: 1.3,
+                  color: TvColors.muted,
+                ),
+              ),
+            ),
+          const SizedBox(height: 4),
+          Text(
+            'Grille du ${RegulatedTariffs.validFrom.day}er août '
+            '${RegulatedTariffs.validFrom.year}, TTC · couleurs Tempo : RTE.',
+            style: const TextStyle(fontSize: 11, color: TvColors.muted),
+          ),
         ],
       ),
     );

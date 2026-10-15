@@ -86,13 +86,26 @@ class DailySample {
   /// Coût de la journée, abonnement compris ; 0 sans prix saisi.
   final double costEur;
 
-  const DailySample(this.day, this.month, this.wh, [this.costEur = 0]);
+  /// Énergie de la journée par index tarifaire, en Wh (256 = heures
+  /// creuses ou base, 258 = heures pleines…). Ce que mesurent les
+  /// sous-compteurs n'y est pas.
+  final Map<int, int> tariffs;
+
+  const DailySample(
+    this.day,
+    this.month,
+    this.wh, [
+    this.costEur = 0,
+    this.tariffs = const {},
+  ]);
 
   Map<String, dynamic> toJson() => {
     'd': day,
     'm': month,
     'wh': wh,
     'c': costEur,
+    if (tariffs.isNotEmpty)
+      't': {for (final e in tariffs.entries) '${e.key}': e.value},
   };
 
   factory DailySample.fromJson(Map<String, dynamic> json) => DailySample(
@@ -100,6 +113,12 @@ class DailySample {
     json['m'] as int? ?? 0,
     json['wh'] as int? ?? 0,
     (json['c'] as num?)?.toDouble() ?? 0,
+    {
+      for (final MapEntry(:key, :value)
+          in (json['t'] as Map? ?? const {}).entries)
+        if (int.tryParse('$key') case final attribute?)
+          attribute: (value as num).toInt(),
+    },
   );
 }
 
@@ -969,6 +988,17 @@ class EnergyDetailService {
     final total = header.indexWhere((h) => h.contains('consommation totale'));
     final cost = header.indexWhere((h) => h.contains('cout total'));
     if (total < 0) return const [];
+    // Avant le total, les colonnes des index tarifaires (« HC / … /
+    // EASF01 »…), comme dans l'export heure par heure.
+    final rawHeader = lines.first.split(';');
+    final tariffColumns = <int, int>{
+      for (var i = 1; i < total; i++)
+        if (WidgetDataService.tariffAttribute(
+              rawHeader[i].replaceFirst(RegExp(r'\s*\(Wh\)\s*$'), '').trim(),
+            )
+            case final attribute?)
+          i: attribute,
+    };
     final samples = <DailySample>[];
     for (final line in lines.skip(1)) {
       final cells = line.split(';');
@@ -984,6 +1014,14 @@ class EnergyDetailService {
           cost < 0 || cells.length <= cost
               ? 0
               : _number(cells[cost].replaceAll(',', '.')),
+          {
+            for (final MapEntry(key: column, value: attribute)
+                in tariffColumns.entries)
+              if (column < cells.length)
+                if (_number(cells[column].replaceAll(',', '.')).round()
+                    case final value when value > 0)
+                  attribute: value,
+          },
         ),
       );
     }
