@@ -713,7 +713,6 @@ class EnergyDetailService {
     }
 
     final summary = await get('/api/power/summary');
-    final floor = await get('/api/power/floor?days=7');
     final alerts = await get('/api/alerts?since=0');
 
     return EnergyExtras(
@@ -729,7 +728,6 @@ class EnergyDetailService {
         nightWaterLitres: config.nightWaterLitres,
       ),
       power: summary == null ? null : PowerSummary.parse(summary),
-      floorW: floor == null ? null : parseLatestFloor(floor),
       boxAlerts:
           alerts == null ? const [] : (BoxAlert.parse(alerts) ?? const []),
       modern: true,

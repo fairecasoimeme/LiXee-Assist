@@ -250,17 +250,19 @@ void main() {
       );
     });
 
-    test('le plancher de la box l\'emporte sur le calcul local', () {
-      final load =
-          EnergyAdvice.baseLoad(
-            LinkySnapshot(
-              deviceName: 'x',
-              timestamp: DateTime.now(),
-              source: LinkySource.local,
-            ),
-            const EnergyExtras(floorW: 310),
-          )!;
-      expect(load.watts, 310);
+    test('le plancher de nuit de la box n\'est pas retenu', () {
+      // La voiture qui charge la nuit n'est pas une consommation de fond.
+      expect(
+        EnergyAdvice.baseLoad(
+          LinkySnapshot(
+            deviceName: 'x',
+            timestamp: DateTime.now(),
+            source: LinkySource.local,
+          ),
+          const EnergyExtras(floorW: 310),
+        ),
+        isNull,
+      );
     });
   });
 

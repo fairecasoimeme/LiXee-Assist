@@ -4,6 +4,7 @@ import '../services/energy_advice.dart';
 import '../services/energy_detail_service.dart';
 import '../services/widget_data_service.dart';
 import '../tv/tv_theme.dart';
+import 'panel_minicharts.dart';
 
 /// Carte du kiosque, au fond des autres vues.
 Widget _card({required Widget child, EdgeInsetsGeometry? padding}) => Container(
@@ -47,24 +48,39 @@ class PanelMonthCard extends StatelessWidget {
   /// Version courte, pour une tuile : sans l'aide pour fixer le budget.
   final bool compact;
 
+  /// Les jours du mois écoulés, aujourd'hui compris : en barres dans la
+  /// version complète.
+  final List<DailySample> days;
+
   const PanelMonthCard({
     super.key,
     required this.month,
     this.budget = 0,
     this.compact = false,
+    this.days = const [],
   });
 
   /// La carte, ou `null` si l'historique ne couvre pas encore le mois.
   /// Le budget est celui de la box (Config → Notifications), qui sert déjà
   /// à son alerte de dépassement ; il ne vaut qu'en euros.
-  static Widget? of(EnergyExtras? extras, {bool compact = false}) {
+  static Widget? of(
+    EnergyExtras? extras, {
+    bool compact = false,
+    bool withDays = false,
+  }) {
     final month = EnergyAdvice.month(extras, DateTime.now());
     if (month == null) return null;
     final budget = extras?.thresholds.monthBudgetEur;
+    final now = DateTime.now();
     return PanelMonthCard(
       month: month,
       budget: month.euros && budget != null ? budget : 0,
       compact: compact,
+      days: [
+        if (withDays)
+          for (final d in extras?.daily ?? const <DailySample>[])
+            if (d.month == now.month && d.day <= now.day) d,
+      ],
     );
   }
 
@@ -72,6 +88,35 @@ class PanelMonthCard extends StatelessWidget {
       month.euros
           ? '${tvNumber(value, decimals: value < 100 ? 2 : 0)} €'
           : '${tvNumber(value, decimals: value < 100 ? 1 : 0)} kWh';
+
+  double _value(DailySample d) => month.euros ? d.costEur : d.wh / 1000;
+
+  /// Chaque jour du mois, aujourd'hui en cours à droite, et ce que le
+  /// budget permet par jour.
+  List<Widget> _days() {
+    final now = DateTime.now();
+    final length = DateTime(now.year, now.month + 1, 0).day;
+    final past = days.sublist(0, days.length - 1);
+    final average =
+        past.fold<double>(0, (sum, d) => sum + _value(d)) / past.length;
+    final yesterday = _value(past.last);
+    return [
+      const SizedBox(height: 10),
+      PanelMiniBars(
+        values: [for (final d in days) _value(d)],
+        highlight: days.length - 1,
+        line: budget > 0 ? budget / length : null,
+        lineLabel: budget > 0 ? 'Budget par jour' : null,
+        labels: ['${days.first.day}/${days.first.month}', "aujourd'hui"],
+      ),
+      const SizedBox(height: 6),
+      Text(
+        'Ta journée moyenne ce mois-ci : ${_amount(average)} · '
+        'hier : ${_amount(yesterday)}',
+        style: const TextStyle(fontSize: 12.5, color: TvColors.muted),
+      ),
+    ];
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -144,6 +189,7 @@ class PanelMonthCard extends StatelessWidget {
               color: goal == 0 ? TvColors.muted : color,
             ),
           ),
+          if (!compact && days.length >= 2) ..._days(),
           // Le budget se règle sur la box, où il sert aussi à son alerte
           // de dépassement : on dit où le trouver.
           if (goal == 0 && month.euros && !compact)
@@ -239,7 +285,9 @@ class PanelSavingsView extends StatelessWidget {
       future: PowerPeaks.load(box),
       builder: (context, peaks) {
         final cards = <Widget>[
-          if (PanelMonthCard.of(extras) case final month?) month,
+          _source(),
+          if (PanelMonthCard.of(extras, withDays: true) case final month?)
+            month,
           if (_floor() case final floor?) floor,
           if (_subscription(peaks.data ?? const {}) case final card?) card,
           _shedding(),
@@ -279,6 +327,25 @@ class PanelSavingsView extends StatelessWidget {
     );
   }
 
+  /// D'où viennent les chiffres : ceux de la maison, pas des moyennes.
+  Widget _source() => _card(
+    padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+    child: Row(
+      children: [
+        const Icon(Icons.home_outlined, color: TvColors.focus, size: 26),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            'Ces conseils sont calculés sur ta consommation réelle, relevée '
+            'par ta box « $box » (${tvAge(snapshot.timestamp)}) : ce sont les '
+            'chiffres de ta maison, pas des moyennes.',
+            style: const TextStyle(fontSize: 13, height: 1.3),
+          ),
+        ),
+      ],
+    ),
+  );
+
   /// Ce qui tourne en permanence, et comment le faire baisser.
   Widget? _floor() {
     final load = EnergyAdvice.baseLoad(snapshot, extras);
@@ -287,11 +354,19 @@ class PanelSavingsView extends StatelessWidget {
         load.yearlyEur != null
             ? '≈ ${tvNumber(load.yearlyEur!)} € par an'
             : '≈ ${tvNumber(load.yearlyKWh)} kWh par an';
+    // Les heures complètes des dernières 24 h, la plus calme en avant.
+    final hours =
+        snapshot.hourly.length > 1
+            ? snapshot.hourly.sublist(0, snapshot.hourly.length - 1)
+            : snapshot.hourly;
+    final calmest = hours.indexWhere(
+      (h) => h.hour == load.hour && h.wh == load.watts,
+    );
     return _card(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _title(Icons.nightlight_round, 'Ce qui ne s\'arrête jamais'),
+          _title(Icons.power_outlined, 'Ce qui ne s\'arrête jamais chez toi'),
           const SizedBox(height: 6),
           Text.rich(
             TextSpan(
@@ -310,6 +385,23 @@ class PanelSavingsView extends StatelessWidget {
               ],
             ),
           ),
+          if (hours.length >= 12 && calmest >= 0) ...[
+            const SizedBox(height: 10),
+            PanelMiniBars(
+              values: [for (final h in hours) h.wh.toDouble()],
+              highlight: calmest,
+              highlightColor: TvColors.ok,
+              color: TvColors.muted,
+              labels: ['${hours.first.hour} h', '${hours.last.hour + 1} h'],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Ton heure la plus calme des dernières 24 h : de '
+              '${load.hour} h à ${(load.hour! + 1) % 24} h, '
+              '${tvNumber(load.watts)} W en moyenne.',
+              style: const TextStyle(fontSize: 12.5, color: TvColors.muted),
+            ),
+          ],
           _body(
             'Même quand tout semble éteint, ta maison consomme : frigo, '
             'congélateur, box internet, appareils en veille. Pour faire '
@@ -343,6 +435,37 @@ class PanelSavingsView extends StatelessWidget {
         ' Ce mois-ci, $days ${days > 1 ? 'jours' : 'jour'} au-dessus de 80 %.',
       _ => '',
     };
+    final limitVA =
+        phase != null ? check.phaseLimitVA! : check.subscribedKVA * 1000;
+    final peakVA = phase ?? check.peakVA;
+    final meter = PanelPeakMeter(
+      ratio: limitVA > 0 ? peakVA / limitVA : 0,
+      leftLabel:
+          '${phase != null ? 'Ta phase la plus chargée' : 'Ton pic'} : '
+          '${tvNumber(peakVA / 1000, decimals: 1)} kVA',
+      rightLabel:
+          phase != null
+              ? 'max ${tvNumber(limitVA / 1000, decimals: 1)} kVA par phase'
+              : 'max ${check.subscribedKVA} kVA',
+    );
+    // Les pics jour par jour que le kiosque a relevés (monophasé : en
+    // triphasé, ils portent sur le total, pas sur une phase).
+    final days = (peaks.keys.toList()..sort());
+    final recent = days.length > 30 ? days.sublist(days.length - 30) : days;
+    final daily =
+        phase == null && recent.length >= 5
+            ? PanelMiniBars(
+              values: [for (final d in recent) peaks[d]!.toDouble()],
+              highlight: recent.length - 1,
+              line: check.subscribedKVA * 1000.0,
+              lineLabel: 'Ton abonnement',
+              lineColor: TvColors.bad,
+              labels: [
+                '${recent.first.substring(8)}/${recent.first.substring(5, 7)}',
+                "aujourd'hui",
+              ],
+            )
+            : null;
     final String text;
     final Color color;
     if (check.tight) {
@@ -386,6 +509,17 @@ class PanelSavingsView extends StatelessWidget {
             'Ton abonnement : ${check.subscribedKVA} kVA',
             color: color,
           ),
+          const SizedBox(height: 10),
+          meter,
+          if (daily != null) ...[
+            const SizedBox(height: 10),
+            const Text(
+              'Ton pic de puissance, jour par jour',
+              style: TextStyle(fontSize: 12.5, color: TvColors.muted),
+            ),
+            const SizedBox(height: 4),
+            daily,
+          ],
           _body(text),
         ],
       ),

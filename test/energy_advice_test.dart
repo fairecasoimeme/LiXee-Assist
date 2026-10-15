@@ -142,6 +142,16 @@ void main() {
       expect(red.level, PriceLevel.peak);
     });
 
+    test('injecter en soutirant davantage n\'est pas un surplus', () {
+      // Llupia : 500 VA injectés, 1 100 VA tirés du réseau (un nuage).
+      final cloudy =
+          EnergyAdvice.weather(
+            _snapshot(power: 1100, injected: 500),
+            _extras(const TariffNow(label: 'Heures Pleines')),
+          )!;
+      expect(cloudy.level, isNot(PriceLevel.surplus));
+    });
+
     test('tarif unique', () {
       final w =
           EnergyAdvice.weather(
@@ -186,27 +196,71 @@ void main() {
             _extras(const TariffNow(label: 'Base'), prices: {256: 0.2}),
           )!;
       expect(load.watts, 150);
+      expect(load.hour, 4);
       expect(load.yearlyKWh, closeTo(1314, 0.1));
       expect(load.yearlyEur, closeTo(262.8, 0.1));
     });
 
-    test('chez un producteur, les heures de production ne comptent pas', () {
-      // En journée, le soleil fait tomber le soutirage à 50 Wh : ce n'est
-      // pas le plancher de la maison, qui est de 300 W la nuit.
+    final sunny = [
+      for (var h = 0; h < 24; h++)
+        h >= 9 && h <= 17
+            ? HourlySample(h, h == 12 ? 50 : 900, 0, 1200)
+            : HourlySample(h, h == 3 ? 300 : 700),
+      const HourlySample(0, 20),
+    ];
+
+    test('Linky producteur : les heures de soleil ne comptent pas', () {
+      // Le même compteur mesure l'injection : en journée, les panneaux font
+      // tomber le soutirage à 50 Wh, ce n'est pas le plancher de la maison.
+      final load =
+          EnergyAdvice.baseLoad(
+            LinkySnapshot(
+              deviceName: 'maison',
+              timestamp: DateTime.now(),
+              source: LinkySource.local,
+              linkyMode: 5,
+              hourly: sunny,
+            ),
+            null,
+          )!;
+      expect(load.watts, 300);
+    });
+
+    test('compteur de production à part : toutes les heures comptent', () {
+      // Vente totale : le Linky de consommation voit toute la maison.
+      final load =
+          EnergyAdvice.baseLoad(
+            LinkySnapshot(
+              deviceName: 'llupia',
+              timestamp: DateTime.now(),
+              source: LinkySource.local,
+              linkyMode: 1,
+              hourly: sunny,
+            ),
+            null,
+          )!;
+      expect(load.watts, 50);
+      expect(load.hour, 12);
+    });
+
+    test('la nuit de recharge ne fait pas le plancher', () {
+      // De 1 h à 5 h la voiture charge : l'heure la plus calme est à 14 h.
       final load =
           EnergyAdvice.baseLoad(
             _snapshot(
               hourly: [
                 for (var h = 0; h < 24; h++)
-                  h >= 9 && h <= 17
-                      ? HourlySample(h, 50, 0, 1200)
-                      : HourlySample(h, h == 3 ? 300 : 700),
+                  HourlySample(
+                    h,
+                    h >= 1 && h <= 5 ? 7000 : (h == 14 ? 220 : 500),
+                  ),
                 const HourlySample(0, 20),
               ],
             ),
             null,
           )!;
-      expect(load.watts, 300);
+      expect(load.watts, 220);
+      expect(load.hour, 14);
     });
 
     test('sans prix, en kWh seulement', () {
@@ -407,7 +461,10 @@ void main() {
 
     test('pas de ligne sans budget', () {
       expect(
-        EnergyAdvice.hourlyBudgetWh(_snapshot(hourly: day), const EnergyExtras()),
+        EnergyAdvice.hourlyBudgetWh(
+          _snapshot(hourly: day),
+          const EnergyExtras(),
+        ),
         isNull,
       );
     });

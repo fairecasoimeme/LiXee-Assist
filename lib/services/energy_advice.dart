@@ -67,13 +67,16 @@ class BaseLoad {
   /// Puissance moyenne de l'heure la plus calme, en watts.
   final int watts;
 
+  /// Heure de début de cette heure la plus calme, de 0 à 23.
+  final int? hour;
+
   /// Ce que cette puissance représente sur un an, en kWh.
   double get yearlyKWh => watts * 8760 / 1000;
 
   /// Son coût sur un an, si un prix est connu.
   final double? yearlyEur;
 
-  const BaseLoad(this.watts, this.yearlyEur);
+  const BaseLoad(this.watts, this.yearlyEur, {this.hour});
 }
 
 /// Le mois en cours : ce qui est consommé, et ce que ça donnera au rythme
@@ -198,7 +201,13 @@ class EnergyAdvice {
     final price = tariff.price ?? extras?.prices[tariff.attribute];
     // « 22:00 » donné par la box ; en Tempo, les heures sont fixes.
     final next = _clock(tariff.nextChange);
-    final injecting = (snapshot.productionPowerVA ?? 0) > 0;
+    // Un surplus, c'est injecter plus qu'on ne tire du réseau. Les deux
+    // valeurs ne sont pas relevées au même instant, et une production
+    // vendue en totalité passe par son propre compteur : de l'injection
+    // pendant que la maison soutire n'est pas un surplus à consommer.
+    final produced = snapshot.productionPowerVA ?? 0;
+    final injecting =
+        produced > 0 && produced > (snapshot.apparentPowerVA ?? 0);
     final peakHours = tariff.isPeakHours;
     final today = tariff.isTempo ? tariff.today : null;
 
@@ -343,33 +352,43 @@ class EnergyAdvice {
     return CutRisk(ratio, level(ratio), averaged: minute != null);
   }
 
-  /// La consommation plancher : l'heure la plus calme des dernières 24 h.
+  /// La consommation plancher : l'heure la plus calme des dernières 24 h,
+  /// à n'importe quelle heure.
+  ///
+  /// Le plancher de nuit que calcule la box (de 1 h à 5 h) n'est pas
+  /// retenu : la nuit, c'est souvent l'heure de la recharge de la voiture
+  /// ou du ballon d'eau chaude, qui n'ont rien d'une consommation de fond.
   ///
   /// L'heure en cours, incomplète, n'est pas comptée, et il faut au moins
   /// douze heures complètes pour que le plancher veuille dire quelque chose.
   static BaseLoad? baseLoad(LinkySnapshot snapshot, EnergyExtras? extras) {
     final price = _averagePrice(extras?.prices ?? const {});
-    // La box v2.26 le calcule elle-même, sur les index de la nuit : c'est
-    // plus juste que la plus calme des 24 dernières heures.
-    if (extras?.floorW case final w? when w > 0) {
-      return BaseLoad(w, price == null ? null : w * 8760 / 1000 * price);
-    }
     final complete =
         snapshot.hourly.length > 1
             ? snapshot.hourly.sublist(0, snapshot.hourly.length - 1)
             : const <HourlySample>[];
     if (complete.length < 12) return null;
-    // Chez un producteur, le soleil couvre une part de la consommation : ce
-    // qui est tiré du réseau ne dit plus ce que la maison consomme. Seules
-    // les heures sans production, la nuit, donnent le vrai plancher.
+    // Un Linky en mode producteur (5 ou 7) mesure à la fois ce qui est tiré
+    // et ce qui est injecté : en plein soleil, les panneaux couvrent une
+    // part de la consommation, et ce qui est tiré du réseau ne dit plus ce
+    // que la maison consomme. Seules les heures sans production comptent
+    // alors. Avec un compteur de production à part (vente totale), le
+    // Linky de consommation voit toute la maison : toutes les heures
+    // comptent.
+    final selfConsumes = snapshot.linkyMode == 5 || snapshot.linkyMode == 7;
     final measured = [
       for (final s in complete)
-        if (s.productionWh == 0) s,
+        if (!selfConsumes || s.productionWh == 0) s,
     ];
     if (measured.length < 4) return null;
-    final watts = measured.map((s) => s.wh).reduce((a, b) => a < b ? a : b);
+    final calmest = measured.reduce((a, b) => b.wh < a.wh ? b : a);
+    final watts = calmest.wh;
     if (watts <= 0) return null;
-    return BaseLoad(watts, price == null ? null : watts * 8760 / 1000 * price);
+    return BaseLoad(
+      watts,
+      price == null ? null : watts * 8760 / 1000 * price,
+      hour: calmest.hour,
+    );
   }
 
   /// Le prix moyen du kWh saisi sur la box, faute de savoir à quelle heure

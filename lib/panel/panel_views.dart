@@ -8,6 +8,7 @@ import '../services/box_client.dart';
 import '../services/device_control_service.dart';
 import '../services/energy_advice.dart';
 import '../services/energy_detail_service.dart';
+import 'panel_chart_detail.dart';
 import 'panel_savings.dart';
 import '../services/thermostat_service.dart';
 import '../services/widget_data_service.dart';
@@ -114,7 +115,8 @@ class PanelEnergyView extends StatelessWidget {
     final meters = extras?.utilities ?? const <UtilityMeter>[];
     final tiles = <Widget>[
       if (month != null) month,
-      for (final meter in meters) TvUtilityTile(meter: meter, size: 18),
+      for (final meter in meters)
+        TvUtilityTile(meter: meter, size: 18, expandable: true),
     ];
     return Column(
       children: [
@@ -191,7 +193,12 @@ class PanelEnergyView extends StatelessWidget {
           const SizedBox(height: 8),
           SizedBox(
             height: height,
-            child: TvUtilityTile(meter: meter, size: size, textWidth: 84),
+            child: TvUtilityTile(
+              meter: meter,
+              size: size,
+              textWidth: 84,
+              expandable: true,
+            ),
           ),
         ],
       ];
@@ -204,7 +211,13 @@ class PanelEnergyView extends StatelessWidget {
           children: [
             for (final (i, meter) in meters.indexed) ...[
               if (i > 0) const SizedBox(width: 8),
-              Expanded(child: TvUtilityTile(meter: meter, size: size)),
+              Expanded(
+                child: TvUtilityTile(
+                  meter: meter,
+                  size: size,
+                  expandable: true,
+                ),
+              ),
             ],
           ],
         ),
@@ -377,9 +390,35 @@ class PanelEnergyView extends StatelessWidget {
 
   /// L'électricité comme le gaz et l'eau : son icône, son total et son
   /// coût à gauche, le graphe heure par heure à droite.
+  /// Le graphe, qui s'ouvre en plein écran d'une touche : on y lit le
+  /// détail de chaque barre.
+  Widget _chart({bool header = false}) => Builder(
+    builder:
+        (context) => GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => PanelChartDetail.open(context, snapshot, extras),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              _chartCard(header: header),
+              if (snapshot.hourly.isNotEmpty)
+                const Positioned(
+                  top: 8,
+                  right: 8,
+                  child: Icon(
+                    Icons.open_in_full,
+                    size: 16,
+                    color: TvColors.muted,
+                  ),
+                ),
+            ],
+          ),
+        ),
+  );
+
   /// [header] : les chiffres en une ligne au-dessus du graphe, qui prend
   /// alors toute la largeur (paysage).
-  Widget _chart({bool header = false}) {
+  Widget _chartCard({bool header = false}) {
     final s = snapshot;
     final total = s.dailyTotalWh;
     final load = EnergyAdvice.baseLoad(s, extras);
@@ -427,6 +466,7 @@ class PanelEnergyView extends StatelessWidget {
                     style: const TextStyle(fontSize: 12, color: TvColors.muted),
                   ),
                 ),
+                const SizedBox(width: 20),
               ],
             ),
             const SizedBox(height: 6),
