@@ -50,7 +50,8 @@ void main() {
         ApiShedding.parse(
           '{"active":true,"since":"14/10/2026 18:42","lastEnd":"13/10/2026 07:15",'
           '"reason":"meter","restoreMinutes":5,"restorePercent":80,'
-          '"anticipationPercent":0,"minuteVA":5230,"subscribedVA":9000,'
+          '"anticipationPercent":0,"minuteVA":5230,"minuteLoadPercent":58,'
+          '"subscribedVA":9000,'
           '"devices":[{"ieee":"a4c1380000000001","name":"Radiateur salon","cut":true}]}',
         )!;
     expect(s.active, isTrue);
@@ -58,6 +59,64 @@ void main() {
     expect(s.restoreMinutes, 5);
     expect(s.devices.single.name, 'Radiateur salon');
     expect(s.devices.single.cut, isTrue);
+    expect(s.minuteLoadPercent, 58);
+    expect(
+      ApiShedding.parse(
+        '{"active":false,"minuteLoadPercent":-1}',
+      )!.minuteLoadPercent,
+      isNull,
+    );
+  });
+
+  group('risque de coupure à la minute', () {
+    LinkySnapshot snap(Map<String, dynamic> json) =>
+        LinkySnapshot.fromLinkyJson(
+          json,
+          deviceName: 'x',
+          source: LinkySource.local,
+        );
+    final now = DateTime.now();
+
+    test("la charge de la box l'emporte sur la puissance de l'instant", () {
+      final risk =
+          EnergyAdvice.cutRisk(
+            snap({'2820_1295': 1000, '2817_13': 9, '65382_768': 1}),
+            EnergyExtras(minuteVA: 8000, minuteLoad: 92, minuteAt: now),
+          )!;
+      expect(risk.ratio, closeTo(0.92, 1e-9));
+      expect(risk.level, RiskLevel.high);
+      expect(risk.averaged, isTrue);
+    });
+
+    test('en triphasé aussi, déjà rapportée à la phase la plus chargée', () {
+      final risk =
+          EnergyAdvice.cutRisk(
+            snap({
+              '2820_1295': 900,
+              '2820_2319': 100,
+              '2820_2575': 0,
+              '2817_13': 3,
+              '65382_768': 3,
+            }),
+            EnergyExtras(minuteLoad: 75, minuteAt: now),
+          )!;
+      expect(risk.ratio, closeTo(0.75, 1e-9));
+      expect(risk.level, RiskLevel.medium);
+      expect(risk.phase, isNull);
+    });
+
+    test('une charge trop ancienne est ignorée', () {
+      final risk =
+          EnergyAdvice.cutRisk(
+            snap({'2820_1295': 900, '2817_13': 9, '65382_768': 1}),
+            EnergyExtras(
+              minuteLoad: 95,
+              minuteAt: now.subtract(const Duration(minutes: 5)),
+            ),
+          )!;
+      expect(risk.ratio, closeTo(0.1, 1e-9));
+      expect(risk.averaged, isFalse);
+    });
   });
 
   group('/api/power', () {
@@ -118,6 +177,68 @@ void main() {
           )!;
       expect(check.tight, isTrue);
       expect(check.suggestedKVA, isNull);
+    });
+
+    group('triphasé', () {
+      const tri =
+          '{"subscribedVA":12000,"triphase":true,"bands":[50,60,70,80,90,100],'
+          '"worst":{"va1m":{"va":7020,"date":"2026-10-12"},'
+          '"va10m":{"va":5200,"date":"2026-10-12"},'
+          '"phases":[{"phase":1,"va1m":{"va":2100,"date":"2026-10-12"}},'
+          '{"phase":2,"va1m":{"va":1500,"date":"2026-10-11"}},'
+          '{"phase":3,"va1m":{"va":900,"date":"2026-10-10"}}]},'
+          '"frequencyBasis":"phases",'
+          '"frequency":{"80":{"days7":0,"days30":0,"days90":0,'
+          '"observedDays":40,"last":null,"rate":"never"}},'
+          '"months":[{"month":"2026-01","observedDays":31,"subscribedVA":12000,'
+          '"va1m":7000,"phases":[{"phase":1,"va1m":2300},{"phase":2,"va1m":1200}]}]}';
+
+      test('le pire de la phase la plus chargée', () {
+        final p = PowerSummary.parse(tri)!;
+        expect(p.threePhase, isTrue);
+        expect(p.phaseLimitVA, 4000);
+        expect(p.worstPhaseVa1m, 2300);
+        expect(PowerSummary.fromJson(p.toJson()).worstPhaseVa1m, 2300);
+      });
+
+      test('le palier se juge sur la phase, pas sur le total', () {
+        final check =
+            EnergyAdvice.subscription(
+              LinkySnapshot(
+                deviceName: 'x',
+                timestamp: DateTime.now(),
+                source: LinkySource.local,
+              ),
+              const {},
+              summary: PowerSummary.parse(tri),
+            )!;
+        // 2 300 VA sur une phase : 3 × 2 300 × 1,15 ≈ 7,9 kVA, donc 9 kVA,
+        // alors que le total (7 020 VA) en aurait proposé autant.
+        expect(check.phasePeakVA, 2300);
+        expect(check.phaseLimitVA, 4000);
+        expect(check.suggestedKVA, 9);
+      });
+    });
+
+    test('bilan : pas de palier plus bas si 80 % est atteint chaque mois', () {
+      final check =
+          EnergyAdvice.subscription(
+            LinkySnapshot(
+              deviceName: 'x',
+              timestamp: DateTime.now(),
+              source: LinkySource.local,
+            ),
+            const {},
+            summary: const PowerSummary(
+              subscribedVA: 9000,
+              worstVa1m: 4000,
+              observedDays: 60,
+              rates: {80: PeakRate.monthly},
+              days30Over80: 2,
+            ),
+          )!;
+      expect(check.suggestedKVA, isNull);
+      expect(check.days30Over80, 2);
     });
 
     test('plancher : le jour le plus récent qui en a un', () {

@@ -145,6 +145,10 @@ class EnergyExtras {
   final int? minuteVA;
   final DateTime? minuteAt;
 
+  /// Charge de la dernière minute en % de la limite (la phase la plus
+  /// chargée en triphasé), relevée en même temps.
+  final int? minuteLoad;
+
   const EnergyExtras({
     this.subMeterColors = const {},
     this.utilities = const [],
@@ -159,6 +163,7 @@ class EnergyExtras {
     this.modern = false,
     this.minuteVA,
     this.minuteAt,
+    this.minuteLoad,
   });
 
   /// La moyenne sur une minute, si elle a moins de deux minutes.
@@ -170,23 +175,34 @@ class EnergyExtras {
         : null;
   }
 
+  /// La charge de la dernière minute, si elle a moins de deux minutes.
+  int? get freshMinuteLoad {
+    final at = minuteAt;
+    if (minuteLoad == null || at == null) return null;
+    return DateTime.now().difference(at) < const Duration(minutes: 2)
+        ? minuteLoad
+        : null;
+  }
+
   /// La même chose, avec une nouvelle moyenne sur une minute et l'état du
   /// délestage qui l'accompagne.
-  EnergyExtras withMinute(int? va, Shedding? shedding) => EnergyExtras(
-    subMeterColors: subMeterColors,
-    utilities: utilities,
-    prices: prices,
-    tariff: tariff,
-    daily: daily,
-    shedding: shedding ?? this.shedding,
-    thresholds: thresholds,
-    power: power,
-    floorW: floorW,
-    boxAlerts: boxAlerts,
-    modern: modern,
-    minuteVA: va,
-    minuteAt: DateTime.now(),
-  );
+  EnergyExtras withMinute(int? va, int? load, Shedding? shedding) =>
+      EnergyExtras(
+        subMeterColors: subMeterColors,
+        utilities: utilities,
+        prices: prices,
+        tariff: tariff,
+        daily: daily,
+        shedding: shedding ?? this.shedding,
+        thresholds: thresholds,
+        power: power,
+        floorW: floorW,
+        boxAlerts: boxAlerts,
+        modern: modern,
+        minuteVA: va,
+        minuteAt: DateTime.now(),
+        minuteLoad: load,
+      );
 
   /// Ce relevé, complété par [known] là où il est revenu vide : une
   /// requête qui échoue par le tunnel ne doit pas effacer ce qui était
@@ -215,6 +231,7 @@ class EnergyExtras {
       modern: modern || known.modern,
       minuteVA: minuteVA ?? known.minuteVA,
       minuteAt: minuteAt ?? known.minuteAt,
+      minuteLoad: minuteLoad ?? known.minuteLoad,
     );
   }
 
@@ -232,6 +249,7 @@ class EnergyExtras {
     modern: modern,
     minuteVA: minuteVA,
     minuteAt: minuteAt,
+    minuteLoad: minuteLoad,
   );
 
   Map<String, dynamic> toJson() => {
@@ -684,11 +702,13 @@ class EnergyDetailService {
 
     Shedding shedding = Shedding(config.sheddingDevices);
     int? minuteVA;
+    int? minuteLoad;
     final state = await get('/api/delestage');
     if (state != null) {
       if (ApiShedding.parse(state) case final s?) {
         shedding = _shedding(s);
         minuteVA = s.minuteVA;
+        minuteLoad = s.minuteLoadPercent;
       }
     }
 
@@ -714,7 +734,8 @@ class EnergyDetailService {
           alerts == null ? const [] : (BoxAlert.parse(alerts) ?? const []),
       modern: true,
       minuteVA: minuteVA,
-      minuteAt: minuteVA == null ? null : DateTime.now(),
+      minuteAt: minuteVA == null && minuteLoad == null ? null : DateTime.now(),
+      minuteLoad: minuteLoad,
     );
   }
 
@@ -742,7 +763,11 @@ class EnergyDetailService {
       final body = await BoxClient.get(route, '/api/delestage');
       final state = body == null ? null : ApiShedding.parse(body);
       if (state == null) return null;
-      return extras.withMinute(state.minuteVA, _shedding(state));
+      return extras.withMinute(
+        state.minuteVA,
+        state.minuteLoadPercent,
+        _shedding(state),
+      );
     } catch (e) {
       print('[ENERGY] /api/delestage: ${e.runtimeType}');
       return null;

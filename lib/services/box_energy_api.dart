@@ -175,6 +175,11 @@ class ApiShedding {
   /// Puissance moyenne de la dernière minute, en VA ; `null` si inconnue.
   /// C'est elle qui fait couper le compteur, pas un pic d'une seconde.
   final int? minuteVA;
+
+  /// Charge de la dernière minute, en % de la limite : du total en
+  /// monophasé, de la phase la plus chargée en triphasé ; `null` si
+  /// inconnue. C'est elle que la box compare pour délester.
+  final int? minuteLoadPercent;
   final List<({String ieee, String name, bool cut})> devices;
 
   const ApiShedding({
@@ -183,6 +188,7 @@ class ApiShedding {
     this.lastEnd,
     this.restoreMinutes = 0,
     this.minuteVA,
+    this.minuteLoadPercent,
     this.devices = const [],
   });
 
@@ -206,6 +212,10 @@ class ApiShedding {
       restoreMinutes: _int(decoded['restoreMinutes']) ?? 0,
       minuteVA: switch (_int(decoded['minuteVA'])) {
         final va? when va >= 0 => va,
+        _ => null,
+      },
+      minuteLoadPercent: switch (_int(decoded['minuteLoadPercent'])) {
+        final percent? when percent >= 0 => percent,
         _ => null,
       },
       devices: [
@@ -237,8 +247,18 @@ class PowerSummary {
   /// Jours observés, au plus 90.
   final int observedDays;
 
-  /// Fréquence de chaque tranche, en % de la puissance souscrite.
+  /// Fréquence de chaque tranche, en % de la puissance souscrite (de la
+  /// limite de chaque phase en triphasé).
   final Map<int, PeakRate> rates;
+
+  /// Jours des 30 derniers où la moyenne sur 1 min a atteint 80 %.
+  final int? days30Over80;
+
+  /// Triphasé : chaque phase coupe à sa propre limite, un tiers de
+  /// l'abonnement. Le pire de la phase la plus chargée compte alors, pas
+  /// celui du total.
+  final bool threePhase;
+  final int? worstPhaseVa1m;
 
   const PowerSummary({
     required this.subscribedVA,
@@ -246,7 +266,13 @@ class PowerSummary {
     this.worstVa10m,
     this.observedDays = 0,
     this.rates = const {},
+    this.days30Over80,
+    this.threePhase = false,
+    this.worstPhaseVa1m,
   });
+
+  /// Limite d'une phase, en VA.
+  int get phaseLimitVA => (subscribedVA / 3).round();
 
   Map<String, dynamic> toJson() => {
     'subscribedVA': subscribedVA,
@@ -254,6 +280,9 @@ class PowerSummary {
     if (worstVa10m != null) 'va10m': worstVa10m,
     'observedDays': observedDays,
     'rates': {for (final e in rates.entries) '${e.key}': e.value.name},
+    if (days30Over80 != null) 'days30Over80': days30Over80,
+    if (threePhase) 'threePhase': true,
+    if (worstPhaseVa1m != null) 'phaseVa1m': worstPhaseVa1m,
   };
 
   factory PowerSummary.fromJson(Map<String, dynamic> json) => PowerSummary(
@@ -261,6 +290,9 @@ class PowerSummary {
     worstVa1m: json['va1m'] as int?,
     worstVa10m: json['va10m'] as int?,
     observedDays: json['observedDays'] as int? ?? 0,
+    days30Over80: json['days30Over80'] as int?,
+    threePhase: json['threePhase'] == true,
+    worstPhaseVa1m: json['phaseVa1m'] as int?,
     rates: {
       for (final MapEntry(:key, :value)
           in (json['rates'] as Map? ?? const {}).entries)
@@ -298,7 +330,28 @@ class PowerSummary {
       return best;
     }
 
+    // Triphasé : le pire de chaque phase, sur 90 jours et par mois.
+    int? worstPhase(String field) {
+      int? best;
+      void take(Object? phases) {
+        for (final p in (phases is List ? phases : const [])) {
+          if (p is! Map) continue;
+          final raw = p[field];
+          final v = _int(raw is Map ? raw['va'] : raw);
+          if (v != null && v > 0 && (best == null || v > best!)) best = v;
+        }
+      }
+
+      final w = root['worst'];
+      if (w is Map) take(w['phases']);
+      for (final m in (root['months'] as List? ?? const [])) {
+        if (m is Map) take(m['phases']);
+      }
+      return best;
+    }
+
     var observed = 0;
+    int? days30Over80;
     final rates = <int, PeakRate>{};
     final frequency = decoded['frequency'];
     if (frequency is Map) {
@@ -309,6 +362,7 @@ class PowerSummary {
             PeakRate.values.asNameMap()['${value['rate']}'] ?? PeakRate.unknown;
         final days = _int(value['observedDays']) ?? 0;
         if (days > observed) observed = days;
+        if (band == 80) days30Over80 = _int(value['days30']);
       }
     }
 
@@ -318,6 +372,9 @@ class PowerSummary {
       worstVa10m: worst('va10m'),
       observedDays: observed,
       rates: rates,
+      days30Over80: days30Over80,
+      threePhase: root['triphase'] == true,
+      worstPhaseVa1m: root['triphase'] == true ? worstPhase('va1m') : null,
     );
   }
 }

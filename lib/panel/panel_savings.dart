@@ -330,39 +330,51 @@ class PanelSavingsView extends StatelessWidget {
       summary: extras?.power,
     );
     if (check == null) return null;
-    final peak = tvNumber(check.peakVA / 1000, decimals: 1);
+    // En triphasé, le pic qui compte est celui de la phase la plus chargée.
+    final phase = check.phasePeakVA;
+    final peak =
+        phase != null
+            ? '${tvNumber(phase / 1000, decimals: 1)} kVA sur la phase la '
+                'plus chargée, pour ${tvNumber(check.phaseLimitVA! / 1000, decimals: 1)} '
+                'possibles'
+            : '${tvNumber(check.peakVA / 1000, decimals: 1)} kVA';
+    final often = switch (check.days30Over80) {
+      final days? when days > 0 =>
+        ' Ce mois-ci, $days ${days > 1 ? 'jours' : 'jour'} au-dessus de 80 %.',
+      _ => '',
+    };
     final String text;
     final Color color;
     if (check.tight) {
       color = TvColors.warn;
       text =
           'Ton abonnement est juste : ta consommation frôle souvent le '
-          'maximum ($peak kVA sur une minute). Évite d\'allumer en même '
+          'maximum ($peak sur une minute).$often Évite d\'allumer en même '
           'temps les gros appareils (four, plaques, radiateurs), ou active la '
           'protection anti-coupure.';
     } else if (check.suggestedKVA case final suggested?) {
       color = TvColors.ok;
       text =
           'En ${check.days} jours, ta consommation n\'a jamais dépassé '
-          '$peak kVA. Un abonnement de $suggested kVA suffirait et coûterait '
+          '$peak. Un abonnement de $suggested kVA suffirait et coûterait '
           'moins cher : renseigne-toi auprès de ton fournisseur.';
     } else if (!check.measured) {
       color = TvColors.focus;
       text =
           'Ton compteur ne donne pas sa puissance maximale : le plus fort '
-          "appel relevé quand l'écran tourne est de $peak kVA. Ce n'est "
+          "appel relevé quand l'écran tourne est de $peak. Ce n'est "
           'pas assez sûr pour te conseiller un abonnement plus petit.';
     } else if (check.days < SubscriptionCheck.minDays) {
       color = TvColors.focus;
       text =
-          'Ton plus fort pic : $peak kVA en ${check.days} '
+          'Ton plus fort pic : $peak en ${check.days} '
           '${check.days > 1 ? 'jours' : 'jour'}. Le bilan sera prêt dans '
           '${SubscriptionCheck.minDays - check.days} jours : il dira si ton '
           'abonnement est bien taillé.';
     } else {
       color = TvColors.focus;
       text =
-          'Ton plus fort pic : $peak kVA en ${check.days} jours. Ton '
+          'Ton plus fort pic : $peak en ${check.days} jours. Ton '
           'abonnement est bien taillé pour ta maison.';
     }
     return _card(

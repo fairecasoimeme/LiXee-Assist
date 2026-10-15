@@ -117,7 +117,18 @@ class SubscriptionCheck {
   /// plus cher que l'économie.
   final bool measured;
 
+  /// Triphasé : le plus fort appel de la phase la plus chargée, et la
+  /// limite de chaque phase, en VA.
+  final int? phasePeakVA;
+  final int? phaseLimitVA;
+
+  /// Jours des 30 derniers passés au-dessus de 80 % de la limite.
+  final int? days30Over80;
+
   const SubscriptionCheck({
+    this.phasePeakVA,
+    this.phaseLimitVA,
+    this.days30Over80,
     required this.subscribedKVA,
     required this.peakVA,
     required this.days,
@@ -293,16 +304,34 @@ class EnergyAdvice {
             ? RiskLevel.high
             : (ratio >= 0.7 ? RiskLevel.medium : RiskLevel.low);
 
+    // La box v2.26 donne la charge de la dernière minute, celle qui fait
+    // couper, déjà rapportée à la limite de la phase la plus chargée.
+    final load = extras?.freshMinuteLoad;
+
     if (snapshot.threePhase) {
       final limit = snapshot.phaseLimitVA;
-      if (limit == null || limit <= 0) return null;
+      if (limit == null || limit <= 0) {
+        if (load == null) return null;
+        return CutRisk(load / 100, level(load / 100), averaged: true);
+      }
       var worst = 0;
       for (var i = 1; i < 3; i++) {
         if (snapshot.phasePowersVA[i] > snapshot.phasePowersVA[worst])
           worst = i;
       }
-      final ratio = snapshot.phasePowersVA[worst] / limit;
-      return CutRisk(ratio, level(ratio), phase: worst + 1);
+      final ratio =
+          load != null ? load / 100 : snapshot.phasePowersVA[worst] / limit;
+      return CutRisk(
+        ratio,
+        level(ratio),
+        averaged: load != null,
+        // La box ne dit pas quelle phase porte sa charge à la minute.
+        phase: load == null ? worst + 1 : null,
+      );
+    }
+
+    if (load != null) {
+      return CutRisk(load / 100, level(load / 100), averaged: true);
     }
 
     final subscribed = snapshot.subscribedPowerVA;
@@ -388,17 +417,25 @@ class EnergyAdvice {
   static SubscriptionCheck _fromSummary(PowerSummary summary) {
     final subscribedKVA = (summary.subscribedVA / 1000).round();
     final peak = summary.worstVa1m ?? 0;
+    // En triphasé, c'est la phase la plus chargée qui fait couper, à un
+    // tiers de l'abonnement : son pic, ramené aux trois phases, dit quel
+    // abonnement la porterait.
+    final phasePeak = summary.threePhase ? summary.worstPhaseVa1m : null;
+    final sizing = phasePeak != null ? phasePeak * 3 : peak;
     bool often(int band, Set<PeakRate> rates) =>
         rates.contains(summary.rates[band]);
     final tight =
         often(90, {PeakRate.daily, PeakRate.weekly}) ||
         often(100, {PeakRate.daily, PeakRate.weekly, PeakRate.monthly});
     int? suggested;
+    final rarelyHigh =
+        !often(80, {PeakRate.daily, PeakRate.weekly, PeakRate.monthly});
     if (!tight &&
-        peak > 0 &&
+        rarelyHigh &&
+        sizing > 0 &&
         summary.observedDays >= SubscriptionCheck.minDays) {
       final enough = subscriptionTiers.firstWhere(
-        (tier) => tier * 1000 >= peak * 1.15,
+        (tier) => tier * 1000 >= sizing * 1.15,
         orElse: () => subscribedKVA,
       );
       if (enough < subscribedKVA) suggested = enough;
@@ -409,6 +446,9 @@ class EnergyAdvice {
       days: summary.observedDays,
       suggestedKVA: suggested,
       tight: tight,
+      phasePeakVA: phasePeak,
+      phaseLimitVA: phasePeak == null ? null : summary.phaseLimitVA,
+      days30Over80: summary.days30Over80,
     );
   }
 
