@@ -4,11 +4,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 /// Vue sur laquelle le kiosque s'ouvre.
-enum KioskTab { energy, devices, groups, thermostats }
+enum KioskTab { energy, savings, devices, groups, thermostats }
 
 extension KioskTabLabel on KioskTab {
   String get label => switch (this) {
     KioskTab.energy => 'Énergie',
+    KioskTab.savings => 'Économies',
     KioskTab.devices => 'Appareils',
     KioskTab.groups => 'Groupes',
     KioskTab.thermostats => 'Thermostats',

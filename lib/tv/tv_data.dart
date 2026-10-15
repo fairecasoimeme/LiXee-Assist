@@ -90,12 +90,24 @@ class TvData {
     if (snapshot != null) {
       await WidgetDataService.saveSnapshot(snapshot);
       await HomeWidgetBridge.push(snapshot);
+      await PowerPeaks.record(box.name, snapshot);
       // Le détail de la vue Énergie suit, à son rythme : il ne retarde pas
       // les widgets, et son absence ne coûte que des couleurs par défaut.
-      final extras = await EnergyDetailService.refreshIfDue(
+      var extras = await EnergyDetailService.refreshIfDue(
         box.device,
+        box.extras,
         () async => (await reachableRoute(box.device))?.$2,
       );
+      // Le risque de coupure se joue à la minute : sa moyenne est relue à
+      // chaque relevé, pas toutes les dix minutes.
+      final known = extras ?? box.extras;
+      if (known != null && known.modern) {
+        final route = (await reachableRoute(box.device))?.$2;
+        if (route != null) {
+          extras =
+              await EnergyDetailService.refreshMinute(route, known) ?? extras;
+        }
+      }
       return box.copyWith(
         snapshot: snapshot,
         extras: extras,

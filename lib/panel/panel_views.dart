@@ -6,7 +6,9 @@ import '../screens/home_screen.dart' show resolveMdnsIP;
 import '../services/action_group_service.dart';
 import '../services/box_client.dart';
 import '../services/device_control_service.dart';
+import '../services/energy_advice.dart';
 import '../services/energy_detail_service.dart';
+import 'panel_savings.dart';
 import '../services/thermostat_service.dart';
 import '../services/widget_data_service.dart';
 import '../tv/tv_tabs.dart';
@@ -37,14 +39,24 @@ class PanelEnergyView extends StatelessWidget {
   final LinkySnapshot snapshot;
   final EnergyExtras? extras;
 
-  const PanelEnergyView({super.key, required this.snapshot, this.extras});
+  /// Nom de la box affichée, qui porte son objectif du mois.
+  final String box;
+
+  const PanelEnergyView({
+    super.key,
+    required this.snapshot,
+    required this.box,
+    this.extras,
+  });
 
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final tall = constraints.maxHeight > constraints.maxWidth * 1.25;
-        return tall ? _tall() : _square();
+        final wide = constraints.maxWidth > constraints.maxHeight * 1.25;
+        if (tall) return _tall();
+        return wide ? _wide() : _square();
       },
     );
   }
@@ -52,6 +64,7 @@ class PanelEnergyView extends StatelessWidget {
   Widget _square() {
     return Column(
       children: [
+        ..._advice(compact: true),
         Expanded(
           flex: 11,
           child: Row(
@@ -77,6 +90,7 @@ class PanelEnergyView extends StatelessWidget {
                       ),
                       if (snapshot.dailyCostEur != null) _cost(24),
                       if (_solar() case final solar?) solar,
+                      if (_floor() case final floor?) floor,
                       const SizedBox(height: 4),
                       _age(),
                     ],
@@ -93,50 +107,68 @@ class PanelEnergyView extends StatelessWidget {
     );
   }
 
-  Widget _tall() {
+  /// Paysage (téléphone ou tablette couchés) : la jauge à gauche, le mois
+  /// et les compteurs au milieu, l'électricité et son graphe à droite.
+  Widget _wide() {
+    final month = PanelMonthCard.of(extras, compact: true);
+    final meters = extras?.utilities ?? const <UtilityMeter>[];
+    final tiles = <Widget>[
+      if (month != null) month,
+      for (final meter in meters) TvUtilityTile(meter: meter, size: 18),
+    ];
     return Column(
       children: [
-        Expanded(flex: 10, child: _gauge()),
-        const SizedBox(height: 8),
-        _card(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        ..._advice(compact: true),
+        Expanded(
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              Expanded(flex: 4, child: _gauge()),
+              const SizedBox(width: 8),
               Expanded(
+                flex: 9,
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Text(
-                      'Sur 24 h',
-                      style: TextStyle(fontSize: 13, color: TvColors.muted),
-                    ),
-                    FittedBox(
-                      fit: BoxFit.scaleDown,
-                      alignment: Alignment.centerLeft,
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.baseline,
-                        textBaseline: TextBaseline.alphabetic,
-                        children: [
-                          _energy(30),
-                          if (snapshot.dailyCostEur != null) ...[
-                            const SizedBox(width: 18),
-                            _cost(24),
+                    Expanded(child: _chart(header: true)),
+                    // Le mois, le gaz et l'eau : une rangée de tuiles.
+                    if (tiles.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        height: 96,
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            for (final (i, tile) in tiles.indexed) ...[
+                              if (i > 0) const SizedBox(width: 8),
+                              Expanded(child: tile),
+                            ],
                           ],
-                        ],
+                        ),
                       ),
-                    ),
+                    ],
                   ],
                 ),
-              ),
-              const SizedBox(width: 10),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [if (_solar() case final solar?) solar, _age()],
               ),
             ],
           ),
         ),
-        ..._utilities(56, 18),
+      ],
+    );
+  }
+
+  Widget _tall() {
+    return Column(
+      children: [
+        ..._advice(compact: false),
+        Expanded(flex: 10, child: _gauge()),
+        // Le mois, puis les compteurs de la maison, chacun sur toute la
+        // largeur : gaz, eau, et l'électricité avec son graphe.
+        if (PanelMonthCard.of(extras) case final month?) ...[
+          const SizedBox(height: 8),
+          month,
+        ],
+        ..._utilities(64, 20, fullWidth: true),
         const SizedBox(height: 8),
         Expanded(flex: 8, child: _chart()),
       ],
@@ -144,9 +176,26 @@ class PanelEnergyView extends StatelessWidget {
   }
 
   /// Gaz et eau, côte à côte, quand la box en suit.
-  List<Widget> _utilities(double height, double size) {
+  List<Widget> _utilities(
+    double height,
+    double size, {
+    bool fullWidth = false,
+  }) {
     final meters = extras?.utilities ?? const <UtilityMeter>[];
     if (meters.isEmpty) return const [];
+    // Chacun sur sa ligne, le chiffre à gauche et les barres alignées sur
+    // le graphe de l'électricité.
+    if (fullWidth) {
+      return [
+        for (final meter in meters) ...[
+          const SizedBox(height: 8),
+          SizedBox(
+            height: height,
+            child: TvUtilityTile(meter: meter, size: size, textWidth: 84),
+          ),
+        ],
+      ];
+    }
     return [
       const SizedBox(height: 8),
       SizedBox(
@@ -165,22 +214,132 @@ class PanelEnergyView extends StatelessWidget {
 
   Widget _gauge() {
     final s = snapshot;
+    final perHour = EnergyAdvice.costPerHour(s, extras);
     return _card(
       padding: const EdgeInsets.all(8),
-      child: TvArcGauge(
-        ratio:
-            s.subscribedPowerVA == null || s.subscribedPowerVA == 0
-                ? 0
-                : (s.apparentPowerVA ?? 0) / s.subscribedPowerVA!,
-        color: TvColors.focus,
-        value: tvNumber(s.apparentPowerVA ?? 0),
-        caption:
-            s.subscribedPowerVA == null
-                ? 'VA'
-                : 'VA sur ${tvNumber(s.subscribedPowerVA!)}',
-        scaleText: true,
+      child: Column(
+        children: [
+          // Triphasé : une jauge par phase, sans total, car c'est une phase
+          // qui fait sauter le disjoncteur. Producteur : la jauge d'injection
+          // à côté, à l'échelle de l'abonnement.
+          Expanded(
+            child: Row(
+              children: [
+                if (s.threePhase) ..._phases(s) else Expanded(child: _arc(s)),
+                if (s.productionPowerVA != null)
+                  Expanded(child: _injectionArc(s)),
+              ],
+            ),
+          ),
+          if (EnergyAdvice.cutRisk(s, extras) case final risk?)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
+              // Dans une colonne étroite (paysage), le libellé court.
+              child: LayoutBuilder(
+                builder:
+                    (context, box) =>
+                        PanelRiskBar(risk: risk, short: box.maxWidth < 360),
+              ),
+            ),
+          // En euros si le prix est saisi : c'est ce qui parle à tout le
+          // monde. Sinon la jauge reste en VA, sans rien inventer.
+          if (perHour != null &&
+              perHour >= 0.01 &&
+              (s.productionPowerVA ?? 0) == 0)
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                '≈ ${tvNumber(perHour, decimals: 2)} € par heure à ce rythme',
+                style: const TextStyle(fontSize: 15, color: TvColors.muted),
+              ),
+            ),
+        ],
       ),
     );
+  }
+
+  /// L'injection en cours, en vert, sur l'échelle de l'abonnement.
+  Widget _injectionArc(LinkySnapshot s) {
+    final injected = s.productionPowerVA ?? 0;
+    final max = s.subscribedPowerVA;
+    return TvArcGauge(
+      ratio: max == null || max == 0 ? 0 : injected / max,
+      color: TvColors.solar,
+      value: tvNumber(injected),
+      caption: 'VA injectés',
+      scaleText: true,
+    );
+  }
+
+  /// Une jauge par phase : en triphasé, c'est une phase qui fait sauter le
+  /// disjoncteur, même quand le total reste loin de l'abonnement.
+  List<Widget> _phases(LinkySnapshot s) {
+    final limit = s.phaseLimitVA;
+    return [
+      for (final (i, va) in s.phasePowersVA.indexed)
+        Expanded(
+          child: TvArcGauge(
+            ratio: limit == null || limit == 0 ? 0 : va / limit,
+            color: _phaseColor(limit == null || limit == 0 ? 0 : va / limit),
+            value: tvNumber(va),
+            caption:
+                limit == null
+                    ? 'Phase ${i + 1}'
+                    : 'Phase ${i + 1} · sur ${tvNumber(limit)}',
+            scaleText: true,
+          ),
+        ),
+    ];
+  }
+
+  /// Bleu, puis orange à 70 %, rouge à 90 % de la limite de la phase.
+  static Color _phaseColor(double ratio) =>
+      ratio >= 0.9
+          ? TvColors.bad
+          : (ratio >= 0.7 ? TvColors.warn : TvColors.focus);
+
+  Widget _arc(LinkySnapshot s) {
+    return TvArcGauge(
+      ratio:
+          s.subscribedPowerVA == null || s.subscribedPowerVA == 0
+              ? 0
+              : (s.apparentPowerVA ?? 0) / s.subscribedPowerVA!,
+      color: TvColors.focus,
+      value: tvNumber(s.apparentPowerVA ?? 0),
+      caption:
+          s.subscribedPowerVA == null
+              ? 'VA'
+              : 'VA sur ${tvNumber(s.subscribedPowerVA!)}',
+      scaleText: true,
+    );
+  }
+
+  /// La consommation plancher : ce qui tourne même quand on ne fait rien.
+  Widget? _floor() {
+    final load = EnergyAdvice.baseLoad(snapshot, extras);
+    if (load == null) return null;
+    final yearly =
+        load.yearlyEur != null
+            ? '≈ ${tvNumber(load.yearlyEur!)} €/an'
+            : '≈ ${tvNumber(load.yearlyKWh)} kWh/an';
+    return Text(
+      'Plancher ${tvNumber(load.watts)} W · $yearly',
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: const TextStyle(fontSize: 13, color: TvColors.muted),
+    );
+  }
+
+  /// La météo de l'électricité et les alertes, en pastilles : leur
+  /// bandeau ne se déplie qu'à l'appui.
+  List<Widget> _advice({required bool compact}) {
+    final alerts = EnergyAdvice.alerts(snapshot, extras);
+    final weather = EnergyAdvice.weather(snapshot, extras);
+    if (weather == null && alerts.isEmpty) return const [];
+    return [
+      PanelStatusStrip(weather: weather, alerts: alerts, compact: compact),
+      const SizedBox(height: 8),
+    ];
   }
 
   Widget _energy(double size) => _figure(
@@ -196,11 +355,8 @@ class PanelEnergyView extends StatelessWidget {
 
   /// L'injection en cours si la maison produit, sinon la production du jour.
   Widget? _solar() {
-    final production = snapshot.productionPowerVA;
     final String text;
-    if (production != null && production > 0) {
-      text = 'Injection +${tvNumber(production)} VA';
-    } else if (snapshot.dailyProductionWh != null) {
+    if (snapshot.dailyProductionWh != null) {
       text =
           'Produit ${tvNumber(snapshot.dailyProductionWh! / 1000, decimals: 2)} kWh';
     } else {
@@ -219,17 +375,143 @@ class PanelEnergyView extends StatelessWidget {
     style: const TextStyle(fontSize: 12, color: TvColors.muted),
   );
 
-  Widget _chart() {
+  /// L'électricité comme le gaz et l'eau : son icône, son total et son
+  /// coût à gauche, le graphe heure par heure à droite.
+  /// [header] : les chiffres en une ligne au-dessus du graphe, qui prend
+  /// alors toute la largeur (paysage).
+  Widget _chart({bool header = false}) {
+    final s = snapshot;
+    final total = s.dailyTotalWh;
+    final load = EnergyAdvice.baseLoad(s, extras);
+    if (header) {
+      final value =
+          total == null
+              ? '—'
+              : '${tvNumber(total / 1000, decimals: 2)} kWh'
+                  '${s.dailyCostEur == null ? '' : ' · ${tvNumber(s.dailyCostEur!, decimals: 2)} €'}';
+      final details = [
+        if (s.dailyProductionWh != null)
+          'Produit ${tvNumber(s.dailyProductionWh! / 1000, decimals: 2)} kWh',
+        if (load != null)
+          'Plancher ${tvNumber(load.watts)} W'
+              '${load.yearlyEur != null ? ' · ≈ ${tvNumber(load.yearlyEur!)} €/an' : ''}',
+      ].join('   ');
+      return _card(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                const Icon(Icons.bolt, color: TvColors.focus, size: 24),
+                const SizedBox(width: 6),
+                const Text(
+                  'Électricité · 24 h  ',
+                  style: TextStyle(fontSize: 13, color: TvColors.muted),
+                ),
+                Text(
+                  value,
+                  style: const TextStyle(
+                    fontSize: 19,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    details,
+                    textAlign: TextAlign.end,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 12, color: TvColors.muted),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Expanded(
+              child:
+                  s.hourly.isEmpty
+                      ? const Center(
+                        child: Text(
+                          'Historique indisponible',
+                          style: TextStyle(color: TvColors.muted),
+                        ),
+                      )
+                      : TvHourlyChart(
+                        samples: s.hourly,
+                        contract: s.contract,
+                        subMeterColors: extras?.subMeterColors ?? const {},
+                        legendSize: 12,
+                        budgetWh: EnergyAdvice.hourlyBudgetWh(s, extras),
+                      ),
+            ),
+          ],
+        ),
+      );
+    }
+    TextStyle small(Color color) => TextStyle(fontSize: 11.5, color: color);
     return _card(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      padding: const EdgeInsets.fromLTRB(10, 10, 12, 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Text(
-            'Heure par heure',
-            style: TextStyle(fontSize: 13, color: TvColors.muted),
+          SizedBox(
+            width: 124,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(Icons.bolt, color: TvColors.focus, size: 28),
+                const SizedBox(height: 2),
+                Text('Électricité · 24 h', style: small(TvColors.muted)),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    total == null
+                        ? '—'
+                        : '${tvNumber(total / 1000, decimals: 2)} kWh',
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                if (s.dailyCostEur != null)
+                  Text(
+                    '${tvNumber(s.dailyCostEur!, decimals: 2)} €',
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                if (s.dailyProductionWh != null)
+                  Text(
+                    'Produit ${tvNumber(s.dailyProductionWh! / 1000, decimals: 2)} kWh',
+                    style: small(TvColors.solar),
+                  ),
+                const Spacer(),
+                if (load != null) ...[
+                  Text(
+                    'Plancher ${tvNumber(load.watts)} W',
+                    style: small(TvColors.muted),
+                  ),
+                  Text(
+                    load.yearlyEur != null
+                        ? '≈ ${tvNumber(load.yearlyEur!)} €/an'
+                        : '≈ ${tvNumber(load.yearlyKWh)} kWh/an',
+                    style: small(TvColors.muted),
+                  ),
+                ],
+                Text(
+                  'Relevé ${tvAge(s.timestamp)}',
+                  style: small(TvColors.muted),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(width: 8),
           Expanded(
             child:
                 snapshot.hourly.isEmpty
@@ -244,6 +526,7 @@ class PanelEnergyView extends StatelessWidget {
                       contract: snapshot.contract,
                       subMeterColors: extras?.subMeterColors ?? const {},
                       legendSize: 12,
+                      budgetWh: EnergyAdvice.hourlyBudgetWh(snapshot, extras),
                     ),
           ),
         ],
@@ -265,6 +548,548 @@ class PanelEnergyView extends StatelessWidget {
       ],
     ),
   );
+}
+
+/// Les pastilles du kiosque : le tarif en cours, puis une par alerte.
+///
+/// Un appui déplie le bandeau complet dessous ; il se replie au second
+/// appui, ou de lui-même au bout de 20 secondes. Une alerte grave se
+/// déplie seule, une fois : en simple pastille, elle passerait inaperçue.
+class PanelStatusStrip extends StatefulWidget {
+  final ElectricityWeather? weather;
+  final List<EnergyAlert> alerts;
+  final bool compact;
+
+  const PanelStatusStrip({
+    super.key,
+    required this.weather,
+    required this.alerts,
+    this.compact = false,
+  });
+
+  @override
+  State<PanelStatusStrip> createState() => _PanelStatusStripState();
+}
+
+class _PanelStatusStripState extends State<PanelStatusStrip> {
+  /// -1 : le tarif ; 0 et plus : une alerte ; null : tout replié.
+  int? _open;
+  Timer? _fold;
+
+  /// Alertes graves déjà montrées, par titre : elles ne se redéplient pas
+  /// à chaque relevé.
+  static final Set<String> _shown = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _openUrgent();
+  }
+
+  @override
+  void didUpdateWidget(PanelStatusStrip old) {
+    super.didUpdateWidget(old);
+    if (_open != null && _open! >= widget.alerts.length) _open = null;
+    _openUrgent();
+  }
+
+  @override
+  void dispose() {
+    _fold?.cancel();
+    super.dispose();
+  }
+
+  void _openUrgent() {
+    for (final (i, alert) in widget.alerts.indexed) {
+      if (alert.level == AdviceLevel.danger && _shown.add(alert.title)) {
+        _open = i;
+        _arm();
+        return;
+      }
+    }
+  }
+
+  void _arm() {
+    _fold?.cancel();
+    _fold = Timer(const Duration(seconds: 20), () {
+      if (mounted) setState(() => _open = null);
+    });
+  }
+
+  void _toggle(int index) {
+    setState(() => _open = _open == index ? null : index);
+    if (_open != null) _arm();
+  }
+
+  static Color _alertColor(AdviceLevel level) => switch (level) {
+    AdviceLevel.danger => TvColors.bad,
+    AdviceLevel.warning => TvColors.warn,
+    AdviceLevel.info => TvColors.focus,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final weather = widget.weather;
+    final open = _open;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(
+          height: widget.compact ? 40 : 48,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (weather != null)
+                Flexible(
+                  child: _WeatherChip(
+                    weather: weather,
+                    selected: open == -1,
+                    onTap: () => _toggle(-1),
+                  ),
+                ),
+              for (final (i, alert) in widget.alerts.take(3).indexed) ...[
+                const SizedBox(width: 8),
+                _AlertChip(
+                  color: _alertColor(alert.level),
+                  icon:
+                      alert.level == AdviceLevel.info
+                          ? Icons.info_outline
+                          : Icons.warning_amber_rounded,
+                  selected: open == i,
+                  onTap: () => _toggle(i),
+                ),
+              ],
+            ],
+          ),
+        ),
+        AnimatedSize(
+          duration: const Duration(milliseconds: 220),
+          alignment: Alignment.topCenter,
+          child:
+              open == null
+                  ? const SizedBox(width: double.infinity)
+                  : Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: GestureDetector(
+                      onTap: () => _toggle(open),
+                      child:
+                          open == -1 && weather != null
+                              ? PanelWeatherBanner(weather: weather)
+                              : PanelAlertCard(alert: widget.alerts[open]),
+                    ),
+                  ),
+        ),
+      ],
+    );
+  }
+}
+
+/// La pastille du tarif : sa couleur, le nom court, le prix, et le point
+/// de couleur de demain en Tempo.
+class _WeatherChip extends StatelessWidget {
+  final ElectricityWeather weather;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _WeatherChip({
+    required this.weather,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = priceLevelColor(weather.level);
+    final price = weather.pricePerKWh;
+    final tomorrow = weather.tomorrow;
+    return Material(
+      color: Color.alphaBlend(color.withValues(alpha: 0.18), TvColors.panel),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(99),
+        side: BorderSide(color: color, width: selected ? 2.5 : 1.5),
+      ),
+      child: InkWell(
+        customBorder: const StadiumBorder(),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(_priceLevelIcon(weather.level), color: color, size: 22),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  weather.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: color,
+                  ),
+                ),
+              ),
+              if (price != null) ...[
+                const SizedBox(width: 10),
+                Text(
+                  '${tvNumber(price, decimals: 4)} €',
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+              if (tomorrow != null) ...[
+                const SizedBox(width: 8),
+                Tooltip(
+                  message: 'Demain',
+                  child: Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      color: PanelWeatherBanner.dayColor(tomorrow),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: TvColors.muted, width: 1),
+                    ),
+                  ),
+                ),
+              ],
+              const SizedBox(width: 4),
+              Icon(
+                selected ? Icons.expand_less : Icons.expand_more,
+                color: TvColors.muted,
+                size: 20,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// La pastille d'une alerte : un rond de la couleur de sa gravité.
+class _AlertChip extends StatelessWidget {
+  final Color color;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _AlertChip({
+    required this.color,
+    required this.icon,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return AspectRatio(
+      aspectRatio: 1,
+      child: Material(
+        color: Color.alphaBlend(
+          color.withValues(alpha: selected ? 0.4 : 0.22),
+          TvColors.panel,
+        ),
+        shape: CircleBorder(side: BorderSide(color: color, width: 1.5)),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: Icon(icon, color: color, size: 24),
+        ),
+      ),
+    );
+  }
+}
+
+/// Le risque que le disjoncteur saute, en une ligne : son niveau, une
+/// barre jusqu'à l'abonnement, et le conseil quand il faut agir.
+class PanelRiskBar extends StatelessWidget {
+  final CutRisk risk;
+  final double size;
+
+  /// Dans une colonne étroite (TV), « Risque » suffit.
+  final bool short;
+
+  const PanelRiskBar({
+    super.key,
+    required this.risk,
+    this.size = 14,
+    this.short = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = switch (risk.level) {
+      RiskLevel.low => TvColors.ok,
+      RiskLevel.medium => TvColors.warn,
+      RiskLevel.high => TvColors.bad,
+    };
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.electric_bolt, size: size + 4, color: color),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text.rich(
+                TextSpan(
+                  children: [
+                    TextSpan(
+                      text: short ? 'Risque : ' : 'Risque de coupure : ',
+                      style: const TextStyle(color: TvColors.muted),
+                    ),
+                    TextSpan(
+                      text: risk.label,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        color: color,
+                      ),
+                    ),
+                  ],
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: size),
+              ),
+            ),
+            Text(
+              '${(risk.ratio * 100).round()} %'
+              '${risk.phase == null ? '' : ' · phase ${risk.phase}'}',
+              style: TextStyle(fontSize: size - 1, color: TvColors.muted),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(99),
+          child: LinearProgressIndicator(
+            value: risk.ratio.clamp(0.0, 1.0),
+            minHeight: size * 0.55,
+            backgroundColor: TvColors.panelHigh,
+            color: color,
+          ),
+        ),
+        // Le conseil n'apparaît que quand il y a quelque chose à faire.
+        if (risk.level != RiskLevel.low) ...[
+          const SizedBox(height: 3),
+          Text(risk.advice, style: TextStyle(fontSize: size - 1, color: color)),
+        ],
+      ],
+    );
+  }
+}
+
+/// Couleur d'un niveau de prix : vert quand c'est le moment, orange quand
+/// il vaut mieux attendre, rouge quand il faut éviter.
+Color priceLevelColor(PriceLevel level) => switch (level) {
+  PriceLevel.surplus => TvColors.solar,
+  PriceLevel.cheap => TvColors.ok,
+  PriceLevel.flat => TvColors.focus,
+  PriceLevel.normal => TvColors.warn,
+  PriceLevel.expensive => const Color(0xFFE67E22),
+  PriceLevel.peak => TvColors.bad,
+};
+
+IconData _priceLevelIcon(PriceLevel level) => switch (level) {
+  PriceLevel.surplus => Icons.wb_sunny,
+  PriceLevel.cheap => Icons.thumb_up_alt,
+  PriceLevel.flat => Icons.horizontal_rule,
+  PriceLevel.normal => Icons.schedule,
+  PriceLevel.expensive => Icons.trending_up,
+  PriceLevel.peak => Icons.do_not_disturb_on,
+};
+
+/// La météo de l'électricité : le tarif en cours en grand, son prix, le
+/// conseil du moment, et la couleur de demain en Tempo.
+class PanelWeatherBanner extends StatelessWidget {
+  final ElectricityWeather weather;
+
+  /// Sur un petit écran, le conseil cède la place.
+  final bool compact;
+
+  const PanelWeatherBanner({
+    super.key,
+    required this.weather,
+    this.compact = false,
+  });
+
+  static String _day(TempoColor color) => switch (color) {
+    TempoColor.blue => 'bleu',
+    TempoColor.white => 'blanc',
+    TempoColor.red => 'rouge',
+  };
+
+  static Color dayColor(TempoColor color) => switch (color) {
+    TempoColor.blue => const Color(0xFF3498DB),
+    TempoColor.white => const Color(0xFFECF0F1),
+    TempoColor.red => TvColors.bad,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final color = priceLevelColor(weather.level);
+    final price = weather.pricePerKWh;
+    final tomorrow = weather.tomorrow;
+    return Container(
+      padding: EdgeInsets.fromLTRB(12, compact ? 8 : 10, 14, compact ? 8 : 10),
+      decoration: BoxDecoration(
+        color: Color.alphaBlend(color.withValues(alpha: 0.16), TvColors.panel),
+        borderRadius: BorderRadius.circular(14),
+        border: Border(left: BorderSide(color: color, width: 5)),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            _priceLevelIcon(weather.level),
+            color: color,
+            size: compact ? 24 : 30,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  weather.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: compact ? 16 : 19,
+                    fontWeight: FontWeight.w800,
+                    color: color,
+                  ),
+                ),
+                if (!compact) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    weather.advice,
+                    maxLines: 3,
+                    style: const TextStyle(fontSize: 13.5, height: 1.25),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (price != null || tomorrow != null) const SizedBox(width: 10),
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              if (price != null)
+                Text.rich(
+                  TextSpan(
+                    children: [
+                      TextSpan(
+                        text: tvNumber(price, decimals: 4),
+                        style: TextStyle(
+                          fontSize: compact ? 18 : 24,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const TextSpan(
+                        text: ' €/kWh',
+                        style: TextStyle(fontSize: 12, color: TvColors.muted),
+                      ),
+                    ],
+                  ),
+                ),
+              if (tomorrow != null) ...[
+                if (price != null) const SizedBox(height: 4),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'Demain ',
+                      style: TextStyle(fontSize: 12, color: TvColors.muted),
+                    ),
+                    Container(
+                      width: 10,
+                      height: 10,
+                      decoration: BoxDecoration(
+                        color: dayColor(tomorrow),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      _day(tomorrow),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Une alerte en tête de la vue Énergie : ce qui se passe, et quoi faire.
+class PanelAlertCard extends StatelessWidget {
+  final EnergyAlert alert;
+  final bool compact;
+
+  const PanelAlertCard({super.key, required this.alert, this.compact = false});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = switch (alert.level) {
+      AdviceLevel.danger => TvColors.bad,
+      AdviceLevel.warning => TvColors.warn,
+      AdviceLevel.info => TvColors.focus,
+    };
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      decoration: BoxDecoration(
+        color: Color.alphaBlend(color.withValues(alpha: 0.22), TvColors.panel),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: color, width: 1.5),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            alert.level == AdviceLevel.info
+                ? Icons.info_outline
+                : Icons.warning_amber_rounded,
+            color: color,
+            size: compact ? 22 : 28,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  alert.title,
+                  style: TextStyle(
+                    fontSize: compact ? 15 : 17,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                Text(
+                  alert.message,
+                  maxLines: compact ? 2 : 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 13, height: 1.25),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------

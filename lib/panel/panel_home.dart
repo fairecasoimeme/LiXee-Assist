@@ -7,16 +7,18 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../screens/home_screen.dart' show resolveMdnsIP;
 import '../services/action_group_service.dart';
 import '../services/device_control_service.dart';
+import '../services/energy_detail_service.dart';
 import '../services/thermostat_service.dart';
 import '../tv/tv_data.dart';
 import '../tv/tv_theme.dart';
 import 'app_mode.dart';
 import 'panel_add.dart';
 import 'panel_backlight.dart';
+import 'panel_savings.dart';
 import 'panel_views.dart';
 import 'panel_widgets.dart';
 
-enum _Tab { energy, devices, groups, thermostats }
+enum _Tab { energy, savings, devices, groups, thermostats }
 
 /// Kiosque d'un panneau mural : une box à la fois, quatre vues au pied de
 /// l'écran, tout au doigt.
@@ -136,7 +138,7 @@ class _PanelHomeScreenState extends State<PanelHomeScreen> {
   void _refreshCurrent() {
     if (_box == null) return;
     switch (_shown) {
-      case _Tab.energy:
+      case _Tab.energy || _Tab.savings:
         _refreshEnergy();
       case _Tab.devices:
         _refreshDevices();
@@ -155,6 +157,17 @@ class _PanelHomeScreenState extends State<PanelHomeScreen> {
     if (box == null) return;
     final fresh = await TvData.refresh(box);
     if (_still(box)) setState(() => _box = fresh);
+  }
+
+  /// Rallume ce que le délestage a coupé, puis relit l'état une seconde
+  /// plus tard, le temps que la box exécute la demande.
+  Future<void> _restoreShedding(TvBox box) async {
+    final route = (await TvData.reachableRoute(box.device))?.$2;
+    if (route == null) return;
+    await EnergyDetailService.restoreShedding(route);
+    await Future<void>.delayed(const Duration(seconds: 2));
+    EnergyDetailService.forget(box.device);
+    await _refreshEnergy();
   }
 
   Future<void> _refreshDevices() async {
@@ -201,6 +214,7 @@ class _PanelHomeScreenState extends State<PanelHomeScreen> {
 
   List<_Tab> get _tabs => [
     if (_box?.snapshot?.apparentPowerVA != null) _Tab.energy,
+    if (_box?.snapshot?.apparentPowerVA != null) _Tab.savings,
     if (_devices?.any((d) => !_isMeterDevice(d)) ?? false) _Tab.devices,
     if (_groups?.isNotEmpty ?? false) _Tab.groups,
     if (_zones?.isNotEmpty ?? false) _Tab.thermostats,
@@ -212,6 +226,7 @@ class _PanelHomeScreenState extends State<PanelHomeScreen> {
 
   (IconData, String) _look(_Tab tab) => switch (tab) {
     _Tab.energy => (Icons.bolt, 'Énergie'),
+    _Tab.savings => (Icons.savings_outlined, 'Économies'),
     _Tab.devices => (Icons.blinds, 'Appareils'),
     _Tab.groups => (Icons.play_circle_outline, 'Groupes'),
     _Tab.thermostats => (Icons.thermostat, 'Thermostats'),
@@ -430,7 +445,25 @@ class _PanelHomeScreenState extends State<PanelHomeScreen> {
     final box = _box!;
     switch (tab) {
       case _Tab.energy:
-        return PanelEnergyView(snapshot: box.snapshot!, extras: box.extras);
+        return PanelEnergyView(
+          snapshot: box.snapshot!,
+          extras: box.extras,
+          box: box.name,
+        );
+      case _Tab.savings:
+        return PanelSavingsView(
+          snapshot: box.snapshot!,
+          extras: box.extras,
+          box: box.name,
+          onRestoreShedding:
+              box.extras?.shedding?.active == true
+                  ? () => _restoreShedding(box)
+                  : null,
+          deviceNames: {
+            for (final d in _devices ?? const <DeviceSnapshot>[])
+              d.ieee: d.label,
+          },
+        );
       case _Tab.devices:
         return PanelDevicesView(
           box: box.device,

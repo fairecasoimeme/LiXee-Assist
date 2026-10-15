@@ -9,7 +9,10 @@ import '../screens/home_screen.dart' show resolveMdnsIP;
 import '../screens/webview_device_screen.dart';
 import '../services/action_group_service.dart';
 import '../services/box_client.dart';
+import '../panel/panel_views.dart'
+    show PanelAlertCard, PanelRiskBar, PanelWeatherBanner;
 import '../services/device_control_service.dart';
+import '../services/energy_advice.dart';
 import '../services/energy_detail_service.dart';
 import '../services/thermostat_service.dart';
 import '../services/widget_data_service.dart';
@@ -28,39 +31,105 @@ class TvEnergyTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Sur un grand écran, la météo de l'électricité et l'alerte du moment
+    // tiennent en entier : pas besoin de pastilles à déplier.
+    final weather = EnergyAdvice.weather(snapshot, extras);
+    final alert = EnergyAdvice.alerts(snapshot, extras).firstOrNull;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (weather != null || alert != null) ...[
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (weather != null)
+                  Expanded(child: PanelWeatherBanner(weather: weather)),
+                if (weather != null && alert != null) const SizedBox(width: 16),
+                if (alert != null)
+                  Expanded(child: PanelAlertCard(alert: alert)),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
+        Expanded(child: _panels()),
+      ],
+    );
+  }
+
+  Widget _panels() {
     final s = snapshot;
-    final production = s.productionPowerVA;
     final trend = s.hourlyTrendPct;
+    final wide = s.threePhase || s.productionPowerVA != null;
+    final risk = EnergyAdvice.cutRisk(s, extras);
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Expanded(
-          flex: 4,
+          flex: s.threePhase ? 10 : (wide ? 7 : 5),
           child: _Panel(
             title: 'Puissance',
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
+                // Triphasé : une jauge par phase, sans total. Producteur :
+                // l'injection à côté, à l'échelle de l'abonnement.
                 Expanded(
-                  child: TvArcGauge(
-                    ratio:
-                        s.subscribedPowerVA == null || s.subscribedPowerVA == 0
-                            ? 0
-                            : (s.apparentPowerVA ?? 0) / s.subscribedPowerVA!,
-                    color: TvColors.focus,
-                    value: tvNumber(s.apparentPowerVA ?? 0),
-                    caption:
-                        s.subscribedPowerVA == null
-                            ? 'VA'
-                            : 'VA sur ${tvNumber(s.subscribedPowerVA!)}',
+                  child: Row(
+                    children: [
+                      if (s.threePhase)
+                        for (final (i, va) in s.phasePowersVA.indexed)
+                          Expanded(
+                            child: TvArcGauge(
+                              ratio:
+                                  (s.phaseLimitVA ?? 0) == 0
+                                      ? 0
+                                      : va / s.phaseLimitVA!,
+                              color: TvColors.focus,
+                              value: tvNumber(va),
+                              caption: 'Phase ${i + 1}',
+                              scaleText: true,
+                            ),
+                          )
+                      else
+                        Expanded(
+                          child: TvArcGauge(
+                            ratio:
+                                s.subscribedPowerVA == null ||
+                                        s.subscribedPowerVA == 0
+                                    ? 0
+                                    : (s.apparentPowerVA ?? 0) /
+                                        s.subscribedPowerVA!,
+                            color: TvColors.focus,
+                            value: tvNumber(s.apparentPowerVA ?? 0),
+                            caption:
+                                s.subscribedPowerVA == null
+                                    ? 'VA'
+                                    : 'VA sur ${tvNumber(s.subscribedPowerVA!)}',
+                          ),
+                        ),
+                      if (s.productionPowerVA != null)
+                        Expanded(
+                          child: TvArcGauge(
+                            ratio:
+                                (s.subscribedPowerVA ?? 0) == 0
+                                    ? 0
+                                    : s.productionPowerVA! /
+                                        s.subscribedPowerVA!,
+                            color: TvColors.solar,
+                            value: tvNumber(s.productionPowerVA!),
+                            caption: 'VA injectés',
+                          ),
+                        ),
+                    ],
                   ),
                 ),
-                if (production != null && production > 0)
-                  Text(
-                    'Injection +${tvNumber(production)} VA',
-                    style: const TextStyle(fontSize: 18, color: TvColors.solar),
-                  ),
+                if (risk != null) ...[
+                  const SizedBox(height: 8),
+                  PanelRiskBar(risk: risk, size: 15, short: true),
+                ],
               ],
             ),
           ),
@@ -70,36 +139,45 @@ class TvEnergyTab extends StatelessWidget {
           flex: 4,
           child: _Panel(
             title: 'Sur 24 h',
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _figure(
-                  s.dailyTotalWh == null
-                      ? '—'
-                      : tvNumber(s.dailyTotalWh! / 1000, decimals: 2),
-                  'kWh',
-                  40,
-                ),
-                if (s.dailyCostEur != null)
-                  _figure(tvNumber(s.dailyCostEur!, decimals: 2), '€', 30),
-                if (s.dailyProductionWh != null) ...[
-                  const SizedBox(height: 8),
+            // Selon la box, une ligne de production ou de tendance s'ajoute :
+            // le contenu se réduit plutôt que de déborder.
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _figure(
+                    s.dailyTotalWh == null
+                        ? '—'
+                        : tvNumber(s.dailyTotalWh! / 1000, decimals: 2),
+                    'kWh',
+                    34,
+                  ),
+                  if (s.dailyCostEur != null)
+                    _figure(tvNumber(s.dailyCostEur!, decimals: 2), '€', 26),
+                  if (s.dailyProductionWh != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      'Produit ${tvNumber(s.dailyProductionWh! / 1000, decimals: 2)} kWh',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        color: TvColors.solar,
+                      ),
+                    ),
+                  ],
+                  if (trend != null) ...[
+                    const SizedBox(height: 6),
+                    _trend(trend),
+                  ],
+                  const SizedBox(height: 6),
                   Text(
-                    'Produit ${tvNumber(s.dailyProductionWh! / 1000, decimals: 2)} kWh',
-                    style: const TextStyle(fontSize: 18, color: TvColors.solar),
+                    'Relevé ${tvAge(s.timestamp)}',
+                    style: const TextStyle(fontSize: 14, color: TvColors.muted),
                   ),
                 ],
-                if (trend != null) ...[
-                  const SizedBox(height: 10),
-                  _trend(trend),
-                ],
-                const SizedBox(height: 10),
-                Text(
-                  'Relevé ${tvAge(s.timestamp)}',
-                  style: const TextStyle(fontSize: 14, color: TvColors.muted),
-                ),
-              ],
+              ),
             ),
           ),
         ),
@@ -122,8 +200,7 @@ class TvEnergyTab extends StatelessWidget {
                           child: TvHourlyChart(
                             samples: s.hourly,
                             contract: s.contract,
-                            subMeterColors:
-                                extras?.subMeterColors ?? const {},
+                            subMeterColors: extras?.subMeterColors ?? const {},
                           ),
                         ),
                         if (extras?.utilities.isNotEmpty ?? false) ...[
@@ -178,7 +255,7 @@ class TvEnergyTab extends StatelessWidget {
       text = '→ stable';
       color = TvColors.muted;
     }
-    return Text(text, style: TextStyle(fontSize: 17, color: color));
+    return Text(text, style: TextStyle(fontSize: 15, color: color));
   }
 }
 
@@ -412,8 +489,8 @@ List<TvEnergySeries> tvEnergySeries(
     Color(0xFFE67E22),
     Color(0xFFEC7063),
   ];
-  final attributes = <int>{for (final s in samples) ...s.tariffs.keys}.toList()
-    ..sort();
+  final attributes =
+      <int>{for (final s in samples) ...s.tariffs.keys}.toList()..sort();
   final meters = <String>{for (final s in samples) ...s.subMeters.keys};
   return [
     for (final attribute in attributes)
@@ -446,12 +523,16 @@ class TvHourlyChart extends StatelessWidget {
   /// Corps des heures ; la légende est un cran en dessous.
   final double legendSize;
 
+  /// Le budget du mois rapporté à l'heure, en Wh : une ligne pointillée.
+  final double? budgetWh;
+
   const TvHourlyChart({
     super.key,
     required this.samples,
     this.contract,
     this.subMeterColors = const {},
     this.legendSize = 14,
+    this.budgetWh,
   });
 
   @override
@@ -473,23 +554,26 @@ class TvHourlyChart extends StatelessWidget {
         Expanded(
           child: CustomPaint(
             size: Size.infinite,
-            painter: _BarsPainter(samples, series),
+            painter: _BarsPainter(samples, series, budgetWh, legendSize),
           ),
         ),
         const SizedBox(height: 6),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            for (final (i, index) in marks.indexed)
-              Text(
-                '${samples[index].hour}h',
-                style: TextStyle(
-                  fontSize: legendSize,
-                  color:
-                      i == marks.length - 1 ? TvColors.focus : TvColors.muted,
+        Padding(
+          padding: EdgeInsets.only(left: _BarsPainter.gutter(legendSize)),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              for (final (i, index) in marks.indexed)
+                Text(
+                  '${samples[index].hour}h',
+                  style: TextStyle(
+                    fontSize: legendSize,
+                    color:
+                        i == marks.length - 1 ? TvColors.focus : TvColors.muted,
+                  ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
         // Une seule série n'a rien à distinguer : la légende ne dirait que
         // ce que le total dit déjà.
@@ -532,19 +616,79 @@ class TvHourlyChart extends StatelessWidget {
 class _BarsPainter extends CustomPainter {
   final List<HourlySample> samples;
   final List<TvEnergySeries> series;
+  final double? budgetWh;
+  final double textSize;
 
-  _BarsPainter(this.samples, this.series);
+  _BarsPainter(this.samples, this.series, this.budgetWh, this.textSize);
+
+  /// Largeur réservée aux graduations, à gauche des barres.
+  static double gutter(double textSize) => textSize * 3.4;
+
+  /// Un pas rond qui donne deux ou trois graduations sous [top] Wh.
+  static int _step(int top) {
+    for (final step in const [
+      50,
+      100,
+      200,
+      250,
+      500,
+      1000,
+      2000,
+      2500,
+      5000,
+      10000,
+      20000,
+    ]) {
+      if (top / step <= 3) return step;
+    }
+    return 50000;
+  }
+
+  /// « 500 Wh », « 1 kWh », « 1,5 kWh ».
+  static String _label(int wh) =>
+      wh < 1000
+          ? '$wh Wh'
+          : '${tvNumber(wh / 1000, decimals: wh % 1000 == 0 ? 0 : 1)} kWh';
 
   @override
   void paint(Canvas canvas, Size size) {
     // La consommation monte au-dessus de l'axe, l'injection descend
     // dessous : les deux gardent la même échelle, et l'axe se place selon
     // la part de chacune.
-    final up = samples.fold<int>(1, (m, s) => math.max(m, s.wh));
+    // La ligne du budget fixe aussi l'échelle : elle doit rester visible
+    // quand la consommation est faible.
+    final up = math.max(
+      samples.fold<int>(1, (m, s) => math.max(m, s.wh)),
+      ((budgetWh ?? 0) * 1.15).round(),
+    );
     final down = samples.fold<int>(0, (m, s) => math.max(m, s.productionWh));
     final scale = size.height / (up + down);
     final axis = up * scale;
-    final slot = size.width / samples.length;
+
+    // Deux ou trois graduations rondes, dans une gouttière à gauche.
+    final left = gutter(textSize);
+    final step = _step(up);
+    final grid =
+        Paint()
+          ..color = TvColors.muted.withValues(alpha: 0.18)
+          ..strokeWidth = 1;
+    for (var value = step; value <= up; value += step) {
+      final y = axis - value * scale;
+      canvas.drawLine(Offset(left, y), Offset(size.width, y), grid);
+      final label = TextPainter(
+        text: TextSpan(
+          text: _label(value),
+          style: TextStyle(fontSize: textSize - 2, color: TvColors.muted),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: left - 2);
+      label.paint(canvas, Offset(left - 4 - label.width, y - label.height / 2));
+    }
+
+    canvas.save();
+    canvas.translate(left, 0);
+    final plot = Size(size.width - left, size.height);
+    final slot = plot.width / samples.length;
     final width = slot * 0.62;
 
     if (down > 0) {
@@ -602,11 +746,46 @@ class _BarsPainter extends CustomPainter {
         );
       }
     }
+
+    canvas.restore();
+
+    final budget = budgetWh;
+    if (budget != null && budget > 0) {
+      final y = axis - budget * scale;
+      final line =
+          Paint()
+            ..color = TvColors.warn
+            ..strokeWidth = 1.5;
+      for (var x = gutter(textSize); x < size.width; x += 10) {
+        canvas.drawLine(
+          Offset(x, y),
+          Offset(math.min(x + 6, size.width), y),
+          line,
+        );
+      }
+      final label = TextPainter(
+        text: TextSpan(
+          text: 'Budget',
+          style: TextStyle(
+            fontSize: textSize - 2,
+            color: TvColors.warn,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      label.paint(
+        canvas,
+        Offset(size.width - label.width, math.max(0, y - label.height - 2)),
+      );
+    }
   }
 
   @override
   bool shouldRepaint(_BarsPainter old) =>
-      old.samples != samples || old.series.length != series.length;
+      old.samples != samples ||
+      old.series.length != series.length ||
+      old.budgetWh != budgetWh;
 }
 
 /// Le compteur de gaz ou d'eau : son total sur 24 h, son coût, et ses
@@ -617,7 +796,21 @@ class TvUtilityTile extends StatelessWidget {
   /// Corps du total ; le libellé et l'icône en découlent.
   final double size;
 
-  const TvUtilityTile({super.key, required this.meter, this.size = 20});
+  /// Largeur fixe du bloc de texte, pour aligner les petites barres sur
+  /// le graphe de l'électricité quand les tuiles occupent toute la largeur.
+  final double? textWidth;
+
+  const TvUtilityTile({
+    super.key,
+    required this.meter,
+    this.size = 20,
+    this.textWidth,
+  });
+
+  Widget _textBox(Widget child) =>
+      textWidth == null
+          ? Flexible(flex: 3, child: child)
+          : SizedBox(width: textWidth, child: child);
 
   static const _gas = Color(0xFFE67E22);
   static const _water = Color(0xFF3498DB);
@@ -645,9 +838,8 @@ class TvUtilityTile extends StatelessWidget {
             size: size * 1.3,
           ),
           SizedBox(width: size * 0.4),
-          Flexible(
-            flex: 3,
-            child: FittedBox(
+          _textBox(
+            FittedBox(
               fit: BoxFit.scaleDown,
               alignment: Alignment.centerLeft,
               child: Column(
@@ -686,7 +878,14 @@ class TvUtilityTile extends StatelessWidget {
                     ? const SizedBox()
                     : CustomPaint(
                       size: Size.infinite,
-                      painter: _SparkPainter(meter.hourly, color),
+                      painter: _SparkPainter(
+                        meter.hourly,
+                        color,
+                        // En pleine largeur, la gouttière du graphe de
+                        // l'électricité, avec ses graduations.
+                        axisTextSize: textWidth == null ? null : 12,
+                        label: _tick,
+                      ),
                     ),
           ),
         ],
@@ -694,15 +893,34 @@ class TvUtilityTile extends StatelessWidget {
     );
   }
 
+  /// Une graduation, dans l'unité du compteur.
+  String _tick(double value) {
+    switch (meter.unit.toLowerCase()) {
+      case 'wh':
+        return value >= 1000
+            ? '${tvNumber(value / 1000, decimals: value % 1000 == 0 ? 0 : 1)} kWh'
+            : '${tvNumber(value)} Wh';
+      case 'm3':
+        return '${tvNumber(value, decimals: value < 1 ? 2 : (value < 10 ? 1 : 0))} m³';
+      default:
+        return '${tvNumber(value, decimals: value < 10 && value % 1 != 0 ? 1 : 0)} ${meter.unit}';
+    }
+  }
+
   /// La quantité dans son unité, avec assez de décimales pour une petite
   /// valeur ; les Wh passent en kWh.
   String _amount(double value) {
+    // L'unité est saisie à la main sur la box, sur deux caractères jusqu'en
+    // v2.25 : « wH », « kW » (pour kWh coupé) ou « M3 » se rencontrent.
     var unit = meter.unit;
-    if (unit == 'Wh') {
-      value /= 1000;
-      unit = 'kWh';
-    } else if (unit.toLowerCase() == 'm3') {
-      unit = 'm³';
+    switch (unit.toLowerCase()) {
+      case 'wh':
+        value /= 1000;
+        unit = 'kWh';
+      case 'kw' || 'kwh':
+        unit = 'kWh';
+      case 'm3':
+        unit = 'm³';
     }
     final decimals = value < 10 ? 2 : (value < 100 ? 1 : 0);
     return '${tvNumber(value, decimals: decimals)} $unit';
@@ -713,17 +931,71 @@ class _SparkPainter extends CustomPainter {
   final List<UtilitySample> samples;
   final Color color;
 
-  _SparkPainter(this.samples, this.color);
+  /// Corps des graduations ; `null` : pas de graduation, toute la largeur
+  /// pour les barres.
+  final double? axisTextSize;
+  final String Function(double value) label;
+
+  _SparkPainter(
+    this.samples,
+    this.color, {
+    this.axisTextSize,
+    required this.label,
+  });
+
+  /// Un pas rond, quelle que soit l'unité, qui donne une ou deux
+  /// graduations sous [top].
+  static double _step(double top) {
+    final raw = top / 2;
+    final magnitude = math.pow(10, (math.log(raw) / math.ln10).floor());
+    for (final factor in const [1, 2, 2.5, 5, 10]) {
+      final step = factor * magnitude;
+      if (step >= raw) return step.toDouble();
+    }
+    return (10 * magnitude).toDouble();
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
     final peak = samples.fold<double>(0, (m, s) => math.max(m, s.value));
     if (peak <= 0) return;
-    final slot = size.width / samples.length;
+    final text = axisTextSize;
+    final left = text == null ? 0.0 : _BarsPainter.gutter(text);
+    if (text != null) {
+      final step = _step(peak);
+      final grid =
+          Paint()
+            ..color = TvColors.muted.withValues(alpha: 0.18)
+            ..strokeWidth = 1;
+      for (var value = step; value <= peak * 1.0001; value += step) {
+        final y = size.height - size.height * value / peak;
+        canvas.drawLine(Offset(left, y), Offset(size.width, y), grid);
+        final painter = TextPainter(
+          text: TextSpan(
+            text: label(value),
+            style: TextStyle(fontSize: text - 2, color: TvColors.muted),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout(maxWidth: left - 2);
+        painter.paint(
+          canvas,
+          Offset(
+            left - 4 - painter.width,
+            (y - painter.height / 2).clamp(0, size.height - painter.height),
+          ),
+        );
+      }
+    }
+    final slot = (size.width - left) / samples.length;
     for (final (i, s) in samples.indexed) {
       final h = size.height * s.value / peak;
       canvas.drawRect(
-        Rect.fromLTWH(i * slot + slot * 0.2, size.height - h, slot * 0.6, h),
+        Rect.fromLTWH(
+          left + i * slot + slot * 0.19,
+          size.height - h,
+          slot * 0.62,
+          h,
+        ),
         Paint()
           ..color = color.withValues(alpha: i == samples.length - 1 ? 1 : 0.7),
       );
