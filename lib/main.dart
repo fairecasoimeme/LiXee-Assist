@@ -24,6 +24,8 @@ import 'services/thermostat_service.dart';
 import 'services/home_widget_bridge.dart';
 import 'package:home_widget/home_widget.dart';
 import 'tv/tv_home_screen.dart';
+import 'panel/app_mode.dart';
+import 'services/trusted_roots.dart';
 import 'panel/panel_backlight.dart';
 import 'panel/panel_home.dart';
 import 'panel/panel_mode.dart';
@@ -358,6 +360,7 @@ Future<void> _runDeviceAction(Uri uri) async {
 Future<void> widgetInteractionCallback(Uri? uri) async {
   if (uri == null) return;
   final watch = Stopwatch()..start();
+  TrustedRoots.install();
   await HomeWidgetBridge.init();
   print('[WIDGET-DATA] Appui widget ($uri)');
 
@@ -412,6 +415,7 @@ Future<void> widgetInteractionCallback(Uri? uri) async {
 @pragma('vm:entry-point')
 void callbackDispatcher() {
   Workmanager().executeTask((task, inputData) async {
+    TrustedRoots.install();
     await HomeWidgetBridge.init();
     try {
       await checkDeviceStatusBackground();
@@ -504,6 +508,9 @@ void boxListChanged() {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Avant toute connexion : le tunnel doit être joignable même d'un
+  // Android qui ne connaît pas les racines Let's Encrypt récentes.
+  TrustedRoots.install();
 
   // Avant tout appel réseau : un widget posé dès le lancement doit déjà
   // pouvoir proposer les box.
@@ -611,6 +618,7 @@ void main() async {
     await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     await PanelBacklight.init();
   }
+  await AppMode.init(panel: PanelDetector.isPanel, tv: TVDetector.isTV);
 
   runApp(MyApp());
 }
@@ -813,16 +821,26 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Le passage d'un mode à l'autre reconstruit toute l'application : le
+    // thème, l'échelle et la pile d'écrans changent ensemble.
+    return ValueListenableBuilder<bool>(
+      valueListenable: AppMode.kiosk,
+      builder: (context, kiosk, _) => _app(kiosk),
+    );
+  }
+
+  Widget _app(bool kiosk) {
     const lixeeBlue = Color(0xFF1B75BC);
     return MaterialApp(
+      key: ValueKey(kiosk),
       debugShowCheckedModeBanner: false,
       title: 'LiXee-Assist',
       builder:
-          PanelDetector.isPanel
+          kiosk
               ? (context, child) =>
                   PanelWake(child: PanelScale(child: child!))
               : null,
-      theme: TVDetector.isTV || PanelDetector.isPanel ? tvTheme() : ThemeData(
+      theme: TVDetector.isTV || kiosk ? tvTheme() : ThemeData(
         primarySwatch: Colors.blue,
         focusColor: lixeeBlue.withOpacity(0.2),
         hoverColor: lixeeBlue.withOpacity(0.1),
@@ -873,7 +891,7 @@ class MyApp extends StatelessWidget {
       home:
           TVDetector.isTV
               ? const TvHomeScreen()
-              : PanelDetector.isPanel
+              : kiosk
               ? const PanelHomeScreen()
               : HomeScreen(),
     );

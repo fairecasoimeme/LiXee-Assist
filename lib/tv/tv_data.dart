@@ -2,6 +2,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../screens/home_screen.dart' show resolveMdnsIP;
 import '../services/box_client.dart';
+import '../services/energy_detail_service.dart';
 import '../services/home_widget_bridge.dart';
 import '../services/widget_data_service.dart';
 
@@ -13,21 +14,30 @@ class TvBox {
   final String entry;
   final BoxDevice device;
   final LinkySnapshot? snapshot;
+
+  /// Couleurs des sous-compteurs, compteurs de gaz et d'eau.
+  final EnergyExtras? extras;
   final TvReach reach;
 
   const TvBox({
     required this.entry,
     required this.device,
     this.snapshot,
+    this.extras,
     this.reach = TvReach.unknown,
   });
 
   String get name => device.name;
 
-  TvBox copyWith({LinkySnapshot? snapshot, TvReach? reach}) => TvBox(
+  TvBox copyWith({
+    LinkySnapshot? snapshot,
+    EnergyExtras? extras,
+    TvReach? reach,
+  }) => TvBox(
     entry: entry,
     device: device,
     snapshot: snapshot ?? this.snapshot,
+    extras: extras ?? this.extras,
     reach: reach ?? this.reach,
   );
 }
@@ -51,6 +61,7 @@ class TvData {
           entry: entry,
           device: device,
           snapshot: await WidgetDataService.readSnapshot(device.name),
+          extras: await EnergyDetailService.read(device.name),
         ),
       );
     }
@@ -79,8 +90,27 @@ class TvData {
     if (snapshot != null) {
       await WidgetDataService.saveSnapshot(snapshot);
       await HomeWidgetBridge.push(snapshot);
+      await PowerPeaks.record(box.name, snapshot);
+      // Le détail de la vue Énergie suit, à son rythme : il ne retarde pas
+      // les widgets, et son absence ne coûte que des couleurs par défaut.
+      var extras = await EnergyDetailService.refreshIfDue(
+        box.device,
+        box.extras,
+        () async => (await reachableRoute(box.device))?.$2,
+      );
+      // Le risque de coupure se joue à la minute : sa moyenne est relue à
+      // chaque relevé, pas toutes les dix minutes.
+      final known = extras ?? box.extras;
+      if (known != null && known.modern) {
+        final route = (await reachableRoute(box.device))?.$2;
+        if (route != null) {
+          extras =
+              await EnergyDetailService.refreshMinute(route, known) ?? extras;
+        }
+      }
       return box.copyWith(
         snapshot: snapshot,
+        extras: extras,
         reach:
             snapshot.source == LinkySource.local
                 ? TvReach.local

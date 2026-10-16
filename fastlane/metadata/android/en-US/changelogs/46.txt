@@ -1,0 +1,6 @@
+• Kiosk mode for wall panels (NSPanel Pro), phones and tablets.
+• Energy detailed by tariff and sub-meter, with gas and water. Tap a chart to see it full screen.
+• Savings tab: monthly budget, base load, subscription, load shedding, and a Base, Off-peak and Tempo comparison.
+• Power cut risk, one gauge per phase, solar injection.
+• Shutters set by percentage.
+• More reliable widgets and remote access. Android 7 or later.

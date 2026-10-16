@@ -1,20 +1,38 @@
-LiXee-Assist is the companion app of the LiXee-Box, a Zigbee gateway that reads the French Linky electricity meter through the ZLinky module.
+LiXee-Assist is the companion app of the LiXee-Box, the Zigbee gateway that reads the French Linky electricity meter through the ZLinky module. Set up the box, follow your consumption and control your home, from a phone, a tablet, a wall panel or your TV.
 
-<b>On a phone</b>
-* set up the box over Bluetooth and connect it to your WiFi;
-* open the box's interface, locally or remotely through its tunnel;
-* home screen widgets: consumption, production, balance, device, action group, thermostat.
+<b>Set up and reach your boxes</b>
+• Box setup over Bluetooth and connection to your WiFi, step by step.
+• Add a box by hand, or with a QR code scanned by the phone's camera app.
+• Open the box's interface at home or remotely through its secure tunnel: the app picks the right path on its own.
 
-<b>On a wall panel (Sonoff NSPanel Pro)</b>
-The app opens as a touch kiosk, without a browser:
-* Energy: live power, 24 h consumption and cost, hour by hour;
-* Devices: Zigbee shutters, plugs and sensors, with their commands;
-* Action groups, started with one tap;
-* Thermostats: setpoint and mode of each zone.
+<b>Understand your consumption</b>
+• Live power and power cut risk: know before the breaker trips.
+• On three-phase meters, one gauge per phase; with solar panels, live injection.
+• The last 24 hours, hour by hour, by tariff (off-peak, peak, Tempo) and by sub-meter.
+• Gas and water next to electricity.
+• Tap a chart to open it full screen: every hour is detailed, compared with your budget and your usual hour.
 
-Boxes are added to the panel by scanning a QR code with the phone, or with the on-screen keyboard.
+<b>Save money</b>
+• The electricity weather: the current tariff, its price, today's and tomorrow's Tempo colour, and when to run the big appliances.
+• Your month against the budget set in the box, day by day.
+• Your base load: what keeps running when everything seems off, and what it costs over a year.
+• Your subscription compared with your real power peaks.
+• Base, Off-peak or Tempo: which regulated tariff option would cost you the least, computed on your own consumption.
+• Load shedding explained simply, with a button to power devices back on.
+
+<b>Control your home</b>
+• Shutters (set by percentage), Zigbee plugs and sensors.
+• Action groups started with one tap.
+• Thermostats: setpoint and mode of each zone.
+• Home screen widgets: consumption, production, balance, device, action group, thermostat.
+
+<b>Kiosk mode</b>
+A phone or tablet on the wall becomes an always-on, full-screen touch dashboard: Energy, Savings, Devices, Groups and Thermostats, one swipe apart. Ideal on a Sonoff NSPanel Pro wall panel.
 
 <b>On Android TV</b>
-A remote-control interface with the same views.
+The same views with the remote. Send a box from the phone to the TV with a QR code, no keyboard needed.
 
-This build is fully free software: it contains neither Firebase nor Google services. It therefore receives no push notifications and has no built-in QR code reader (the phone's camera app replaces it).
+No extra account: the app connects straight to your LiXee-Box, at home or through its tunnel.
+
+<b>Free build</b>
+This build is fully free software: it contains neither Firebase nor Google services. It therefore receives no push notifications and has no built-in QR code reader (the phone's camera app replaces it). Past Tempo colours, used to compare tariffs, come from the free third-party service api-couleur-tempo.fr (RTE data).

@@ -296,6 +296,8 @@ class SessionManager {
       final request = await httpClient.postUrl(uri);
       request.headers.set('Content-Type', 'application/x-www-form-urlencoded');
       if (withCookie != null) request.headers.set('Cookie', withCookie);
+      // La box refuse un POST en accès direct sans origine du même hôte.
+      request.headers.set('Origin', uri.origin);
       request.followRedirects = false;
       request.add(utf8.encode(payload));
       return request.close();

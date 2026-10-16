@@ -31,6 +31,27 @@ class LinkyKeys {
   /// Intensité souscrite, en A.
   static const subscribedCurrent = '2817_13';
 
+  /// IRMS2 / IRMS3 — courant des phases 2 et 3, en A, arrondi à l'ampère.
+  static const phase2Current = '2820_2312';
+  static const phase3Current = '2820_2568';
+
+  /// SINSTS2 / SINSTS3 — puissance apparente des phases 2 et 3, en VA. En
+  /// triphasé, [apparentPower] porte celle de la phase 1 : relevé sur un
+  /// compteur standard tri, il valait 9 VA quand la phase 2 en valait 11.
+  static const phase2Power = '2820_2319';
+  static const phase3Power = '2820_2575';
+
+  /// Mode du ZLinky : 0 historique mono, 1 standard mono, 2 historique
+  /// tri, 3 standard tri, 5 et 7 variantes productrices (mono, tri).
+  static const linkyMode = '65382_768';
+
+  /// PMAX / SMAXN — puissance apparente maximale du jour, en VA.
+  static const maxPowerToday = '2820_1293';
+
+  /// SMAXN-1 — puissance apparente maximale de la veille, en VA (mode
+  /// standard seulement).
+  static const maxPowerYesterday = '65382_530';
+
   /// OPTARIF : "BASE", "HC..", "TEMPO"...
   static const contract = '65382_0';
 
@@ -73,12 +94,23 @@ class HourlySample {
   /// Revenu de l'injection sur l'heure, en euros.
   final double revenueEur;
 
+  /// Énergie par index tarifaire, en Wh, indexée par l'attribut du cluster
+  /// Metering (256 = HC ou base, 258 = HP, 260 à 266 = Tempo blanc et
+  /// rouge…). La box en a déjà retiré ce que mesurent les sous-compteurs :
+  /// tarifs et sous-compteurs s'additionnent pour donner [wh].
+  final Map<int, int> tariffs;
+
+  /// Énergie par sous-compteur, en Wh, indexée par son nom sur la box.
+  final Map<String, int> subMeters;
+
   const HourlySample(
     this.hour,
     this.wh, [
     this.costEur = 0,
     this.productionWh = 0,
     this.revenueEur = 0,
+    this.tariffs = const {},
+    this.subMeters = const {},
   ]);
 
   /// Solde de l'heure : positif si l'on a tiré du réseau, négatif si l'on y a
@@ -88,8 +120,16 @@ class HourlySample {
   /// Solde facturé. Négatif quand l'injection rapporte plus qu'elle ne coûte.
   double get netCostEur => costEur - revenueEur;
 
-  Map<String, dynamic> toJson() =>
-      {'h': hour, 'wh': wh, 'c': costEur, 'p': productionWh, 'r': revenueEur};
+  Map<String, dynamic> toJson() => {
+        'h': hour,
+        'wh': wh,
+        'c': costEur,
+        'p': productionWh,
+        'r': revenueEur,
+        if (tariffs.isNotEmpty)
+          't': {for (final e in tariffs.entries) '${e.key}': e.value},
+        if (subMeters.isNotEmpty) 'm': subMeters,
+      };
 
   factory HourlySample.fromJson(Map<String, dynamic> json) => HourlySample(
         json['h'] as int? ?? 0,
@@ -97,6 +137,17 @@ class HourlySample {
         (json['c'] as num?)?.toDouble() ?? 0,
         json['p'] as int? ?? 0,
         (json['r'] as num?)?.toDouble() ?? 0,
+        {
+          for (final MapEntry(:key, :value)
+              in (json['t'] as Map?)?.entries ?? const <MapEntry>[])
+            if (int.tryParse('$key') case final attribute?)
+              attribute: (value as num?)?.toInt() ?? 0,
+        },
+        {
+          for (final MapEntry(:key, :value)
+              in (json['m'] as Map?)?.entries ?? const <MapEntry>[])
+            '$key': (value as num?)?.toInt() ?? 0,
+        },
       );
 }
 
@@ -122,6 +173,18 @@ class LinkySnapshot {
   /// Intensité souscrite au contrat, en A. Sert d'échelle à la jauge.
   final int? subscribedCurrentA;
 
+  /// Puissance apparente de chaque phase, en VA, en triphasé ; vide en
+  /// monophasé. [apparentPowerVA] est alors leur somme.
+  final List<int> phasePowersVA;
+
+  /// Mode du ZLinky (voir [LinkyKeys.linkyMode]).
+  final int? linkyMode;
+
+  /// Puissance apparente maximale du jour et de la veille, en VA, quand le
+  /// compteur les publie. Elles disent si l'abonnement est bien taillé.
+  final int? maxPowerTodayVA;
+  final int? maxPowerYesterdayVA;
+
   final String? contract;
   final String? tariffPeriod;
   final String? meterSerial;
@@ -143,6 +206,10 @@ class LinkySnapshot {
     this.indexWh,
     this.currentA,
     this.subscribedCurrentA,
+    this.maxPowerTodayVA,
+    this.maxPowerYesterdayVA,
+    this.phasePowersVA = const [],
+    this.linkyMode,
     this.contract,
     this.tariffPeriod,
     this.meterSerial,
@@ -213,8 +280,30 @@ class LinkySnapshot {
   /// Le compteur ne publie que l'intensité souscrite. Le facteur 200 n'est pas
   /// une tension mais la convention des paliers d'abonnement : 30 A → 6 kVA,
   /// 45 A → 9 kVA, 60 A → 12 kVA.
-  int? get subscribedPowerVA =>
-      subscribedCurrentA == null ? null : subscribedCurrentA! * 200;
+  ///
+  /// En mode standard (1, 3, 5, 7), le compteur publie directement la
+  /// puissance souscrite, PREF, en kVA : relevé « 3 » sur un compteur
+  /// standard tri de 3 kVA. En historique triphasé, l'intensité souscrite
+  /// vaut pour chacune des trois phases.
+  int? get subscribedPowerVA {
+    final value = subscribedCurrentA;
+    if (value == null) return null;
+    return switch (linkyMode) {
+      1 || 3 || 5 || 7 => value * 1000,
+      2 => value * 200 * 3,
+      _ => value * 200,
+    };
+  }
+
+  /// Triphasé : trois phases, chacune avec sa jauge.
+  bool get threePhase => phasePowersVA.length == 3;
+
+  /// Puissance souscrite par phase, en VA : un tiers de l'abonnement.
+  int? get phaseLimitVA {
+    final total = subscribedPowerVA;
+    if (!threePhase || total == null || total <= 0) return null;
+    return (total / 3).round();
+  }
 
   /// Index total du compteur, en Wh, toutes tranches confondues.
   ///
@@ -249,10 +338,14 @@ class LinkySnapshot {
       deviceName: deviceName,
       timestamp: timestamp ?? DateTime.now(),
       source: source,
-      apparentPowerVA: _asInt(json[LinkyKeys.apparentPower]),
+      apparentPowerVA: _totalPower(json),
       indexWh: _asInt(json[LinkyKeys.index]),
       currentA: _asInt(json[LinkyKeys.current]),
       subscribedCurrentA: _asInt(json[LinkyKeys.subscribedCurrent]),
+      maxPowerTodayVA: _positive(json[LinkyKeys.maxPowerToday]),
+      maxPowerYesterdayVA: _positive(json[LinkyKeys.maxPowerYesterday]),
+      linkyMode: _asInt(json[LinkyKeys.linkyMode]),
+      phasePowersVA: _phases(json),
       contract: _asString(json[LinkyKeys.contract]),
       tariffPeriod: _asString(json[LinkyKeys.tariffPeriod]),
       meterSerial: _asString(json[LinkyKeys.meterSerial]),
@@ -277,6 +370,10 @@ class LinkySnapshot {
         indexWh: indexWh,
         currentA: currentA,
         subscribedCurrentA: subscribedCurrentA,
+        maxPowerTodayVA: maxPowerTodayVA,
+        maxPowerYesterdayVA: maxPowerYesterdayVA,
+        phasePowersVA: phasePowersVA,
+        linkyMode: linkyMode,
         contract: contract,
         tariffPeriod: tariffPeriod,
         meterSerial: meterSerial,
@@ -292,6 +389,10 @@ class LinkySnapshot {
         'indexWh': indexWh,
         'currentA': currentA,
         'subscribedCurrentA': subscribedCurrentA,
+        'maxPowerTodayVA': maxPowerTodayVA,
+        'maxPowerYesterdayVA': maxPowerYesterdayVA,
+        'phasePowersVA': phasePowersVA,
+        'linkyMode': linkyMode,
         'contract': contract,
         'tariffPeriod': tariffPeriod,
         'meterSerial': meterSerial,
@@ -308,6 +409,14 @@ class LinkySnapshot {
       indexWh: _asInt(json['indexWh']),
       currentA: _asInt(json['currentA']),
       subscribedCurrentA: _asInt(json['subscribedCurrentA']),
+      maxPowerTodayVA: _asInt(json['maxPowerTodayVA']),
+      maxPowerYesterdayVA: _asInt(json['maxPowerYesterdayVA']),
+      phasePowersVA:
+          (json['phasePowersVA'] as List?)
+              ?.map((e) => _asInt(e) ?? 0)
+              .toList() ??
+          const [],
+      linkyMode: _asInt(json['linkyMode']),
       contract: _asString(json['contract']),
       tariffPeriod: _asString(json['tariffPeriod']),
       meterSerial: _asString(json['meterSerial']),
@@ -330,6 +439,38 @@ class LinkySnapshot {
     if (value is num) return value.toInt();
     if (value is String) return int.tryParse(value.trim());
     return null;
+  }
+
+  /// Le compteur est-il triphasé ? Son mode le dit, ou à défaut la
+  /// présence de puissance sur les phases 2 et 3.
+  static bool _isThreePhase(Map<String, dynamic> json) {
+    final mode = _asInt(json[LinkyKeys.linkyMode]);
+    if (mode != null) return mode == 2 || mode == 3 || mode == 7;
+    return (_asInt(json[LinkyKeys.phase2Power]) ?? 0) > 0 ||
+        (_asInt(json[LinkyKeys.phase3Power]) ?? 0) > 0;
+  }
+
+  /// Puissance de chaque phase, en triphasé seulement.
+  static List<int> _phases(Map<String, dynamic> json) {
+    if (!_isThreePhase(json)) return const [];
+    return [
+      _asInt(json[LinkyKeys.apparentPower]) ?? 0,
+      _asInt(json[LinkyKeys.phase2Power]) ?? 0,
+      _asInt(json[LinkyKeys.phase3Power]) ?? 0,
+    ];
+  }
+
+  /// Puissance apparente totale : la somme des phases en triphasé.
+  static int? _totalPower(Map<String, dynamic> json) {
+    final phases = _phases(json);
+    if (phases.isEmpty) return _asInt(json[LinkyKeys.apparentPower]);
+    return phases.fold<int>(0, (sum, va) => sum + va);
+  }
+
+  /// Une puissance publiée par le compteur ; 0 veut dire « pas publiée ».
+  static int? _positive(dynamic value) {
+    final v = _asInt(value);
+    return v == null || v <= 0 ? null : v;
   }
 
   static String? _asString(dynamic value) {
@@ -768,6 +909,21 @@ class WidgetDataService {
       (h) => h.toLowerCase().contains('revenu'),
     );
 
+    // Avant le total viennent les index tarifaires, puis les sous-compteurs,
+    // puis « Production » : la box n'émet que les colonnes qui ont une valeur.
+    final tariffColumns = <int, int>{};
+    final subMeterColumns = <int, String>{};
+    for (var i = 1; i < column; i++) {
+      final name = header[i].replaceFirst(_whSuffix, '').trim();
+      if (name.isEmpty || name.toLowerCase() == 'production') continue;
+      final attribute = tariffAttribute(name);
+      if (attribute != null) {
+        tariffColumns[i] = attribute;
+      } else {
+        subMeterColumns[i] = name;
+      }
+    }
+
     final samples = <HourlySample>[];
     for (final line in lines.skip(1)) {
       final cells = line.split(';');
@@ -783,9 +939,52 @@ class WidgetDataService {
         _cell(cells, costColumn),
         _cell(cells, productionColumn).round(),
         _cell(cells, revenueColumn),
+        {
+          for (final e in tariffColumns.entries)
+            if (_cell(cells, e.key).round() case final value when value > 0)
+              e.value: value,
+        },
+        {
+          for (final e in subMeterColumns.entries)
+            if (_cell(cells, e.key).round() case final value when value > 0)
+              e.value: value,
+        },
       ));
     }
     return samples;
+  }
+
+  /// L'unité en fin d'en-tête : « Véhicule (Wh) ».
+  static final _whSuffix = RegExp(r'\s*\(Wh\)\s*$');
+
+  /// Attribut Metering d'une colonne tarifaire de l'export, d'après son
+  /// en-tête ; `null` si la colonne est celle d'un sous-compteur.
+  ///
+  /// Les en-têtes viennent du gabarit du ZLinky et ne dépendent pas du
+  /// contrat : « HC / EJPHN / BBRHCJB / EASF01 », « BBRHCJW / EASF03 »… Seul
+  /// le libellé EASF les distingue sans ambiguïté, « BBRHPJB » figurant dans
+  /// deux d'entre eux. Le gabarit nomme « EASF10 » l'attribut 272, et laisse
+  /// le 274 sans nom.
+  static int? tariffAttribute(String header) {
+    final name = header.toUpperCase();
+    if (name == 'BASE') return 256;
+    if (name == '274') return 274;
+    const byLabel = {
+      'EASF01': 256,
+      'EASF02': 258,
+      'EASF03': 260,
+      'EASF04': 262,
+      'EASF05': 264,
+      'EASF06': 266,
+      'EASF07': 268,
+      'EASF08': 270,
+      'EASF09': 272,
+      'EASF10': 272,
+    };
+    for (final e in byLabel.entries) {
+      if (name.endsWith(e.key)) return e.value;
+    }
+    return null;
   }
 
   /// Lit une cellule numérique. Les montants arrivent avec une virgule
