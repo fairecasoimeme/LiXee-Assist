@@ -7,6 +7,16 @@ import '../services/widget_data_service.dart';
 import '../tv/tv_tabs.dart';
 import '../tv/tv_theme.dart';
 
+/// Comment passer d'une heure à l'autre : au doigt, ou aux flèches de la
+/// télécommande sur une TV.
+Widget _hint(bool remote) => Text(
+  remote
+      ? 'Flèches gauche et droite pour voir une autre heure, Retour pour '
+          'fermer.'
+      : 'Touche une barre, ou glisse le doigt, pour voir une autre heure.',
+  style: const TextStyle(fontSize: 12, color: TvColors.muted),
+);
+
 /// Le graphe des 24 dernières heures en plein écran : une barre touchée
 /// (ou choisie aux flèches de la télécommande) se détaille, tarif par
 /// tarif, sous-compteur par sous-compteur, comparée à l'heure habituelle
@@ -15,19 +25,33 @@ class PanelChartDetail extends StatefulWidget {
   final LinkySnapshot snapshot;
   final EnergyExtras? extras;
 
-  const PanelChartDetail({super.key, required this.snapshot, this.extras});
+  /// Ouverte depuis la TV : on la parcourt à la télécommande.
+  final bool remote;
+
+  const PanelChartDetail({
+    super.key,
+    required this.snapshot,
+    this.extras,
+    this.remote = false,
+  });
 
   /// Ouvre la page par-dessus le kiosque.
   static Future<void> open(
     BuildContext context,
     LinkySnapshot snapshot,
-    EnergyExtras? extras,
-  ) {
+    EnergyExtras? extras, {
+    bool remote = false,
+  }) {
     if (snapshot.hourly.isEmpty) return Future.value();
     return Navigator.of(context).push(
       MaterialPageRoute<void>(
         fullscreenDialog: true,
-        builder: (_) => PanelChartDetail(snapshot: snapshot, extras: extras),
+        builder:
+            (_) => PanelChartDetail(
+              snapshot: snapshot,
+              extras: extras,
+              remote: remote,
+            ),
       ),
     );
   }
@@ -70,6 +94,7 @@ class _PanelChartDetailState extends State<PanelChartDetail> {
       contract: s.contract,
       subMeterColors: widget.extras?.subMeterColors ?? const {},
       budgetWh: budget,
+      remote: widget.remote,
     );
 
     return Scaffold(
@@ -201,6 +226,7 @@ class _HourDetail extends StatelessWidget {
   final String? contract;
   final Map<String, int> subMeterColors;
   final double? budgetWh;
+  final bool remote;
 
   const _HourDetail({
     required this.hours,
@@ -208,6 +234,7 @@ class _HourDetail extends StatelessWidget {
     required this.contract,
     required this.subMeterColors,
     required this.budgetWh,
+    this.remote = false,
   });
 
   static String _kwh(int wh) =>
@@ -402,10 +429,7 @@ class _HourDetail extends StatelessWidget {
             ),
           ),
         const SizedBox(height: 10),
-        const Text(
-          'Touche une barre, ou glisse le doigt, pour voir une autre heure.',
-          style: TextStyle(fontSize: 12, color: TvColors.muted),
-        ),
+        _hint(remote),
         ..._day(series),
       ],
     );
@@ -504,14 +528,25 @@ class _HourDetail extends StatelessWidget {
 class PanelUtilityDetail extends StatefulWidget {
   final UtilityMeter meter;
 
-  const PanelUtilityDetail({super.key, required this.meter});
+  /// Ouverte depuis la TV : on la parcourt à la télécommande.
+  final bool remote;
 
-  static Future<void> open(BuildContext context, UtilityMeter meter) {
+  const PanelUtilityDetail({
+    super.key,
+    required this.meter,
+    this.remote = false,
+  });
+
+  static Future<void> open(
+    BuildContext context,
+    UtilityMeter meter, {
+    bool remote = false,
+  }) {
     if (meter.hourly.isEmpty) return Future.value();
     return Navigator.of(context).push(
       MaterialPageRoute<void>(
         fullscreenDialog: true,
-        builder: (_) => PanelUtilityDetail(meter: meter),
+        builder: (_) => PanelUtilityDetail(meter: meter, remote: remote),
       ),
     );
   }
@@ -786,10 +821,7 @@ class _PanelUtilityDetailState extends State<PanelUtilityDetail> {
             ),
           ),
         const SizedBox(height: 10),
-        const Text(
-          'Touche une barre, ou glisse le doigt, pour voir une autre heure.',
-          style: TextStyle(fontSize: 12, color: TvColors.muted),
-        ),
+        _hint(widget.remote),
         if (busiest != null) ...[
           const SizedBox(height: 14),
           const Divider(height: 1, color: TvColors.panelHigh),

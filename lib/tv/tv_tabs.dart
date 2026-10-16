@@ -210,7 +210,12 @@ class TvEnergyTab extends StatelessWidget {
                             padding: const EdgeInsets.all(6),
                             radius: BorderRadius.circular(10),
                             onSelect:
-                                () => PanelChartDetail.open(context, s, extras),
+                                () => PanelChartDetail.open(
+                                  context,
+                                  s,
+                                  extras,
+                                  remote: true,
+                                ),
                             child: TvHourlyChart(
                               samples: s.hourly,
                               contract: s.contract,
@@ -240,6 +245,7 @@ class TvEnergyTab extends StatelessWidget {
                                               : () => PanelUtilityDetail.open(
                                                 context,
                                                 meter,
+                                                remote: true,
                                               ),
                                       child: TvUtilityTile(meter: meter),
                                     ),
