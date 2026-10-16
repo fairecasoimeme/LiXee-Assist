@@ -2,22 +2,26 @@
 
 ## Notes de version (fr-FR, 500 caractères max)
 
+Depuis la dernière version publiée sur le Play Store, la 1.1.0 (42).
+
 ```
-• Nouvel onglet Économies dans le kiosque : votre mois face à votre budget, votre consommation plancher, votre abonnement et le délestage, calculés sur vos vraies données.
-• Comparez Base, Heures creuses et Tempo sur votre propre consommation.
-• Touchez un graphe pour l'ouvrir en grand et détailler chaque heure : électricité, gaz et eau.
-• Risque de coupure, une jauge par phase en triphasé, injection solaire.
-• Connexion à distance corrigée sur les anciens Android.
+• Mode kiosque pour écran mural (NSPanel Pro), téléphone et tablette.
+• Énergie détaillée par tarif et sous-compteur, avec le gaz et l'eau. Touchez un graphe pour le voir en grand.
+• Onglet Économies : budget du mois, consommation plancher, abonnement, délestage, et comparaison Base, Heures creuses et Tempo.
+• Risque de coupure, une jauge par phase, injection solaire.
+• Volets réglables au pourcentage.
+• Widgets et accès à distance fiabilisés. Android 7 minimum.
 ```
 
 ## Release notes (en-US)
 
 ```
-• New Savings tab in the kiosk: your month against your budget, your base load, your subscription and load shedding, computed from your own readings.
-• Compare the Base, Off-peak and Tempo options on your own consumption.
-• Tap a chart to open it full screen and detail every hour: electricity, gas and water.
-• Power cut risk, one gauge per phase on three-phase meters, solar injection.
-• Remote access fixed on older Android versions.
+• Kiosk mode for wall panels (NSPanel Pro), phones and tablets.
+• Energy detailed by tariff and sub-meter, with gas and water. Tap a chart to see it full screen.
+• Savings tab: monthly budget, base load, subscription, load shedding, and a Base, Off-peak and Tempo comparison.
+• Power cut risk, one gauge per phase, solar injection.
+• Shutters set by percentage.
+• More reliable widgets and remote access. Android 7 or later.
 ```
 
 ## Captures d'écran

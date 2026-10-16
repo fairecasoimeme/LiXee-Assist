@@ -1,5 +1,6 @@
-• New Savings tab in the kiosk: your month against your budget, your base load, your subscription and load shedding, computed from your own readings.
-• Compare the Base, Off-peak and Tempo options on your own consumption.
-• Tap a chart to open it full screen and detail every hour: electricity, gas and water.
-• Power cut risk, one gauge per phase on three-phase meters, solar injection.
-• Remote access fixed on older Android versions.
+• Kiosk mode for wall panels (NSPanel Pro), phones and tablets.
+• Energy detailed by tariff and sub-meter, with gas and water. Tap a chart to see it full screen.
+• Savings tab: monthly budget, base load, subscription, load shedding, and a Base, Off-peak and Tempo comparison.
+• Power cut risk, one gauge per phase, solar injection.
+• Shutters set by percentage.
+• More reliable widgets and remote access. Android 7 or later.
