@@ -1,19 +1,19 @@
 LiXee-Assist accompagne la LiXee-Box, la passerelle Zigbee qui lit votre compteur Linky grâce au module ZLinky. Installez la box, suivez votre consommation et pilotez votre maison, depuis un téléphone, une tablette, un écran mural ou la télévision.
 
-<b>Installer et retrouver ses box</b>
+▸ Installer et retrouver ses box
 • Installation de la box en Bluetooth et connexion à votre WiFi, guidées pas à pas.
 • Ajout d'une box par QR code ou à la main.
 • Accès à l'interface de la box, chez vous comme à distance par son tunnel sécurisé : l'application choisit seule le bon chemin.
 • Notifications de la box (dépassement de budget, fuite d'eau, jour rouge Tempo…), même téléphone en veille.
 
-<b>Comprendre sa consommation</b>
+▸ Comprendre sa consommation
 • Puissance en direct et risque de coupure : sachez avant que le disjoncteur saute.
 • En triphasé, une jauge par phase ; avec des panneaux solaires, l'injection en direct.
 • Les 24 dernières heures, heure par heure, par tarif (heures creuses, heures pleines, Tempo) et par sous-compteur.
 • Le gaz et l'eau à côté de l'électricité.
 • Touchez un graphe pour l'ouvrir en grand : chaque heure se détaille, comparée à votre budget et à votre heure habituelle.
 
-<b>Faire des économies</b>
+▸ Faire des économies
 • La météo de l'électricité : le tarif en cours, son prix, la couleur Tempo du jour et du lendemain, et quand lancer les gros appareils.
 • Votre mois face au budget réglé dans la box, jour par jour.
 • Votre consommation plancher : ce qui tourne même quand tout semble éteint, et ce qu'elle coûte sur un an.
@@ -21,16 +21,16 @@ LiXee-Assist accompagne la LiXee-Box, la passerelle Zigbee qui lit votre compteu
 • Base, Heures creuses ou Tempo : quel tarif réglementé vous coûterait le moins, calculé sur votre propre consommation.
 • La protection anti-coupure (délestage) expliquée simplement, avec un bouton pour rallumer.
 
-<b>Piloter la maison</b>
+▸ Piloter la maison
 • Volets (réglables au pourcentage), prises et capteurs Zigbee.
 • Groupes d'actions lancés d'un appui.
 • Thermostats : consigne et mode de chaque zone.
 • Widgets d'écran d'accueil : consommation, production, bilan, appareil, groupe d'actions, thermostat.
 
-<b>Mode kiosque</b>
-Un téléphone ou une tablette posé au mur devient un tableau de bord tactile, toujours allumé, en plein écran : Énergie, Économies, Appareils, Groupes et Thermostats, d'un glissement de doigt. Idéal sur un écran mural Sonoff NSPanel Pro.
+▸ Mode kiosque
+Fixé au mur, un téléphone ou une tablette devient un tableau de bord tactile, toujours allumé, en plein écran : Énergie, Économies, Appareils, Groupes et Thermostats, d'un glissement de doigt. Idéal sur un écran mural Sonoff NSPanel Pro.
 
-<b>Sur Android TV</b>
+▸ Sur Android TV
 Les mêmes vues à la télécommande. Envoyez une box du téléphone vers la TV d'un simple QR code, sans clavier.
 
 Aucun compte supplémentaire : l'application se connecte directement à votre LiXee-Box, chez vous ou par son tunnel.

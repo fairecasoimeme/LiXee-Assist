@@ -1,19 +1,19 @@
 LiXee-Assist is the companion app of the LiXee-Box, the Zigbee gateway that reads the French Linky electricity meter through the ZLinky module. Set up the box, follow your consumption and control your home, from a phone, a tablet, a wall panel or your TV.
 
-<b>Set up and reach your boxes</b>
+▸ Set up and reach your boxes
 • Box setup over Bluetooth and connection to your WiFi, step by step.
 • Add a box with a QR code or by hand.
 • Open the box's interface at home or remotely through its secure tunnel: the app picks the right path on its own.
 • Box notifications (budget exceeded, water leak, Tempo red day…), even while the phone sleeps.
 
-<b>Understand your consumption</b>
+▸ Understand your consumption
 • Live power and power cut risk: know before the breaker trips.
 • On three-phase meters, one gauge per phase; with solar panels, live injection.
 • The last 24 hours, hour by hour, by tariff (off-peak, peak, Tempo) and by sub-meter.
 • Gas and water next to electricity.
 • Tap a chart to open it full screen: every hour is detailed, compared with your budget and your usual hour.
 
-<b>Save money</b>
+▸ Save money
 • The electricity weather: the current tariff, its price, today's and tomorrow's Tempo colour, and when to run the big appliances.
 • Your month against the budget set in the box, day by day.
 • Your base load: what keeps running when everything seems off, and what it costs over a year.
@@ -21,16 +21,16 @@ LiXee-Assist is the companion app of the LiXee-Box, the Zigbee gateway that read
 • Base, Off-peak or Tempo: which regulated tariff option would cost you the least, computed on your own consumption.
 • Load shedding explained simply, with a button to power devices back on.
 
-<b>Control your home</b>
+▸ Control your home
 • Shutters (set by percentage), Zigbee plugs and sensors.
 • Action groups started with one tap.
 • Thermostats: setpoint and mode of each zone.
 • Home screen widgets: consumption, production, balance, device, action group, thermostat.
 
-<b>Kiosk mode</b>
+▸ Kiosk mode
 A phone or tablet on the wall becomes an always-on, full-screen touch dashboard: Energy, Savings, Devices, Groups and Thermostats, one swipe apart. Ideal on a Sonoff NSPanel Pro wall panel.
 
-<b>On Android TV</b>
+▸ On Android TV
 The same views with the remote. Send a box from the phone to the TV with a QR code, no keyboard needed.
 
 No extra account: the app connects straight to your LiXee-Box, at home or through its tunnel.
