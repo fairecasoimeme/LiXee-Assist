@@ -1,0 +1,5 @@
+• Nouvel onglet Économies dans le kiosque : votre mois face à votre budget, votre consommation plancher, votre abonnement et le délestage, calculés sur vos vraies données.
+• Comparez Base, Heures creuses et Tempo sur votre propre consommation.
+• Touchez un graphe pour l'ouvrir en grand et détailler chaque heure : électricité, gaz et eau.
+• Risque de coupure, une jauge par phase en triphasé, injection solaire.
+• Connexion à distance corrigée sur les anciens Android.

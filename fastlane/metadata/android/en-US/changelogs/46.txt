@@ -1,0 +1,5 @@
+• New Savings tab in the kiosk: your month against your budget, your base load, your subscription and load shedding, computed from your own readings.
+• Compare the Base, Off-peak and Tempo options on your own consumption.
+• Tap a chart to open it full screen and detail every hour: electricity, gas and water.
+• Power cut risk, one gauge per phase on three-phase meters, solar injection.
+• Remote access fixed on older Android versions.
