@@ -19,13 +19,18 @@ class TrustedRoots {
   static void install() {
     if (_installed) return;
     _installed = true;
+    // Android seulement : iOS 15, notre minimum, connaît déjà ces racines,
+    // et y attend un certificat DER, pas du PEM. Un échec ici, au
+    // démarrage, empêcherait l'application de s'ouvrir.
+    if (!Platform.isAndroid) return;
     for (final pem in [_isrgRootX1, _isrgRootX2]) {
       try {
         SecurityContext.defaultContext.setTrustedCertificatesBytes(
           pem.codeUnits,
         );
-      } on TlsException {
-        // Déjà connue du système : rien à ajouter.
+      } catch (_) {
+        // Déjà connue du système, ou refusée : la connexion se fera avec
+        // les racines du système.
       }
     }
   }
