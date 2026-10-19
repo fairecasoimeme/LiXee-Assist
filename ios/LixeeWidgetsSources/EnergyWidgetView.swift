@@ -79,11 +79,13 @@ struct EnergyWidgetView: View {
             Text(theme.columnLabel)
                 .font(.caption2)
                 .foregroundStyle(Palette.textSecondary)
-            Text("⚡ \(kWh(theme.energy(s))) kWh")
+            // Des symboles SF plutôt que des emoji : la police d'un widget ne
+            // dessine pas toujours ces derniers, et ils sortent en carrés.
+            Text("\(Image(systemName: "bolt.fill")) \(kWh(theme.energy(s))) kWh")
                 .font(.subheadline.bold())
                 .foregroundStyle(Palette.textPrimary)
             if let amount = theme.amount(s) {
-                Text("🪙 \(amount.formatted(.number.precision(.fractionLength(2)))) €")
+                Text("\(Image(systemName: "eurosign.circle")) \(amount.formatted(.number.precision(.fractionLength(2))))")
                     .font(.subheadline)
                     .foregroundStyle(Palette.textPrimary)
             }
