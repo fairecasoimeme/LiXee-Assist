@@ -2,15 +2,17 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../panel/panel_savings.dart';
 import '../screens/home_screen.dart' show resolveMdnsIP;
 import '../services/action_group_service.dart';
 import '../services/device_control_service.dart';
+import '../services/energy_detail_service.dart';
 import '../services/thermostat_service.dart';
 import 'tv_data.dart';
 import 'tv_tabs.dart';
 import 'tv_theme.dart';
 
-enum _Tab { energy, devices, groups, thermostats, web }
+enum _Tab { energy, savings, devices, groups, thermostats, web }
 
 /// Une box : onglets Énergie, Appareils, Groupes, Thermostats, Interface web.
 ///
@@ -61,7 +63,7 @@ class _TvBoxScreenState extends State<TvBoxScreen> {
   /// quand on y reviendra.
   void _refreshCurrent() {
     switch (_current) {
-      case _Tab.energy:
+      case _Tab.energy || _Tab.savings:
         _refreshEnergy();
       case _Tab.devices:
         _refreshDevices();
@@ -77,6 +79,17 @@ class _TvBoxScreenState extends State<TvBoxScreen> {
   Future<void> _refreshEnergy() async {
     final fresh = await TvData.refresh(_box);
     if (mounted) setState(() => _box = fresh);
+  }
+
+  /// Rallume ce que le délestage a coupé, puis relit l'état une fois que
+  /// la box a exécuté la demande.
+  Future<void> _restoreShedding() async {
+    final route = (await TvData.reachableRoute(_box.device))?.$2;
+    if (route == null) return;
+    await EnergyDetailService.restoreShedding(route);
+    await Future<void>.delayed(const Duration(seconds: 2));
+    EnergyDetailService.forget(_box.device);
+    await _refreshEnergy();
   }
 
   Future<void> _refreshDevices() async {
@@ -112,6 +125,7 @@ class _TvBoxScreenState extends State<TvBoxScreen> {
 
   List<_Tab> get _tabs => [
     if (_box.snapshot?.apparentPowerVA != null) _Tab.energy,
+    if (_box.snapshot?.apparentPowerVA != null) _Tab.savings,
     if (_devices?.isNotEmpty ?? false) _Tab.devices,
     if (_groups?.isNotEmpty ?? false) _Tab.groups,
     if (_zones?.isNotEmpty ?? false) _Tab.thermostats,
@@ -120,6 +134,7 @@ class _TvBoxScreenState extends State<TvBoxScreen> {
 
   String _label(_Tab tab) => switch (tab) {
     _Tab.energy => 'Énergie',
+    _Tab.savings => 'Économies',
     _Tab.devices => 'Appareils',
     _Tab.groups => 'Groupes',
     _Tab.thermostats => 'Thermostats',
@@ -216,7 +231,20 @@ class _TvBoxScreenState extends State<TvBoxScreen> {
   Widget _content(_Tab tab) {
     switch (tab) {
       case _Tab.energy:
-        return TvEnergyTab(snapshot: _box.snapshot!);
+        return TvEnergyTab(snapshot: _box.snapshot!, extras: _box.extras);
+      case _Tab.savings:
+        return PanelSavingsView(
+          snapshot: _box.snapshot!,
+          extras: _box.extras,
+          box: _box.name,
+          twoColumns: true,
+          onRestoreShedding:
+              _box.extras?.shedding?.active == true ? _restoreShedding : null,
+          deviceNames: {
+            for (final d in _devices ?? const <DeviceSnapshot>[])
+              d.ieee: d.label,
+          },
+        );
       case _Tab.devices:
         return TvDevicesTab(
           box: _box.device,

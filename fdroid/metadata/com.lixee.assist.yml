@@ -1,0 +1,22 @@
+Categories:
+  - Connectivity
+License: MIT
+AuthorName: LiXee
+WebSite: https://lixee-box.fr
+SourceCode: https://github.com/fairecasoimeme/LiXee-Assist
+IssueTracker: https://github.com/fairecasoimeme/LiXee-Assist/issues
+
+Name: LiXee-Assist
+Summary: Installez et pilotez votre LiXee-Box
+Description: |-
+  LiXee-Assist accompagne la LiXee-Box, une passerelle Zigbee qui lit le
+  compteur Linky par le module ZLinky.
+
+  Sur un panneau mural Sonoff NSPanel Pro, l'application s'ouvre en kiosque
+  tactile : énergie, appareils, groupes d'actions et thermostats.
+
+  Sur un téléphone : installation de la box, accès à son interface et
+  widgets d'écran d'accueil. Sur Android TV : une interface à la télécommande.
+
+  Cette version est entièrement libre, sans Firebase ni services Google :
+  elle ne reçoit pas de notifications push.

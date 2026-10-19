@@ -9,7 +9,12 @@ import '../screens/home_screen.dart' show resolveMdnsIP;
 import '../screens/webview_device_screen.dart';
 import '../services/action_group_service.dart';
 import '../services/box_client.dart';
+import '../panel/panel_chart_detail.dart';
+import '../panel/panel_views.dart'
+    show PanelAlertCard, PanelRiskBar, PanelWeatherBanner;
 import '../services/device_control_service.dart';
+import '../services/energy_advice.dart';
+import '../services/energy_detail_service.dart';
 import '../services/thermostat_service.dart';
 import '../services/widget_data_service.dart';
 import 'tv_data.dart';
@@ -21,44 +26,111 @@ import 'tv_theme.dart';
 
 class TvEnergyTab extends StatelessWidget {
   final LinkySnapshot snapshot;
+  final EnergyExtras? extras;
 
-  const TvEnergyTab({super.key, required this.snapshot});
+  const TvEnergyTab({super.key, required this.snapshot, this.extras});
 
   @override
   Widget build(BuildContext context) {
+    // Sur un grand écran, la météo de l'électricité et l'alerte du moment
+    // tiennent en entier : pas besoin de pastilles à déplier.
+    final weather = EnergyAdvice.weather(snapshot, extras);
+    final alert = EnergyAdvice.alerts(snapshot, extras).firstOrNull;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (weather != null || alert != null) ...[
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (weather != null)
+                  Expanded(child: PanelWeatherBanner(weather: weather)),
+                if (weather != null && alert != null) const SizedBox(width: 16),
+                if (alert != null)
+                  Expanded(child: PanelAlertCard(alert: alert)),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
+        Expanded(child: _panels(context)),
+      ],
+    );
+  }
+
+  Widget _panels(BuildContext context) {
     final s = snapshot;
-    final production = s.productionPowerVA;
     final trend = s.hourlyTrendPct;
+    final wide = s.threePhase || s.productionPowerVA != null;
+    final risk = EnergyAdvice.cutRisk(s, extras);
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Expanded(
-          flex: 4,
+          flex: s.threePhase ? 10 : (wide ? 7 : 5),
           child: _Panel(
             title: 'Puissance',
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
+                // Triphasé : une jauge par phase, sans total. Producteur :
+                // l'injection à côté, à l'échelle de l'abonnement.
                 Expanded(
-                  child: TvArcGauge(
-                    ratio:
-                        s.subscribedPowerVA == null || s.subscribedPowerVA == 0
-                            ? 0
-                            : (s.apparentPowerVA ?? 0) / s.subscribedPowerVA!,
-                    color: TvColors.focus,
-                    value: tvNumber(s.apparentPowerVA ?? 0),
-                    caption:
-                        s.subscribedPowerVA == null
-                            ? 'VA'
-                            : 'VA sur ${tvNumber(s.subscribedPowerVA!)}',
+                  child: Row(
+                    children: [
+                      if (s.threePhase)
+                        for (final (i, va) in s.phasePowersVA.indexed)
+                          Expanded(
+                            child: TvArcGauge(
+                              ratio:
+                                  (s.phaseLimitVA ?? 0) == 0
+                                      ? 0
+                                      : va / s.phaseLimitVA!,
+                              color: TvColors.focus,
+                              value: tvNumber(va),
+                              caption: 'Phase ${i + 1}',
+                              scaleText: true,
+                            ),
+                          )
+                      else
+                        Expanded(
+                          child: TvArcGauge(
+                            ratio:
+                                s.subscribedPowerVA == null ||
+                                        s.subscribedPowerVA == 0
+                                    ? 0
+                                    : (s.apparentPowerVA ?? 0) /
+                                        s.subscribedPowerVA!,
+                            color: TvColors.focus,
+                            value: tvNumber(s.apparentPowerVA ?? 0),
+                            caption:
+                                s.subscribedPowerVA == null
+                                    ? 'VA'
+                                    : 'VA sur ${tvNumber(s.subscribedPowerVA!)}',
+                          ),
+                        ),
+                      if (s.productionPowerVA != null)
+                        Expanded(
+                          child: TvArcGauge(
+                            ratio:
+                                (s.subscribedPowerVA ?? 0) == 0
+                                    ? 0
+                                    : s.productionPowerVA! /
+                                        s.subscribedPowerVA!,
+                            color: TvColors.solar,
+                            value: tvNumber(s.productionPowerVA!),
+                            caption: 'VA injectés',
+                          ),
+                        ),
+                    ],
                   ),
                 ),
-                if (production != null && production > 0)
-                  Text(
-                    'Injection +${tvNumber(production)} VA',
-                    style: const TextStyle(fontSize: 18, color: TvColors.solar),
-                  ),
+                if (risk != null) ...[
+                  const SizedBox(height: 8),
+                  PanelRiskBar(risk: risk, size: 15, short: true),
+                ],
               ],
             ),
           ),
@@ -68,36 +140,45 @@ class TvEnergyTab extends StatelessWidget {
           flex: 4,
           child: _Panel(
             title: 'Sur 24 h',
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _figure(
-                  s.dailyTotalWh == null
-                      ? '—'
-                      : tvNumber(s.dailyTotalWh! / 1000, decimals: 2),
-                  'kWh',
-                  40,
-                ),
-                if (s.dailyCostEur != null)
-                  _figure(tvNumber(s.dailyCostEur!, decimals: 2), '€', 30),
-                if (s.dailyProductionWh != null) ...[
-                  const SizedBox(height: 8),
+            // Selon la box, une ligne de production ou de tendance s'ajoute :
+            // le contenu se réduit plutôt que de déborder.
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _figure(
+                    s.dailyTotalWh == null
+                        ? '—'
+                        : tvNumber(s.dailyTotalWh! / 1000, decimals: 2),
+                    'kWh',
+                    34,
+                  ),
+                  if (s.dailyCostEur != null)
+                    _figure(tvNumber(s.dailyCostEur!, decimals: 2), '€', 26),
+                  if (s.dailyProductionWh != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      'Produit ${tvNumber(s.dailyProductionWh! / 1000, decimals: 2)} kWh',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        color: TvColors.solar,
+                      ),
+                    ),
+                  ],
+                  if (trend != null) ...[
+                    const SizedBox(height: 6),
+                    _trend(trend),
+                  ],
+                  const SizedBox(height: 6),
                   Text(
-                    'Produit ${tvNumber(s.dailyProductionWh! / 1000, decimals: 2)} kWh',
-                    style: const TextStyle(fontSize: 18, color: TvColors.solar),
+                    'Relevé ${tvAge(s.timestamp)}',
+                    style: const TextStyle(fontSize: 14, color: TvColors.muted),
                   ),
                 ],
-                if (trend != null) ...[
-                  const SizedBox(height: 10),
-                  _trend(trend),
-                ],
-                const SizedBox(height: 10),
-                Text(
-                  'Relevé ${tvAge(s.timestamp)}',
-                  style: const TextStyle(fontSize: 14, color: TvColors.muted),
-                ),
-              ],
+              ),
             ),
           ),
         ),
@@ -105,7 +186,10 @@ class TvEnergyTab extends StatelessWidget {
         Expanded(
           flex: 9,
           child: _Panel(
-            title: 'Heure par heure',
+            title:
+                s.hourly.isEmpty
+                    ? 'Heure par heure'
+                    : 'Heure par heure · OK pour le détail',
             child:
                 s.hourly.isEmpty
                     ? const Center(
@@ -114,7 +198,65 @@ class TvEnergyTab extends StatelessWidget {
                         style: TextStyle(color: TvColors.muted),
                       ),
                     )
-                    : TvHourlyChart(samples: s.hourly),
+                    : Column(
+                      children: [
+                        Expanded(
+                          // OK ouvre le graphe en plein écran, où les
+                          // flèches passent d'une heure à l'autre.
+                          child: TvFocusable(
+                            focusScale: 1,
+                            color: TvColors.panel,
+                            focusedColor: TvColors.panelHigh,
+                            padding: const EdgeInsets.all(6),
+                            radius: BorderRadius.circular(10),
+                            onSelect:
+                                () => PanelChartDetail.open(
+                                  context,
+                                  s,
+                                  extras,
+                                  remote: true,
+                                ),
+                            child: TvHourlyChart(
+                              samples: s.hourly,
+                              contract: s.contract,
+                              subMeterColors:
+                                  extras?.subMeterColors ?? const {},
+                            ),
+                          ),
+                        ),
+                        if (extras?.utilities.isNotEmpty ?? false) ...[
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            height: 62,
+                            child: Row(
+                              children: [
+                                for (final (i, meter)
+                                    in extras!.utilities.indexed) ...[
+                                  if (i > 0) const SizedBox(width: 12),
+                                  Expanded(
+                                    child: TvFocusable(
+                                      focusScale: 1,
+                                      padding: EdgeInsets.zero,
+                                      color: TvColors.panelHigh,
+                                      radius: BorderRadius.circular(12),
+                                      onSelect:
+                                          meter.hourly.isEmpty
+                                              ? null
+                                              : () => PanelUtilityDetail.open(
+                                                context,
+                                                meter,
+                                                remote: true,
+                                              ),
+                                      child: TvUtilityTile(meter: meter),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
           ),
         ),
       ],
@@ -150,7 +292,7 @@ class TvEnergyTab extends StatelessWidget {
       text = '→ stable';
       color = TvColors.muted;
     }
-    return Text(text, style: TextStyle(fontSize: 17, color: color));
+    return Text(text, style: TextStyle(fontSize: 15, color: color));
   }
 }
 
@@ -194,6 +336,10 @@ class TvArcGauge extends StatelessWidget {
   /// mesurée face à la consigne.
   final double? marker;
 
+  /// Le texte grandit avec la jauge, au lieu de garder la taille prévue
+  /// pour la TV : sur un panneau, la jauge occupe parfois tout l'écran.
+  final bool scaleText;
+
   const TvArcGauge({
     super.key,
     required this.ratio,
@@ -201,6 +347,7 @@ class TvArcGauge extends StatelessWidget {
     required this.value,
     required this.caption,
     this.marker,
+    this.scaleText = false,
   });
 
   @override
@@ -213,12 +360,16 @@ class TvArcGauge extends StatelessWidget {
           constraints.maxWidth.isFinite ? constraints.maxWidth : 260.0,
           constraints.maxHeight.isFinite ? constraints.maxHeight : 260.0,
         );
-        return Center(child: SizedBox.square(dimension: side, child: _gauge()));
+        return Center(
+          child: SizedBox.square(dimension: side, child: _gauge(side)),
+        );
       },
     );
   }
 
-  Widget _gauge() {
+  Widget _gauge(double side) {
+    final valueSize = scaleText ? (side * 0.2).clamp(40.0, 96.0) : 40.0;
+    final captionSize = scaleText ? (side * 0.058).clamp(13.0, 26.0) : 13.0;
     return CustomPaint(
       painter: _ArcPainter(ratio.clamp(0, 1).toDouble(), color, marker),
       // Marge intérieure : le texte ne doit pas chevaucher l'arc.
@@ -231,8 +382,8 @@ class TvArcGauge extends StatelessWidget {
               FittedBox(
                 child: Text(
                   value,
-                  style: const TextStyle(
-                    fontSize: 40,
+                  style: TextStyle(
+                    fontSize: valueSize,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -240,7 +391,7 @@ class TvArcGauge extends StatelessWidget {
               Text(
                 caption,
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 13, color: TvColors.muted),
+                style: TextStyle(fontSize: captionSize, color: TvColors.muted),
               ),
             ],
           ),
@@ -277,7 +428,28 @@ class _ArcPainter extends CustomPainter {
           ..strokeCap = StrokeCap.round;
     canvas.drawArc(rect, _start, _sweep, false, track);
     if (ratio > 0) {
-      canvas.drawArc(rect, _start, _sweep * ratio, false, track..color = color);
+      // Bout droit à l'avant, arrondi au départ seulement : avec deux bouts
+      // arrondis, une faible valeur se réduisait à une pastille, qui ne
+      // disait plus où s'arrêtait la mesure.
+      canvas.drawArc(
+        rect,
+        _start,
+        _sweep * ratio,
+        false,
+        Paint()
+          ..color = color
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = stroke
+          ..strokeCap = StrokeCap.butt,
+      );
+      canvas.drawCircle(
+        Offset(
+          rect.center.dx + rect.width / 2 * math.cos(_start),
+          rect.center.dy + rect.width / 2 * math.sin(_start),
+        ),
+        stroke / 2,
+        Paint()..color = color,
+      );
     }
     if (marker != null) {
       final angle = _start + _sweep * marker!.clamp(0, 1);
@@ -299,44 +471,221 @@ class _ArcPainter extends CustomPainter {
       old.ratio != ratio || old.color != color || old.marker != marker;
 }
 
-/// Graphe des 24 dernières heures. L'heure en cours, partielle, est la
-/// dernière barre, plus appuyée ; l'injection est en vert.
+/// Une série du graphe : un index tarifaire ou un sous-compteur.
+class TvEnergySeries {
+  final String label;
+  final Color color;
+
+  /// Énergie de la série pour une heure, en Wh.
+  final int Function(HourlySample) wh;
+
+  const TvEnergySeries(this.label, this.color, this.wh);
+}
+
+/// Couleur d'un index tarifaire. En Tempo, celle du jour : bleu, blanc,
+/// rouge, plus claire en heures creuses. Ailleurs, les heures creuses dans
+/// le bleu de l'application et les heures pleines plus soutenues.
+Color tvTariffColor(int attribute, String? contract) {
+  final c = (contract ?? '').toUpperCase();
+  final rank = (attribute - 256) ~/ 2;
+  const tempo = [
+    Color(0xFF5DADE2),
+    Color(0xFF2E86C1),
+    Color(0xFFECF0F1),
+    Color(0xFFAAB7B8),
+    Color(0xFFF1948A),
+    Color(0xFFE74C3C),
+  ];
+  const others = [
+    TvColors.focus,
+    Color(0xFF1F6FB5),
+    Color(0xFF7F8C8D),
+    Color(0xFFBDC3C7),
+    Color(0xFFE74C3C),
+    Color(0xFFC0392B),
+    Color(0xFFF5B041),
+    Color(0xFFD35400),
+    Color(0xFF8E44AD),
+    Color(0xFFA569BD),
+  ];
+  final palette = c.contains('BBR') || c.contains('TEMPO') ? tempo : others;
+  return rank >= 0 && rank < palette.length ? palette[rank] : TvColors.muted;
+}
+
+/// Les séries présentes sur 24 h : les index tarifaires dans leur ordre,
+/// puis les sous-compteurs, dans la couleur choisie sur la box.
+List<TvEnergySeries> tvEnergySeries(
+  List<HourlySample> samples, {
+  String? contract,
+  Map<String, int> subMeterColors = const {},
+}) {
+  const spare = [
+    Color(0xFFF5B041),
+    Color(0xFF9B59B6),
+    Color(0xFF1ABC9C),
+    Color(0xFFE67E22),
+    Color(0xFFEC7063),
+  ];
+  final attributes =
+      <int>{for (final s in samples) ...s.tariffs.keys}.toList()..sort();
+  final meters = <String>{for (final s in samples) ...s.subMeters.keys};
+  return [
+    for (final attribute in attributes)
+      TvEnergySeries(
+        tariffLabel(attribute, contract),
+        tvTariffColor(attribute, contract),
+        (s) => s.tariffs[attribute] ?? 0,
+      ),
+    for (final (i, name) in meters.indexed)
+      TvEnergySeries(
+        name,
+        subMeterColors[name] == null
+            ? spare[i % spare.length]
+            : Color(0xFF000000 | subMeterColors[name]!),
+        (s) => s.subMeters[name] ?? 0,
+      ),
+  ];
+}
+
+/// Graphe des 24 dernières heures, empilé par tarif et par sous-compteur.
+/// L'heure en cours, partielle, est la dernière barre, plus appuyée ;
+/// l'injection, en vert, descend sous l'axe.
 class TvHourlyChart extends StatelessWidget {
   final List<HourlySample> samples;
 
-  const TvHourlyChart({super.key, required this.samples});
+  /// Contrat du compteur, qui donne leur nom aux index tarifaires.
+  final String? contract;
+  final Map<String, int> subMeterColors;
+
+  /// Corps des heures ; la légende est un cran en dessous.
+  final double legendSize;
+
+  /// Le budget du mois rapporté à l'heure, en Wh : une ligne pointillée.
+  final double? budgetWh;
+
+  /// Barre mise en avant, les autres pâlissent ; `null` : aucune.
+  final int? selected;
+
+  /// Appelé avec l'indice de la barre touchée ou glissée sous le doigt.
+  final ValueChanged<int>? onSelect;
+
+  /// Nombre d'heures écrites sous l'axe, la première et la dernière
+  /// comprises.
+  final int hourMarks;
+
+  const TvHourlyChart({
+    super.key,
+    required this.samples,
+    this.contract,
+    this.subMeterColors = const {},
+    this.legendSize = 14,
+    this.budgetWh,
+    this.selected,
+    this.onSelect,
+    this.hourMarks = 4,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final count = hourMarks.clamp(2, samples.length);
     final marks = [
-      0,
-      samples.length ~/ 3,
-      2 * samples.length ~/ 3,
-      samples.length - 1,
+      for (var i = 0; i < count; i++)
+        (i * (samples.length - 1) / (count - 1)).round(),
     ];
+    final series = tvEnergySeries(
+      samples,
+      contract: contract,
+      subMeterColors: subMeterColors,
+    );
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Expanded(
-          child: CustomPaint(
-            size: Size.infinite,
-            painter: _BarsPainter(samples),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final chart = CustomPaint(
+                size: Size.infinite,
+                painter: _BarsPainter(
+                  samples,
+                  series,
+                  budgetWh,
+                  legendSize,
+                  selected,
+                ),
+              );
+              final select = onSelect;
+              if (select == null) return chart;
+              // La barre sous le doigt, d'après la position dans la zone
+              // des barres, à droite des graduations.
+              void pick(Offset at) {
+                final left = _BarsPainter.gutter(legendSize);
+                final slot = (constraints.maxWidth - left) / samples.length;
+                if (slot <= 0) return;
+                select(
+                  ((at.dx - left) / slot).floor().clamp(0, samples.length - 1),
+                );
+              }
+
+              return GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTapDown: (d) => pick(d.localPosition),
+                onHorizontalDragUpdate: (d) => pick(d.localPosition),
+                child: chart,
+              );
+            },
           ),
         ),
         const SizedBox(height: 6),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            for (final (i, index) in marks.indexed)
-              Text(
-                '${samples[index].hour}h',
-                style: TextStyle(
-                  fontSize: 14,
-                  color:
-                      i == marks.length - 1 ? TvColors.focus : TvColors.muted,
+        Padding(
+          padding: EdgeInsets.only(left: _BarsPainter.gutter(legendSize)),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              for (final (i, index) in marks.indexed)
+                Text(
+                  '${samples[index].hour}h',
+                  style: TextStyle(
+                    fontSize: legendSize,
+                    color:
+                        i == marks.length - 1 ? TvColors.focus : TvColors.muted,
+                  ),
                 ),
-              ),
-          ],
+            ],
+          ),
         ),
+        // Une seule série n'a rien à distinguer : la légende ne dirait que
+        // ce que le total dit déjà.
+        if (series.length > 1) ...[
+          const SizedBox(height: 4),
+          Wrap(
+            spacing: legendSize,
+            runSpacing: 2,
+            children: [
+              for (final entry in series)
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: legendSize * 0.7,
+                      height: legendSize * 0.7,
+                      decoration: BoxDecoration(
+                        color: entry.color,
+                        borderRadius: BorderRadius.circular(3),
+                      ),
+                    ),
+                    SizedBox(width: legendSize * 0.4),
+                    Text(
+                      '${entry.label} ${tvNumber(samples.fold<int>(0, (sum, s) => sum + entry.wh(s)) / 1000, decimals: 1)} kWh',
+                      style: TextStyle(
+                        fontSize: legendSize - 1,
+                        color: TvColors.muted,
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+        ],
       ],
     );
   }
@@ -344,47 +693,554 @@ class TvHourlyChart extends StatelessWidget {
 
 class _BarsPainter extends CustomPainter {
   final List<HourlySample> samples;
+  final List<TvEnergySeries> series;
+  final double? budgetWh;
+  final double textSize;
+  final int? selected;
 
-  _BarsPainter(this.samples);
+  _BarsPainter(
+    this.samples,
+    this.series,
+    this.budgetWh,
+    this.textSize, [
+    this.selected,
+  ]);
+
+  /// Largeur réservée aux graduations, à gauche des barres.
+  static double gutter(double textSize) => textSize * 3.4;
+
+  /// Un pas rond qui donne deux ou trois graduations sous [top] Wh.
+  static int _step(int top) {
+    for (final step in const [
+      50,
+      100,
+      200,
+      250,
+      500,
+      1000,
+      2000,
+      2500,
+      5000,
+      10000,
+      20000,
+    ]) {
+      if (top / step <= 3) return step;
+    }
+    return 50000;
+  }
+
+  /// « 500 Wh », « 1 kWh », « 1,5 kWh ».
+  static String _label(int wh) =>
+      wh < 1000
+          ? '$wh Wh'
+          : '${tvNumber(wh / 1000, decimals: wh % 1000 == 0 ? 0 : 1)} kWh';
 
   @override
   void paint(Canvas canvas, Size size) {
-    final peak = samples.fold<int>(
-      1,
-      (m, s) => math.max(m, math.max(s.wh, s.productionWh)),
+    // La consommation monte au-dessus de l'axe, l'injection descend
+    // dessous : les deux gardent la même échelle, et l'axe se place selon
+    // la part de chacune.
+    // La ligne du budget fixe aussi l'échelle : elle doit rester visible
+    // quand la consommation est faible.
+    final up = math.max(
+      samples.fold<int>(1, (m, s) => math.max(m, s.wh)),
+      ((budgetWh ?? 0) * 1.15).round(),
     );
-    final slot = size.width / samples.length;
+    final down = samples.fold<int>(0, (m, s) => math.max(m, s.productionWh));
+    final scale = size.height / (up + down);
+    final axis = up * scale;
+
+    // Deux ou trois graduations rondes, dans une gouttière à gauche.
+    final left = gutter(textSize);
+    final step = _step(up);
+    final grid =
+        Paint()
+          ..color = TvColors.muted.withValues(alpha: 0.18)
+          ..strokeWidth = 1;
+    for (var value = step; value <= up; value += step) {
+      final y = axis - value * scale;
+      canvas.drawLine(Offset(left, y), Offset(size.width, y), grid);
+      final label = TextPainter(
+        text: TextSpan(
+          text: _label(value),
+          style: TextStyle(fontSize: textSize - 2, color: TvColors.muted),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: left - 2);
+      label.paint(canvas, Offset(left - 4 - label.width, y - label.height / 2));
+    }
+
+    canvas.save();
+    canvas.translate(left, 0);
+    final plot = Size(size.width - left, size.height);
+    final slot = plot.width / samples.length;
     final width = slot * 0.62;
-    final hasProduction = samples.any((s) => s.productionWh > 0);
-    for (final (i, s) in samples.indexed) {
-      final current = i == samples.length - 1;
-      final x = i * slot + (slot - width) / 2;
-      final drawnWidth = hasProduction ? width / 2 : width;
-      final h = size.height * s.wh / peak;
+
+    if (down > 0) {
+      canvas.drawLine(
+        Offset(0, axis),
+        Offset(size.width, axis),
+        Paint()
+          ..color = TvColors.muted.withValues(alpha: 0.35)
+          ..strokeWidth = 1,
+      );
+    }
+
+    // La barre choisie sur un fond clair, les autres en retrait.
+    if (selected case final chosen?) {
       canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(chosen * slot, 0, slot, size.height),
+          const Radius.circular(4),
+        ),
+        Paint()..color = TvColors.text.withValues(alpha: 0.08),
+      );
+    }
+
+    for (final (i, s) in samples.indexed) {
+      final current =
+          selected == null ? i == samples.length - 1 : i == selected;
+      final faded = selected != null && i != selected;
+      final x = i * slot + (slot - width) / 2;
+
+      // Les parts de l'heure, de l'axe vers le haut. Ce que le détail ne
+      // couvre pas — un relevé plus ancien, sans détail — reste dans la
+      // couleur d'origine, pour que la barre garde sa hauteur.
+      final parts = <(Color, int)>[
+        for (final entry in series)
+          if (entry.wh(s) > 0) (entry.color, entry.wh(s)),
+      ];
+      final covered = parts.fold<int>(0, (sum, p) => sum + p.$2);
+      if (s.wh > covered) parts.add((TvColors.focus, s.wh - covered));
+
+      final total = math.min(math.max(s.wh, covered), up) * scale;
+      canvas.save();
+      canvas.clipRRect(
         RRect.fromRectAndCorners(
-          Rect.fromLTWH(x, size.height - h, drawnWidth, h),
+          Rect.fromLTWH(x, axis - total, width, total),
           topLeft: const Radius.circular(3),
           topRight: const Radius.circular(3),
         ),
-        Paint()..color = TvColors.focus.withValues(alpha: current ? 1 : 0.55),
       );
-      if (hasProduction && s.productionWh > 0) {
-        final p = size.height * s.productionWh / peak;
+      var bottom = axis;
+      for (final (color, wh) in parts) {
+        final h = wh * scale;
+        canvas.drawRect(
+          Rect.fromLTWH(x, bottom - h, width, h),
+          Paint()
+            ..color = color.withValues(
+              alpha: current ? 1 : (faded ? 0.4 : 0.72),
+            ),
+        );
+        bottom -= h;
+      }
+      canvas.restore();
+
+      if (s.productionWh > 0) {
         canvas.drawRRect(
           RRect.fromRectAndCorners(
-            Rect.fromLTWH(x + drawnWidth, size.height - p, drawnWidth, p),
-            topLeft: const Radius.circular(3),
-            topRight: const Radius.circular(3),
+            Rect.fromLTWH(x, axis, width, s.productionWh * scale),
+            bottomLeft: const Radius.circular(3),
+            bottomRight: const Radius.circular(3),
           ),
-          Paint()..color = TvColors.solar.withValues(alpha: current ? 1 : 0.7),
+          Paint()
+            ..color = TvColors.solar.withValues(
+              alpha: current ? 1 : (faded ? 0.4 : 0.7),
+            ),
         );
       }
+    }
+
+    canvas.restore();
+
+    final budget = budgetWh;
+    if (budget != null && budget > 0) {
+      final y = axis - budget * scale;
+      final line =
+          Paint()
+            ..color = TvColors.warn
+            ..strokeWidth = 1.5;
+      for (var x = gutter(textSize); x < size.width; x += 10) {
+        canvas.drawLine(
+          Offset(x, y),
+          Offset(math.min(x + 6, size.width), y),
+          line,
+        );
+      }
+      final label = TextPainter(
+        text: TextSpan(
+          text: 'Budget',
+          style: TextStyle(
+            fontSize: textSize - 2,
+            color: TvColors.warn,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      label.paint(
+        canvas,
+        Offset(size.width - label.width, math.max(0, y - label.height - 2)),
+      );
     }
   }
 
   @override
-  bool shouldRepaint(_BarsPainter old) => old.samples != samples;
+  bool shouldRepaint(_BarsPainter old) =>
+      old.samples != samples ||
+      old.series.length != series.length ||
+      old.budgetWh != budgetWh ||
+      old.selected != selected;
+}
+
+/// Le compteur de gaz ou d'eau : son total sur 24 h, son coût, et ses
+/// heures en petites barres.
+class TvUtilityTile extends StatelessWidget {
+  final UtilityMeter meter;
+
+  /// Corps du total ; le libellé et l'icône en découlent.
+  final double size;
+
+  /// Largeur fixe du bloc de texte, pour aligner les petites barres sur
+  /// le graphe de l'électricité quand les tuiles occupent toute la largeur.
+  final double? textWidth;
+
+  /// Une touche ouvre le graphe en plein écran.
+  final bool expandable;
+
+  const TvUtilityTile({
+    super.key,
+    required this.meter,
+    this.size = 20,
+    this.textWidth,
+    this.expandable = false,
+  });
+
+  /// Couleur du gaz ou de l'eau, sur les tuiles et en plein écran.
+  static Color colorOf(UtilityKind kind) =>
+      kind == UtilityKind.gas ? _gas : _water;
+
+  Widget _textBox(Widget child) =>
+      textWidth == null
+          ? Flexible(flex: 3, child: child)
+          : SizedBox(width: textWidth, child: child);
+
+  static const _gas = Color(0xFFE67E22);
+  static const _water = Color(0xFF3498DB);
+
+  @override
+  Widget build(BuildContext context) {
+    final gas = meter.kind == UtilityKind.gas;
+    final color = gas ? _gas : _water;
+    final total = meter.dailyTotal;
+    final cost = meter.dailyCostEur;
+    final tile = Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: size * 0.6,
+        vertical: size * 0.3,
+      ),
+      decoration: BoxDecoration(
+        color: TvColors.panelHigh,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            gas ? Icons.local_fire_department : Icons.water_drop,
+            color: color,
+            size: size * 1.3,
+          ),
+          SizedBox(width: size * 0.4),
+          _textBox(
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    gas ? 'Gaz · 24 h' : 'Eau · 24 h',
+                    style: TextStyle(
+                      fontSize: size * 0.6,
+                      color: TvColors.muted,
+                    ),
+                  ),
+                  Text(
+                    total == null
+                        ? 'Aucun relevé'
+                        : cost == null
+                        ? amount(total)
+                        : '${amount(total)} · ${tvNumber(cost, decimals: 2)} €',
+                    style: TextStyle(
+                      fontSize: total == null ? size * 0.75 : size,
+                      fontWeight:
+                          total == null ? FontWeight.w400 : FontWeight.w700,
+                      color: total == null ? TvColors.muted : TvColors.text,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          SizedBox(width: size * 0.6),
+          Expanded(
+            flex: 2,
+            child:
+                total == null
+                    ? const SizedBox()
+                    : CustomPaint(
+                      size: Size.infinite,
+                      painter: _SparkPainter(
+                        meter.hourly,
+                        color,
+                        // En pleine largeur, la gouttière du graphe de
+                        // l'électricité, avec ses graduations.
+                        axisTextSize: textWidth == null ? null : 12,
+                        label: tick,
+                      ),
+                    ),
+          ),
+        ],
+      ),
+    );
+    if (!expandable || total == null) return tile;
+    // L'icône en surimpression, dans le coin : les barres restent alignées
+    // sur celles de l'électricité.
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: () => PanelUtilityDetail.open(context, meter),
+      child: Stack(
+        children: [
+          tile,
+          Positioned(
+            top: 6,
+            right: 6,
+            child: Icon(
+              Icons.open_in_full,
+              size: size * 0.65,
+              color: TvColors.muted,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Une graduation, dans l'unité du compteur.
+  String tick(double value) {
+    switch (meter.unit.toLowerCase()) {
+      case 'wh':
+        return value >= 1000
+            ? '${tvNumber(value / 1000, decimals: value % 1000 == 0 ? 0 : 1)} kWh'
+            : '${tvNumber(value)} Wh';
+      case 'm3':
+        return '${tvNumber(value, decimals: value < 1 ? 2 : (value < 10 ? 1 : 0))} m³';
+      default:
+        return '${tvNumber(value, decimals: value < 10 && value % 1 != 0 ? 1 : 0)} ${meter.unit}';
+    }
+  }
+
+  /// La quantité dans son unité, avec assez de décimales pour une petite
+  /// valeur ; les Wh passent en kWh.
+  String amount(double value) {
+    // L'unité est saisie à la main sur la box, sur deux caractères jusqu'en
+    // v2.25 : « wH », « kW » (pour kWh coupé) ou « M3 » se rencontrent.
+    var unit = meter.unit;
+    switch (unit.toLowerCase()) {
+      case 'wh':
+        value /= 1000;
+        unit = 'kWh';
+      case 'kw' || 'kwh':
+        unit = 'kWh';
+      case 'm3':
+        unit = 'm³';
+    }
+    final decimals = value < 10 ? 2 : (value < 100 ? 1 : 0);
+    return '${tvNumber(value, decimals: decimals)} $unit';
+  }
+}
+
+/// Le graphe du gaz ou de l'eau en grand : graduations, heures sous
+/// l'axe, et une barre qu'on choisit du doigt.
+class TvUtilityChart extends StatelessWidget {
+  final UtilityMeter meter;
+  final int? selected;
+  final ValueChanged<int>? onSelect;
+  final double textSize;
+  final int hourMarks;
+
+  const TvUtilityChart({
+    super.key,
+    required this.meter,
+    this.selected,
+    this.onSelect,
+    this.textSize = 14,
+    this.hourMarks = 7,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final samples = meter.hourly;
+    final tile = TvUtilityTile(meter: meter);
+    final count = hourMarks.clamp(2, samples.length);
+    final marks = [
+      for (var i = 0; i < count; i++)
+        (i * (samples.length - 1) / (count - 1)).round(),
+    ];
+    final left = _BarsPainter.gutter(textSize);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final chart = CustomPaint(
+                size: Size.infinite,
+                painter: _SparkPainter(
+                  samples,
+                  TvUtilityTile.colorOf(meter.kind),
+                  axisTextSize: textSize,
+                  label: tile.tick,
+                  selected: selected,
+                ),
+              );
+              final select = onSelect;
+              if (select == null) return chart;
+              void pick(Offset at) {
+                final slot = (constraints.maxWidth - left) / samples.length;
+                if (slot <= 0) return;
+                select(
+                  ((at.dx - left) / slot).floor().clamp(0, samples.length - 1),
+                );
+              }
+
+              return GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTapDown: (d) => pick(d.localPosition),
+                onHorizontalDragUpdate: (d) => pick(d.localPosition),
+                child: chart,
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 6),
+        Padding(
+          padding: EdgeInsets.only(left: left),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              for (final (i, index) in marks.indexed)
+                Text(
+                  '${samples[index].hour}h',
+                  style: TextStyle(
+                    fontSize: textSize,
+                    color:
+                        i == marks.length - 1 ? TvColors.focus : TvColors.muted,
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SparkPainter extends CustomPainter {
+  final List<UtilitySample> samples;
+  final Color color;
+
+  /// Corps des graduations ; `null` : pas de graduation, toute la largeur
+  /// pour les barres.
+  final double? axisTextSize;
+  final String Function(double value) label;
+
+  /// Barre mise en avant, les autres pâlissent.
+  final int? selected;
+
+  _SparkPainter(
+    this.samples,
+    this.color, {
+    this.axisTextSize,
+    required this.label,
+    this.selected,
+  });
+
+  /// Un pas rond, quelle que soit l'unité, qui donne une ou deux
+  /// graduations sous [top].
+  static double _step(double top) {
+    final raw = top / 2;
+    final magnitude = math.pow(10, (math.log(raw) / math.ln10).floor());
+    for (final factor in const [1, 2, 2.5, 5, 10]) {
+      final step = factor * magnitude;
+      if (step >= raw) return step.toDouble();
+    }
+    return (10 * magnitude).toDouble();
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final peak = samples.fold<double>(0, (m, s) => math.max(m, s.value));
+    if (peak <= 0) return;
+    final text = axisTextSize;
+    final left = text == null ? 0.0 : _BarsPainter.gutter(text);
+    if (text != null) {
+      final step = _step(peak);
+      final grid =
+          Paint()
+            ..color = TvColors.muted.withValues(alpha: 0.18)
+            ..strokeWidth = 1;
+      for (var value = step; value <= peak * 1.0001; value += step) {
+        final y = size.height - size.height * value / peak;
+        canvas.drawLine(Offset(left, y), Offset(size.width, y), grid);
+        final painter = TextPainter(
+          text: TextSpan(
+            text: label(value),
+            style: TextStyle(fontSize: text - 2, color: TvColors.muted),
+          ),
+          textDirection: TextDirection.ltr,
+        )..layout(maxWidth: left - 2);
+        painter.paint(
+          canvas,
+          Offset(
+            left - 4 - painter.width,
+            (y - painter.height / 2).clamp(0, size.height - painter.height),
+          ),
+        );
+      }
+    }
+    final slot = (size.width - left) / samples.length;
+    if (selected case final chosen?) {
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(left + chosen * slot, 0, slot, size.height),
+          const Radius.circular(4),
+        ),
+        Paint()..color = TvColors.text.withValues(alpha: 0.08),
+      );
+    }
+    for (final (i, s) in samples.indexed) {
+      final h = size.height * s.value / peak;
+      final strong = selected == null ? i == samples.length - 1 : i == selected;
+      canvas.drawRect(
+        Rect.fromLTWH(
+          left + i * slot + slot * 0.19,
+          size.height - h,
+          slot * 0.62,
+          h,
+        ),
+        Paint()
+          ..color = color.withValues(
+            alpha: strong ? 1 : (selected == null ? 0.7 : 0.4),
+          ),
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(_SparkPainter old) =>
+      old.samples != samples || old.selected != selected;
 }
 
 // ---------------------------------------------------------------------------
@@ -402,7 +1258,7 @@ String tvActionLabel(String name) => switch (name.toUpperCase()) {
   _ => name,
 };
 
-String _readingLabel(String name) => switch (name) {
+String tvReadingLabel(String name) => switch (name) {
   'current_position' => 'Position',
   'temperature' || 'Temperature' || 'local_temperature' => 'Température',
   'humidity' || 'Humidity' => 'Humidité',
@@ -414,7 +1270,7 @@ String _readingLabel(String name) => switch (name) {
 
 /// Valeur mise en forme, avec « ouvert » et « fermé » aux deux bouts d'un
 /// volet, à un point près : les modules s'arrêtent souvent à 99 ou 1 %.
-String _readingValue(DeviceReading r) {
+String tvReadingValue(DeviceReading r) {
   final v = r.value;
   if (v == null) return '—';
   final text = v == v.roundToDouble() ? tvNumber(v) : tvNumber(v, decimals: 1);
@@ -429,11 +1285,11 @@ String _readingValue(DeviceReading r) {
 
 /// Lectures qui valent la peine d'être montrées : une valeur, et pas un
 /// réglage du module (« Window covering type », « Config status »).
-List<DeviceReading> _shownReadings(DeviceSnapshot d) =>
+List<DeviceReading> tvShownReadings(DeviceSnapshot d) =>
     d.readings.where((r) => r.value != null).toList();
 
 /// Grandeurs qu'on comprend sans leur nom, à leur unité.
-const _selfExplanatory = {
+const tvSelfExplanatory = {
   'current_position',
   'temperature',
   'Temperature',
@@ -442,7 +1298,7 @@ const _selfExplanatory = {
 
 /// Le compteur Linky a son propre onglet : le répéter ici n'apporte que des
 /// libellés bruts.
-bool _isMeter(DeviceSnapshot d) =>
+bool tvIsMeter(DeviceSnapshot d) =>
     d.model.toLowerCase().startsWith('zlinky') ||
     d.label.toLowerCase().startsWith('zlinky');
 
@@ -466,7 +1322,7 @@ class _TvDevicesTabState extends State<TvDevicesTab> {
   final Map<String, String> _status = {};
 
   List<DeviceSnapshot> get _shown =>
-      widget.devices.where((d) => !_isMeter(d)).toList();
+      widget.devices.where((d) => !tvIsMeter(d)).toList();
 
   Future<void> _send(DeviceSnapshot device, DeviceAction action) async {
     setState(() => _status[device.key] = '${tvActionLabel(action.name)}…');
@@ -558,7 +1414,7 @@ class _DeviceSummary extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final readings = _shownReadings(device);
+    final readings = tvShownReadings(device);
     final primary = readings.isEmpty ? null : readings.first;
     final secondary = readings.skip(1).take(large ? 3 : 1);
     final isPosition = primary?.name == 'current_position';
@@ -586,9 +1442,9 @@ class _DeviceSummary extends StatelessWidget {
                 ? 'Pas de mesure'
                 // Position et température se lisent d'elles-mêmes ; une
                 // batterie seule à « 100 % » ne dirait pas de quoi il s'agit.
-                : _selfExplanatory.contains(primary.name)
-                ? _readingValue(primary)
-                : '${_readingLabel(primary.name)} ${_readingValue(primary)}',
+                : tvSelfExplanatory.contains(primary.name)
+                ? tvReadingValue(primary)
+                : '${tvReadingLabel(primary.name)} ${tvReadingValue(primary)}',
             style: TextStyle(
               fontSize: primary == null ? 18 : (large ? 34 : 27),
               fontWeight: FontWeight.w700,
@@ -612,7 +1468,7 @@ class _DeviceSummary extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(top: 4),
             child: Text(
-              '${_readingLabel(r.name)} ${_readingValue(r)}',
+              '${tvReadingLabel(r.name)} ${tvReadingValue(r)}',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontSize: 14, color: TvColors.muted),
@@ -695,7 +1551,7 @@ class _ActionsDialogState extends State<_ActionsDialog> {
               spacing: 12,
               runSpacing: 12,
               children: [
-                for (final (i, action) in device.actions.indexed)
+                for (final (i, action) in device.buttons.indexed)
                   TvFocusable(
                     autofocus: i == 0,
                     focusScale: 1.06,
@@ -717,6 +1573,21 @@ class _ActionsDialogState extends State<_ActionsDialog> {
                   ),
               ],
             ),
+            if (device.positionAction case final position?) ...[
+              const SizedBox(height: 14),
+              _TvPosition(
+                key: ValueKey(
+                  '${device.key}@${tvShownReadings(device).firstOrNull?.value}',
+                ),
+                initial:
+                    tvShownReadings(device).firstOrNull?.name ==
+                            'current_position'
+                        ? tvShownReadings(device).firstOrNull?.value
+                        : null,
+                onChosen:
+                    (percent) => widget.onAction(position.withValue(percent)),
+              ),
+            ],
             const SizedBox(height: 16),
             Text(
               status ?? 'OK envoie la commande · Retour ferme',
@@ -727,6 +1598,76 @@ class _ActionsDialogState extends State<_ActionsDialog> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Position d'un volet à la télécommande : gauche et droite règlent le
+/// pourcentage par pas de 5, OK l'envoie.
+class _TvPosition extends StatefulWidget {
+  final double? initial;
+  final ValueChanged<int> onChosen;
+
+  const _TvPosition({super.key, this.initial, required this.onChosen});
+
+  @override
+  State<_TvPosition> createState() => _TvPositionState();
+}
+
+class _TvPositionState extends State<_TvPosition> {
+  late int _value = (widget.initial ?? 50).clamp(0, 100).round();
+
+  KeyEventResult _onKey(KeyEvent event) {
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return KeyEventResult.ignored;
+    }
+    final step =
+        event.logicalKey == LogicalKeyboardKey.arrowRight
+            ? 5
+            : event.logicalKey == LogicalKeyboardKey.arrowLeft
+            ? -5
+            : 0;
+    if (step == 0) return KeyEventResult.ignored;
+    setState(() => _value = (_value + step).clamp(0, 100));
+    return KeyEventResult.handled;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return TvFocusable(
+      focusScale: 1,
+      color: TvColors.panelHigh,
+      onKey: _onKey,
+      onSelect: () => widget.onChosen(_value),
+      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+      child: Row(
+        children: [
+          const Text('Position', style: TextStyle(fontSize: 18)),
+          const SizedBox(width: 18),
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(99),
+              child: LinearProgressIndicator(
+                value: _value / 100,
+                minHeight: 8,
+                backgroundColor: TvColors.panel,
+                color: TvColors.focus,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          const Icon(Icons.chevron_left, color: TvColors.muted, size: 28),
+          SizedBox(
+            width: 76,
+            child: Text(
+              '$_value %',
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+            ),
+          ),
+          const Icon(Icons.chevron_right, color: TvColors.muted, size: 28),
+        ],
       ),
     );
   }
@@ -795,7 +1736,7 @@ class _TvGroupsTabState extends State<TvGroupsTab> {
                 child:
                     group.iconPath != null
                         ? CustomPaint(
-                          painter: _IconPainter(group.iconPath!, tint),
+                          painter: TvIconPainter(group.iconPath!, tint),
                         )
                         : Center(
                           child: Text(
@@ -842,11 +1783,11 @@ class _TvGroupsTabState extends State<TvGroupsTab> {
 }
 
 /// Icône Material Design Icons, tracée depuis son chemin SVG (grille 24×24).
-class _IconPainter extends CustomPainter {
+class TvIconPainter extends CustomPainter {
   final String data;
   final Color color;
 
-  _IconPainter(this.data, this.color);
+  TvIconPainter(this.data, this.color);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -860,7 +1801,7 @@ class _IconPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_IconPainter old) =>
+  bool shouldRepaint(TvIconPainter old) =>
       old.data != data || old.color != color;
 }
 

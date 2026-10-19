@@ -187,6 +187,22 @@ void main() {
           'shortaddr=30210&command=250&endpoint=1&value=1');
     });
 
+    test('le positionnement envoie le pourcentage choisi', () {
+      // La box présente la commande 252 par un curseur : sa valeur est le
+      // pourcentage, pas une constante du gabarit.
+      const position = DeviceAction(
+        name: 'Position',
+        command: DeviceAction.positionCommand,
+        endpoint: 1,
+        value: 0,
+      );
+      expect(position.isPosition, isTrue);
+      expect(position.withValue(60).query(30210),
+          'shortaddr=30210&command=252&endpoint=1&value=60');
+      // Le positionnement n'est pas un bouton comme les autres.
+      expect(byLabel('volet salon 1').buttons.any((a) => a.isPosition), isFalse);
+    });
+
     test('la commande 400 seule emporte cluster et code constructeur', () {
       final block =
           DeviceControlService.templateBlock(_templates, '266', 'inconnu')!;

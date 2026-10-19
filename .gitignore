@@ -48,3 +48,12 @@ app.*.map.json
 app.apks
 nul
 devtools_options.yaml
+
+# Dépôt F-Droid : produit par le workflow, jamais suivi
+/fdroid/repo/
+/fdroid/archive/
+/fdroid/tmp/
+/fdroid/config.yml
+/fdroid/*.p12
+/fdroid/*.jks
+*.p12

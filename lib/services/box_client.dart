@@ -247,7 +247,7 @@ class BoxClient {
             SessionPool.session(route.baseUrl, device.login!, device.password!);
         final result =
             await session.authenticatedPost(path, fields).timeout(route.timeout);
-        return result.statusCode == 200 ? result.body : null;
+        return _accepted(result.statusCode) ? result.body : null;
       }
     }
 
@@ -267,8 +267,12 @@ class BoxClient {
         SessionPool.session(route.baseUrl, device.login!, device.password!);
     final result =
         await session.authenticatedPost(path, fields).timeout(route.timeout);
-    return result.statusCode == 200 ? result.body : null;
+    return _accepted(result.statusCode) ? result.body : null;
   }
+
+  /// 200, ou 202 pour une commande que la box exécute après avoir répondu
+  /// (le rallumage du délestage).
+  static bool _accepted(int status) => status == 200 || status == 202;
 
   static Future<String?> _rawPost(
     String url,
@@ -282,6 +286,8 @@ class BoxClient {
       request.headers.set('Content-Type', 'application/x-www-form-urlencoded');
       request.headers.set('Accept', 'application/json');
       if (authHeader != null) request.headers.set('Authorization', authHeader);
+      // La box refuse un POST en accès direct sans origine du même hôte.
+      request.headers.set('Origin', Uri.parse(url).origin);
       request.followRedirects = false;
       request.add(utf8.encode(fields.entries
           .map((e) =>
@@ -289,7 +295,7 @@ class BoxClient {
           .join('&')));
       final response = await request.close().timeout(timeout);
       final body = await response.transform(utf8.decoder).join();
-      return response.statusCode == 200 && body.isNotEmpty ? body : null;
+      return _accepted(response.statusCode) && body.isNotEmpty ? body : null;
     } finally {
       client.close(force: true);
     }

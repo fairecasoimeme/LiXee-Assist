@@ -1,0 +1,6 @@
+• Mode kiosque pour écran mural (NSPanel Pro), téléphone et tablette.
+• Énergie détaillée par tarif et sous-compteur, avec le gaz et l'eau. Touchez un graphe pour le voir en grand.
+• Onglet Économies : budget du mois, consommation plancher, abonnement, délestage, et comparaison Base, Heures creuses et Tempo.
+• Risque de coupure, une jauge par phase, injection solaire.
+• Volets réglables au pourcentage.
+• Widgets et accès à distance fiabilisés. Android 7 minimum.

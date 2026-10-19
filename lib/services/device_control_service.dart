@@ -67,14 +67,22 @@ class DeviceAction {
     this.manufacturerCode,
   });
 
-  /// Vrai si la valeur envoyée est une consigne que l'utilisateur choisit.
-  ///
-  /// La 252 place un volet à un pourcentage d'ouverture ; le gabarit lui donne
-  /// `value: 0`, que l'interface de la box remplace par la position réglée au
-  /// curseur. Émettre le gabarit tel quel fermerait le volet au lieu de
-  /// demander où l'arrêter — et un widget, iOS comme Android, n'a pas de
-  /// curseur à offrir.
-  bool get needsSetpoint => command == 252;
+  /// Commande de positionnement d'un volet : sa valeur est le pourcentage
+  /// voulu, de 0 à 100, dans le sens de la position affichée. L'interface de
+  /// la box la présente par un curseur, pas par un bouton.
+  static const positionCommand = 252;
+
+  bool get isPosition => command == positionCommand;
+
+  /// La même action, avec une autre valeur : le pourcentage choisi.
+  DeviceAction withValue(int newValue) => DeviceAction(
+    name: name,
+    command: command,
+    endpoint: endpoint,
+    value: newValue,
+    cluster: cluster,
+    manufacturerCode: manufacturerCode,
+  );
 
   /// Requête à émettre, **arguments dans cet ordre impérativement**.
   ///
@@ -120,6 +128,15 @@ class DeviceSnapshot {
 
   /// Identifiant stable d'un appareil à travers les box.
   String get key => '$boxName/$ieee';
+
+  /// Les actions à présenter en boutons : tout sauf le positionnement, dont
+  /// la valeur écrite dans le gabarit n'est qu'un point de départ.
+  List<DeviceAction> get buttons =>
+      actions.where((a) => !a.isPosition).toList(growable: false);
+
+  /// L'action de positionnement en pourcentage, si l'appareil en a une.
+  DeviceAction? get positionAction =>
+      actions.where((a) => a.isPosition).firstOrNull;
 
   DeviceReading? reading(String name) {
     for (final r in readings) {

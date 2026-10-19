@@ -225,7 +225,7 @@ class _TvPairingScreenState extends State<TvPairingScreen> {
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(14),
                 ),
-                child: CustomPaint(painter: _QrPainter(url.toString())),
+                child: CustomPaint(painter: TvQrPainter(url.toString())),
               ),
               const SizedBox(width: 22),
               Expanded(
@@ -336,13 +336,13 @@ class _Choice extends StatelessWidget {
   }
 }
 
-class _QrPainter extends CustomPainter {
+class TvQrPainter extends CustomPainter {
   final String data;
   late final QrImage _image = QrImage(
     QrCode.fromData(data: data, errorCorrectLevel: QrErrorCorrectLevel.M),
   );
 
-  _QrPainter(this.data);
+  TvQrPainter(this.data);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -362,5 +362,5 @@ class _QrPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_QrPainter old) => old.data != data;
+  bool shouldRepaint(TvQrPainter old) => old.data != data;
 }

@@ -1,0 +1,48 @@
+# Brouillon de recette pour fdroiddata (metadata/com.lixee.assist.yml).
+# À ajuster avant la demande : versionName, versionCode et commit doivent
+# désigner une étiquette git publiée, et la version de Flutter celle qui
+# compile le projet.
+Categories:
+  - Connectivity
+  - System
+License: MIT
+AuthorName: LiXee
+WebSite: https://lixee-box.fr
+SourceCode: https://github.com/fairecasoimeme/LiXee-Assist
+IssueTracker: https://github.com/fairecasoimeme/LiXee-Assist/issues
+
+AutoName: LiXee-Assist
+
+RepoType: git
+Repo: https://github.com/fairecasoimeme/LiXee-Assist.git
+
+Builds:
+  - versionName: 1.2.0
+    versionCode: 42
+    commit: v1.2.0
+    output: build/app/outputs/flutter-apk/app-release.apk
+    srclibs:
+      - flutter@3.29.3
+    rm:
+      - ios
+      - macos
+      - linux
+      - windows
+      - web
+      # Outil de publication Play Store, sans rapport avec la compilation.
+      - bundletool-all-1.18.1.jar
+    prebuild:
+      - bash tool/foss.sh
+      - export PUB_CACHE=$(pwd)/.pub-cache
+      - $$flutter$$/bin/flutter config --no-analytics
+      - $$flutter$$/bin/flutter pub get
+    scandelete:
+      - .pub-cache
+    build:
+      - export PUB_CACHE=$(pwd)/.pub-cache
+      - $$flutter$$/bin/flutter build apk --release
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags
+CurrentVersion: 1.2.0
+CurrentVersionCode: 42
