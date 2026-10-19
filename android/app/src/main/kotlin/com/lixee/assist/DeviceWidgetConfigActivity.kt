@@ -56,6 +56,7 @@ class DeviceWidgetConfigActivity : Activity() {
             findViewById<TextView>(R.id.config_empty)
                 .setText(R.string.widget_device_config_empty)
             findViewById<ListView>(R.id.config_list).visibility = View.GONE
+            WidgetConfigPoll.whileEmpty(this) { readCatalogue().isNotEmpty() }
             return
         }
 

@@ -12,7 +12,10 @@ import 'about_screen.dart';
 import '../services/session_manager.dart';
 import '../services/session_pool.dart';
 import 'package:home_widget/home_widget.dart';
-import '../main.dart' show TVDetector;
+import 'package:app_links/app_links.dart';
+import '../services/box_client.dart' show redactEntry;
+import '../main.dart' show TVDetector, boxListChanged;
+import 'send_to_tv.dart';
 
 // ✅ Instance globale des notifications - référence celle du main.dart
 final FlutterLocalNotificationsPlugin flutterLocalNotificationsPlugin = FlutterLocalNotificationsPlugin();
@@ -609,7 +612,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     _loadDevices();
     _startAutoRefresh();
     _listenForWidgetLaunch();
+    // Lien « lixee://pair » : la page du QR code d'une TV propose d'y
+    // envoyer une box enregistrée ici. Le flux rend aussi le lien de
+    // démarrage, quand c'est lui qui a lancé l'app.
+    _pairLinks = AppLinks().uriLinkStream.listen((uri) {
+      if (uri.scheme == 'lixee' && uri.host == 'pair' && mounted) {
+        showSendToTv(context, uri);
+      }
+    });
   }
+
+  StreamSubscription<Uri>? _pairLinks;
 
   /// Ouvre directement la box choisie quand l'app est lancée depuis un widget.
   ///
@@ -720,6 +733,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _refreshTimer?.cancel();
     _widgetClicks?.cancel();
+    _pairLinks?.cancel();
     // Les sessions appartiennent à SessionPool et sont partagées avec le
     // relevé des métriques : cet écran n'a pas à les fermer.
     super.dispose();
@@ -971,7 +985,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     print("📋 ${rawDevices.length} devices dans SharedPreferences:");
     for (int i = 0; i < rawDevices.length; i++) {
-      print("   [$i] '${rawDevices[i]}'");
+      print("   [$i] '${redactEntry(rawDevices[i])}'");
     }
 
     List<String> validDevices = [];
@@ -991,7 +1005,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         validDevices.add(entry);
         print("🔐 Device avec auth + fallback: '${parts[0]}' -> '${parts[1]}' (fallback: '${parts[5]}')");
       } else {
-        print("⚠️ Format invalide ignoré: '$entry'");
+        print("⚠️ Format invalide ignoré: '${redactEntry(entry)}'");
       }
     }
 
@@ -1013,7 +1027,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void _showEditDialog(String originalEntry) {
-    print("🔧 _showEditDialog pour: '$originalEntry'");
+    print("🔧 _showEditDialog pour: '${redactEntry(originalEntry)}'");
 
     final parsed = _parseDeviceEntry(originalEntry);
     if (parsed == null) return;
@@ -1134,7 +1148,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       fallback: newFallback,
                     );
 
-                    print("🔧 Modification: '$originalEntry' -> '$newEntry'");
+                    print("🔧 Modification: '${redactEntry(originalEntry)}' -> '${redactEntry(newEntry)}'");
 
                     SharedPreferences prefs = await SharedPreferences.getInstance();
                     List<String> saved = prefs.getStringList('saved_devices') ?? [];
@@ -1144,8 +1158,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
                     saved.add(newEntry);
                     await prefs.setStringList('saved_devices', saved);
+    boxListChanged();
 
-                    print("✅ Sauvegardé: $saved");
+                    print("✅ Sauvegardé: ${saved.length} box");
 
                     Navigator.of(context).pop();
                     _loadDevices();
@@ -1224,6 +1239,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     devices.remove(entry);
     await prefs.setStringList('saved_devices', devices);
+    boxListChanged();
     setState(() {});
   }
 
@@ -1243,6 +1259,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     if (!saved.contains(entry)) {
       saved.add(entry);
       await prefs.setStringList('saved_devices', saved);
+    boxListChanged();
       setState(() => _loadDevices());
     }
   }
@@ -1426,16 +1443,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       saved.add(newEntry);
     }
     await prefs.setStringList('saved_devices', saved);
-    print('[DEVICE] Entry mise à jour: $newEntry');
+    boxListChanged();
+    print('[DEVICE] Entry mise à jour: ${redactEntry(newEntry)}');
     return newEntry;
   }
 
   Future<void> _openDevice(String entry) async {
-    print("_openDevice DEBUT pour: '$entry'");
+    print("_openDevice DEBUT pour: '${redactEntry(entry)}'");
 
     final parsed = _parseDeviceEntry(entry);
     if (parsed == null) {
-      print("Format invalide: $entry");
+      print("Format invalide: ${redactEntry(entry)}");
       return;
     }
 
@@ -1817,6 +1835,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 tooltip: "Plus d'options",
                 onSelected: (value) {
                   switch (value) {
+                    case 'send_to_tv':
+                      scanAndSendToTv(context);
+                      break;
                     case 'about':
                       Navigator.push(
                         context,
@@ -1832,6 +1853,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   }
                 },
                 itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: 'send_to_tv',
+                    child: Row(
+                      children: [
+                        Icon(Icons.tv, color: Color(0xFF1B75BC)),
+                        SizedBox(width: 12),
+                        Text("Envoyer vers une TV"),
+                      ],
+                    ),
+                  ),
                   PopupMenuItem(
                     value: 'about',
                     child: Row(

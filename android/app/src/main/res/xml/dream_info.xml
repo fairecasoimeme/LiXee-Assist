@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Écran de veille LiXee (LixeeDreamService). Pas d'écran de réglages :
+     il fait défiler toutes les box qui ont un relevé Linky. -->
+<dream xmlns:android="http://schemas.android.com/apk/res/android" />

@@ -52,6 +52,7 @@ class WidgetConfigActivity : Activity() {
         if (devices.isEmpty()) {
             empty.setText(R.string.widget_config_empty)
             list.visibility = ListView.GONE
+            WidgetConfigPoll.whileEmpty(this) { readDeviceList().isNotEmpty() }
             return
         }
 

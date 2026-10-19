@@ -70,7 +70,7 @@
             android:layout_height="34dp"
             android:layout_marginEnd="4dp"
             android:gravity="center"
-            android:text="UP"
+            android:text="@string/widget_action_up"
             android:textSize="12sp"
             android:background="@drawable/widget_action_button"
             android:textColor="@color/widget_text_primary" />
@@ -80,7 +80,7 @@
             android:layout_height="34dp"
             android:layout_marginEnd="4dp"
             android:gravity="center"
-            android:text="DOWN"
+            android:text="@string/widget_action_down"
             android:textSize="12sp"
             android:background="@drawable/widget_action_button"
             android:textColor="@color/widget_text_primary" />
@@ -89,7 +89,7 @@
             android:layout_weight="1"
             android:layout_height="34dp"
             android:gravity="center"
-            android:text="STOP"
+            android:text="@string/widget_action_stop"
             android:textSize="12sp"
             android:background="@drawable/widget_action_button"
             android:textColor="@color/widget_text_primary" />

@@ -37,10 +37,16 @@ abstract class LixeeWidgetProvider(private val theme: WidgetTheme) :
      */
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == ACTION_REFRESH) {
+            if (!WidgetIntentGuard.isOurs(context, intent)) return
             acknowledgeTap(context, intent, theme)
             WidgetRefreshWorker.enqueue(context, intent.data?.toString())
             return
         }
+        val handled = ExposureRefresh.handle(context, intent, javaClass) { data, id ->
+            data.getString(WidgetConfigActivity.deviceKeyFor(id), null)
+                ?.let { "lixee://refresh/${Uri.encode(it)}" }
+        }
+        if (handled) return
         super.onReceive(context, intent)
     }
 
@@ -288,10 +294,19 @@ abstract class LixeeWidgetProvider(private val theme: WidgetTheme) :
             theme: WidgetTheme,
             widgetId: Int
         ) {
+            if (device == null) {
+                // Rien à relever ni à ouvrir : l'appui mène au choix de la box.
+                val configure = WidgetConfigure.intent(
+                    context, widgetId, WidgetConfigActivity::class.java
+                )
+                views.setOnClickPendingIntent(R.id.widget_gauge, configure)
+                views.setOnClickPendingIntent(R.id.widget_root, configure)
+                return
+            }
             // Encodé : un nom de box est libre et peut contenir espaces ou
             // accents, qui casseraient l'URI — et donc la distinction entre
             // les PendingIntent de deux widgets.
-            val suffix = Uri.encode(device ?: "unconfigured")
+            val suffix = Uri.encode(device)
             // Vers notre propre receveur, pas directement vers celui du
             // plugin : il faut accuser réception avant de relayer.
             views.setOnClickPendingIntent(
@@ -321,10 +336,13 @@ abstract class LixeeWidgetProvider(private val theme: WidgetTheme) :
             theme: WidgetTheme,
             widgetId: Int
         ): PendingIntent {
-            val intent = Intent(ACTION_REFRESH)
-                .setClassName(context.packageName, theme.providerClassName)
-                .setData(target)
-                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
+            val intent = WidgetIntentGuard.sign(
+                context,
+                Intent(ACTION_REFRESH)
+                    .setClassName(context.packageName, theme.providerClassName)
+                    .setData(target)
+                    .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId)
+            )
             var flags = PendingIntent.FLAG_UPDATE_CURRENT
             if (Build.VERSION.SDK_INT >= 23) {
                 flags = flags or PendingIntent.FLAG_IMMUTABLE

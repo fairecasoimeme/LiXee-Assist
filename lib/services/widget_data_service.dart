@@ -377,7 +377,7 @@ class WidgetDataService {
   }) async {
     final device = BoxDevice.tryParse(deviceEntry);
     if (device == null) {
-      print('[WIDGET-DATA] Entrée illisible: $deviceEntry');
+      print('[WIDGET-DATA] Entrée illisible: ${redactEntry(deviceEntry)}');
       return null;
     }
 
@@ -391,6 +391,10 @@ class WidgetDataService {
       final baseUrl = route.baseUrl;
 
       try {
+        // Les compléments partent en même temps que /getLinky : par le
+        // tunnel, chaque aller-retour coûte une demi-seconde à plusieurs
+        // secondes, et les enchaîner les additionnait.
+        final extras = _fetchExtras(route);
         final body = await BoxClient.get(route, '/getLinky');
         if (body == null) {
           print('[WIDGET-DATA] $baseUrl: pas de réponse exploitable');
@@ -412,19 +416,12 @@ class WidgetDataService {
         );
 
         // Compléments facultatifs : un échec ici ne doit pas perdre le relevé.
-        try {
-          final hourly = await _fetchHourly(route);
-          // La découverte des compteurs a lieu dans _fetchHourly : la
-          // production ne peut être lue qu'ensuite.
-          final injected = await _fetchProductionPower(route);
-          if (hourly.isNotEmpty || injected != null) {
-            snapshot = snapshot.withHourly(
-              hourly.isNotEmpty ? hourly : snapshot.hourly,
-              productionPowerVA: injected,
-            );
-          }
-        } catch (e) {
-          print('[WIDGET-DATA] Complément indisponible: $e');
+        final (hourly, injected) = await extras;
+        if (hourly.isNotEmpty || injected != null) {
+          snapshot = snapshot.withHourly(
+            hourly.isNotEmpty ? hourly : snapshot.hourly,
+            productionPowerVA: injected,
+          );
         }
 
         print('[WIDGET-DATA] $snapshot');
@@ -551,12 +548,78 @@ class WidgetDataService {
 
   // --- Interne -------------------------------------------------------------
 
-  /// Adresse IEEE du ZLinky, par box. Découverte une fois via `/getDevices`,
-  /// qui est bien plus lourd que l'export lui-même.
+  /// Adresse IEEE du ZLinky, par box. Découverte via `/getDevices`, qui est
+  /// bien plus lourd que l'export lui-même.
   static final Map<String, String> _linkyIeee = {};
 
   /// IEEE du compteur de production, quand l'installation en a un.
   static final Map<String, String> _productionIeee = {};
+
+  /// Découvertes gardées dans les préférences : un appui sur widget démarre
+  /// souvent un isolate neuf, qui referait sinon `/getDevices` à chaque fois.
+  /// Refaites une fois par jour, pour voir un compteur appairé entre-temps.
+  static const _prefsMetersPrefix = 'linky_meters_';
+  static const _metersLifetime = Duration(hours: 24);
+
+  /// Relève l'historique et la puissance injectée, sans jamais échouer :
+  /// ce sont des compléments, leur absence ne doit pas perdre le relevé.
+  static Future<(List<HourlySample>, int?)> _fetchExtras(BoxRoute route) async {
+    try {
+      if (!await _knowMeters(route)) return (const <HourlySample>[], null);
+      return await (_fetchHourly(route), _fetchProductionPower(route)).wait;
+    } catch (e) {
+      print('[WIDGET-DATA] Complément indisponible: $e');
+      return (const <HourlySample>[], null);
+    }
+  }
+
+  /// S'assure que les compteurs de la box sont connus. `false` sans ZLinky.
+  static Future<bool> _knowMeters(BoxRoute route) async {
+    final key = route.device.key;
+    if (_linkyIeee.containsKey(key)) return true;
+
+    final prefs = await SharedPreferences.getInstance();
+    final stored = prefs.getString(_prefsMetersPrefix + key);
+    if (stored != null) {
+      try {
+        final json = jsonDecode(stored) as Map<String, dynamic>;
+        final at = DateTime.fromMillisecondsSinceEpoch(json['at'] as int);
+        if (DateTime.now().difference(at) < _metersLifetime) {
+          _linkyIeee[key] = json['consumption'] as String;
+          final production = json['production'] as String?;
+          if (production != null) _productionIeee[key] = production;
+          return true;
+        }
+      } catch (_) {
+        // Entrée illisible : on redécouvre.
+      }
+    }
+
+    final body = await BoxClient.get(route, '/getDevices');
+    if (body == null) return false;
+    final meters = _discoverMeters(body);
+    final consumption = meters.consumption;
+    if (consumption == null) {
+      print('[WIDGET-DATA] Aucun ZLinky trouvé sur ${route.device.name}');
+      return false;
+    }
+    _linkyIeee[key] = consumption;
+    if (meters.production != null) {
+      _productionIeee[key] = meters.production!;
+      print('[WIDGET-DATA] ${route.device.name}: compteur de production détecté');
+    } else {
+      _productionIeee.remove(key);
+    }
+    await prefs.setString(
+      _prefsMetersPrefix + key,
+      jsonEncode({
+        'at': DateTime.now().millisecondsSinceEpoch,
+        'consumption': consumption,
+        'production': meters.production,
+      }),
+    );
+    return true;
+  }
 
   /// SINSTI, puissance apparente injectée, dans le cluster privé LiXee.
   ///
@@ -610,22 +673,8 @@ class WidgetDataService {
       return const [];
     }
 
-    var ieee = _linkyIeee[device.key];
-    if (ieee == null) {
-      final body = await BoxClient.get(route, '/getDevices');
-      if (body == null) return const [];
-      final meters = _discoverMeters(body);
-      ieee = meters.consumption;
-      if (ieee == null) {
-        print('[WIDGET-DATA] Aucun ZLinky trouvé sur ${device.name}');
-        return const [];
-      }
-      _linkyIeee[device.key] = ieee;
-      if (meters.production != null) {
-        _productionIeee[device.key] = meters.production!;
-        print('[WIDGET-DATA] ${device.name}: compteur de production détecté');
-      }
-    }
+    final ieee = _linkyIeee[device.key];
+    if (ieee == null) return const [];
 
     final csv = await BoxClient.get(
       route,

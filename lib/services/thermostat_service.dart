@@ -198,8 +198,8 @@ class ThermostatService {
     return null;
   }
 
-  /// Consigne après déplacement, arrondie au demi-degré et bornée.
-  @visibleForTesting
+  /// Consigne après déplacement, arrondie au demi-degré et bornée. Sert aussi
+  /// à l'écran TV, qui affiche la consigne visée avant de l'envoyer.
   static double nextSetpoint(double current, double delta) {
     final moved = (current + delta) * 2;
     final rounded = moved.round() / 2;

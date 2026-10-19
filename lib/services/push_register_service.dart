@@ -28,7 +28,7 @@ class PushRegisterService {
       print('[PUSH] Pas de token FCM disponible');
       return;
     }
-    print('[PUSH] Token FCM: ${fcmToken.substring(0, 20)}...');
+    print('[PUSH] Token FCM disponible');
 
     // Nom de l'appareil mobile
     final deviceName = await _getDeviceName();
