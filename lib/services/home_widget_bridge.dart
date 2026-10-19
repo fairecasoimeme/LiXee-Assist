@@ -36,7 +36,7 @@ class HomeWidgetBridge {
   /// commun. Sans effet sur Android, où le plugin écrit dans ses propres
   /// SharedPreferences. Doit être déclaré sur les deux cibles dans Xcode, et
   /// appliqué dans chaque isolate avant la première écriture.
-  static const appGroupId = 'group.com.lixee.assist';
+  static const appGroupId = 'group.com.lixee.assist.shared';
 
   /// « Kinds » des widgets iOS, un par thème — ceux de LixeeWidgets.swift.
   static const _iosKinds = [
@@ -309,14 +309,15 @@ class HomeWidgetBridge {
         // tout l'inventaire de la box avant d'émettre la commande.
         'actions': [
           for (final a in device.actions)
-            {
-              'name': a.name,
-              'command': a.command,
-              'endpoint': a.endpoint,
-              'value': a.value,
-              if (a.cluster != null) 'cluster': a.cluster,
-              if (a.manufacturerCode != null) 'mfr': a.manufacturerCode,
-            },
+            if (!a.needsSetpoint)
+              {
+                'name': a.name,
+                'command': a.command,
+                'endpoint': a.endpoint,
+                'value': a.value,
+                if (a.cluster != null) 'cluster': a.cluster,
+                if (a.manufacturerCode != null) 'mfr': a.manufacturerCode,
+              },
         ],
       }),
     );

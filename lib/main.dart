@@ -313,6 +313,13 @@ Future<void> _runDeviceAction(Uri uri) async {
     print('[DEVICES] Commande incomplète: $uri');
     return;
   }
+  // Un widget posé avant que ces actions ne soient retirées garde ses boutons
+  // jusqu'au prochain rendu : l'appui fermerait le volet au lieu de demander
+  // où l'arrêter.
+  if (action.needsSetpoint) {
+    print('[DEVICES] Consigne à saisir, pas depuis un widget: $uri');
+    return;
+  }
 
   final sent = await DeviceControlService.send(
     box,

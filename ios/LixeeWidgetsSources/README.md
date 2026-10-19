@@ -24,7 +24,7 @@ prête pas : le `Podfile` le lui donne dans son propre bloc `target`.
 
 ## App Group
 
-Runner et LixeeWidgets partagent `group.com.lixee.assist`, par où l'app
+Runner et LixeeWidgets partagent `group.com.lixee.assist.shared`, par où l'app
 transmet les relevés et les catalogues. Il doit rester identique à
 `Shared.appGroup` (Swift) et à `HomeWidgetBridge.appGroupId` (Dart).
 

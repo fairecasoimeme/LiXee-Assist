@@ -61,14 +61,28 @@
 	<string>L'accès à la localisation est requis par iOS pour scanner les appareils Bluetooth Low Energy (BLE). Vos données de localisation ne sont pas collectées.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>L'accès à la localisation est requis par iOS pour scanner les appareils Bluetooth Low Energy (BLE). Vos données de localisation ne sont pas collectées.</string>
+	<!-- Exigées par file_picker, qui embarque les sélecteurs de photos, de
+	     caméra et de musique même si l'app ne s'en sert que pour enregistrer un
+	     fichier : Apple les réclame dès que ces API sont liées. -->
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>LiXee-Assist accède à vos photos uniquement si vous choisissez d'y sélectionner un fichier.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>LiXee-Assist utilise l'appareil photo uniquement si vous choisissez de prendre une photo à importer.</string>
+	<key>NSAppleMusicUsageDescription</key>
+	<string>LiXee-Assist accède à votre bibliothèque multimédia uniquement si vous choisissez d'y sélectionner un fichier.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>bluetooth-central</string>
-		<string>processing</string>
 		<string>remote-notification</string>
 		<string>fetch</string>
+	</array>
+	<!-- Relevé périodique de Workmanager : doit rester identique à
+	     deviceCheckTaskName (main.dart) et à l'enregistrement de l'AppDelegate. -->
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.lixee.assist.deviceCheck</string>
 	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>

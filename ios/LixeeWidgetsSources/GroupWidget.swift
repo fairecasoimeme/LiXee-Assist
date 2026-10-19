@@ -130,7 +130,10 @@ struct GroupWidgetView: View {
 
     /// Le widget entier est le bouton : un groupe n'a qu'une chose à faire.
     private func content(group: GroupEntity, state: GroupState) -> some View {
-        Button(intent: LixeeActionIntent(url: WidgetAction.url("groupaction", [group.id]))) {
+        Button(intent: LixeeActionIntent(
+            url: WidgetAction.url("groupaction", [group.id]),
+            appGroup: Shared.appGroup
+        )) {
             VStack(spacing: 6) {
                 icon(state)
                 Text(state.name)

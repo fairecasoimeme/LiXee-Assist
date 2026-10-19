@@ -11,7 +11,7 @@ enum Shared {
 
     /// Doit être identique à `HomeWidgetBridge.appGroupId` côté Dart, et
     /// déclaré dans « Signing & Capabilities » sur les deux cibles.
-    static let appGroup = "group.com.lixee.assist"
+    static let appGroup = "group.com.lixee.assist.shared"
 
     private static var defaults: UserDefaults? { UserDefaults(suiteName: appGroup) }
 

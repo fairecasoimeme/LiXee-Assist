@@ -47,17 +47,22 @@ struct EnergyWidgetView: View {
     private func content(_ s: EnergySnapshot) -> some View {
         HStack(alignment: .center, spacing: 12) {
             if let label = theme.gaugeLabel {
-                VStack(spacing: 2) {
-                    Text(label)
-                        .font(.caption2)
-                        .foregroundStyle(Palette.textSecondary)
-                    ArcGauge(
-                        value: theme.power(s),
-                        max: s.maxPower,
-                        accent: theme.accent
-                    )
-                    .frame(width: 70, height: 70)
+                // La jauge relève la box sans ouvrir l'app, comme sur Android ;
+                // le reste de la surface, lui, ouvre l'app.
+                Button(intent: LixeeActionIntent(url: refreshURL, appGroup: Shared.appGroup)) {
+                    VStack(spacing: 2) {
+                        Text(label)
+                            .font(.caption2)
+                            .foregroundStyle(Palette.textSecondary)
+                        ArcGauge(
+                            value: theme.power(s),
+                            max: s.maxPower,
+                            accent: theme.accent
+                        )
+                        .frame(width: 70, height: 70)
+                    }
                 }
+                .buttonStyle(.plain)
             }
             figures(s)
             Spacer(minLength: 0)
@@ -126,6 +131,10 @@ struct EnergyWidgetView: View {
     private func kWh(_ wh: Int?) -> String {
         guard let wh else { return "—" }
         return (Double(wh) / 1000).formatted(.number.precision(.fractionLength(2)))
+    }
+
+    private var refreshURL: URL? {
+        entry.box.flatMap { WidgetAction.url("refresh", [$0]) }
     }
 
     /// Ouvre l'app sur la box du widget. Le paramètre homeWidget est celui que

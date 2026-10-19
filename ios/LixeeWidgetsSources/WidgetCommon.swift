@@ -141,7 +141,7 @@ struct WidgetButton: View {
     var size: CGFloat = 12
 
     var body: some View {
-        Button(intent: LixeeActionIntent(url: url)) {
+        Button(intent: LixeeActionIntent(url: url, appGroup: Shared.appGroup)) {
             Text(title)
                 .font(.system(size: size, weight: .medium))
                 .foregroundStyle(foreground)

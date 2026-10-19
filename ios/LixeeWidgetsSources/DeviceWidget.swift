@@ -180,6 +180,25 @@ struct DeviceWidgetView: View {
 
     private func content(device: DeviceEntity, state: DeviceState) -> some View {
         VStack(alignment: .leading, spacing: 6) {
+            // Tout ce qui n'est pas un bouton relève l'appareil, sans ouvrir
+            // l'app : c'est le geste du widget Android.
+            Button(intent: LixeeActionIntent(
+                url: WidgetAction.url("devrefresh", [device.id]),
+                appGroup: Shared.appGroup
+            )) {
+                readout(state)
+            }
+            .buttonStyle(.plain)
+
+            if !state.actions.isEmpty {
+                buttons(device: device, state: state)
+            }
+        }
+        .padding(10)
+    }
+
+    private func readout(_ state: DeviceState) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
             WidgetHeader(
                 title: state.label,
                 freshness: freshness(timestamp: state.timestamp, failedAt: state.failedAt)
@@ -211,13 +230,11 @@ struct DeviceWidgetView: View {
             }
 
             Spacer(minLength: 0)
-
-            if !state.actions.isEmpty {
-                buttons(device: device, state: state)
-            }
         }
-        .padding(10)
-        .widgetURL(WidgetAction.url("devrefresh", [device.id]))
+        // Le vide sous les relevés se touche aussi : sans cela un appui à côté
+        // d'un texte ne relèverait rien.
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .contentShape(Rectangle())
     }
 
     /// Les boutons sur trois colonnes, comme la grille Android. Au-delà de

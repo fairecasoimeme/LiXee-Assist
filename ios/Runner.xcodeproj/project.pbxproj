@@ -13,10 +13,12 @@
 		1E6939777CB2EF78D270EC74 /* IconPath.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14134350EABD8A027FE24C60 /* IconPath.swift */; };
 		262226DE9837B0599585903D /* EnergyData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9659756BB9FC55E3FFA95C5C /* EnergyData.swift */; };
 		26315BF9C92DD66AAC42CC34 /* EnergyWidgetView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE3DC9ADC181CACFB4B64E28 /* EnergyWidgetView.swift */; };
+		2E227C6C6E879D611F9C846F /* LixeeActionIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87965EF15DFE64BD5890A051 /* LixeeActionIntent.swift */; };
 		331C808B294A63AB00263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C807B294A618700263BE5 /* RunnerTests.swift */; };
 		372DFEFE4061F72C8E63A15F /* LixeeWidgets.swift in Sources */ = {isa = PBXBuildFile; fileRef = D835AA0B5357A6FA87D9A8A3 /* LixeeWidgets.swift */; };
 		3B3967161E833CAA004F5970 /* AppFrameworkInfo.plist in Resources */ = {isa = PBXBuildFile; fileRef = 3B3967151E833CAA004F5970 /* AppFrameworkInfo.plist */; };
 		4F6DBA6AD9B7DB39E874792A /* Pods_LixeeWidgets.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1BEA5AF0D9E5A565B864BD0D /* Pods_LixeeWidgets.framework */; };
+		5346B48F5A4B6460D29939AC /* LixeeActionIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87965EF15DFE64BD5890A051 /* LixeeActionIntent.swift */; };
 		63476C9C719C9CC837369AB7 /* BoxSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1564778AA54C8925AA418C13 /* BoxSelection.swift */; };
 		69D9FCD4A706CF42171A2211 /* CatalogSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0043F46E89F5F4C6D15CD263 /* CatalogSelection.swift */; };
 		710A28FC7A25F431971C3892 /* GroupWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = D95A8CEEEC0BB2CBFABB71BA /* GroupWidget.swift */; };
@@ -29,7 +31,6 @@
 		A0EFEC24387BB4B4F2222561 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DDE34FC1641F24F3FEDFBCB3 /* WidgetKit.framework */; };
 		A73F08340C177798E3641181 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 52A7F6D1C8CD7194790BC3F5 /* SwiftUI.framework */; };
 		A9A4F62068CDE6664A1F66AD /* Pods_RunnerTests.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F71E6B2A19775E7BBBD97CBB /* Pods_RunnerTests.framework */; };
-		CE7FBF3E2777F830F25FF3D3 /* BackgroundIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16DE937A15A37A41B132DCBD /* BackgroundIntent.swift */; };
 		D3034105E1A81E59DE799DB4 /* Shared.swift in Sources */ = {isa = PBXBuildFile; fileRef = 77B438A4C1B3A431FEE2E347 /* Shared.swift */; };
 		D68E4199CCE85F629B516B1C /* WidgetCommon.swift in Sources */ = {isa = PBXBuildFile; fileRef = 54D8121052F318DC66F18028 /* WidgetCommon.swift */; };
 		DE256EFD4844C6580A854BD3 /* ThermostatWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02A9A928DB99A7016D3A39A2 /* ThermostatWidget.swift */; };
@@ -88,7 +89,6 @@
 		1498D2321E8E86230040F4C2 /* GeneratedPluginRegistrant.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = GeneratedPluginRegistrant.h; sourceTree = "<group>"; };
 		1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GeneratedPluginRegistrant.m; sourceTree = "<group>"; };
 		1564778AA54C8925AA418C13 /* BoxSelection.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BoxSelection.swift; sourceTree = "<group>"; };
-		16DE937A15A37A41B132DCBD /* BackgroundIntent.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BackgroundIntent.swift; sourceTree = "<group>"; };
 		1704EBC387EFF07AE30311F2 /* LixeeWidgetsRelease.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = LixeeWidgetsRelease.xcconfig; path = Flutter/LixeeWidgetsRelease.xcconfig; sourceTree = "<group>"; };
 		1BEA5AF0D9E5A565B864BD0D /* Pods_LixeeWidgets.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_LixeeWidgets.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		20BF69D0359F896000701203 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
@@ -107,6 +107,7 @@
 		74858FAE1ED2DC5600515810 /* AppDelegate.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		77B438A4C1B3A431FEE2E347 /* Shared.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = Shared.swift; sourceTree = "<group>"; };
 		7AFA3C8E1D35360C0083082E /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = Release.xcconfig; path = Flutter/Release.xcconfig; sourceTree = "<group>"; };
+		87965EF15DFE64BD5890A051 /* LixeeActionIntent.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = LixeeActionIntent.swift; path = LixeeActionIntent.swift; sourceTree = "<group>"; };
 		92E6297C36287BE6CA676362 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		9659756BB9FC55E3FFA95C5C /* EnergyData.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = EnergyData.swift; sourceTree = "<group>"; };
 		9740EEB21CF90195004384FC /* Debug.xcconfig */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.xcconfig; name = Debug.xcconfig; path = Flutter/Debug.xcconfig; sourceTree = "<group>"; };
@@ -181,7 +182,6 @@
 		3958C794082489E1227DC92C /* LixeeWidgets */ = {
 			isa = PBXGroup;
 			children = (
-				16DE937A15A37A41B132DCBD /* BackgroundIntent.swift */,
 				1564778AA54C8925AA418C13 /* BoxSelection.swift */,
 				0043F46E89F5F4C6D15CD263 /* CatalogSelection.swift */,
 				CAF841169793AC42455040CF /* DeviceWidget.swift */,
@@ -267,6 +267,7 @@
 				F1FCM00100000002 /* GoogleService-Info.plist */,
 				F1FCM00100000003 /* Runner.entitlements */,
 				F1FCM00100000004 /* RunnerRelease.entitlements */,
+				87965EF15DFE64BD5890A051 /* LixeeActionIntent.swift */,
 			);
 			path = Runner;
 			sourceTree = "<group>";
@@ -567,6 +568,7 @@
 			files = (
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
+				2E227C6C6E879D611F9C846F /* LixeeActionIntent.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -574,7 +576,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				CE7FBF3E2777F830F25FF3D3 /* BackgroundIntent.swift in Sources */,
 				63476C9C719C9CC837369AB7 /* BoxSelection.swift in Sources */,
 				69D9FCD4A706CF42171A2211 /* CatalogSelection.swift in Sources */,
 				73083EFC56659C6A7FE5B7F5 /* DeviceWidget.swift in Sources */,
@@ -586,6 +587,7 @@
 				D3034105E1A81E59DE799DB4 /* Shared.swift in Sources */,
 				DE256EFD4844C6580A854BD3 /* ThermostatWidget.swift in Sources */,
 				D68E4199CCE85F629B516B1C /* WidgetCommon.swift in Sources */,
+				5346B48F5A4B6460D29939AC /* LixeeActionIntent.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -655,7 +657,6 @@
 				CLANG_WARN_SUSPICIOUS_MOVE = YES;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
-				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
@@ -686,7 +687,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
 				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
-				DEVELOPMENT_TEAM = QTQ2A74G4D;
+				DEVELOPMENT_TEAM = 44XL6NQB2S;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = Runner/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -790,7 +791,7 @@
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_ENTITLEMENTS = LixeeWidgetsSources/LixeeWidgets.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = QTQ2A74G4D;
+				DEVELOPMENT_TEAM = 44XL6NQB2S;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = LixeeWidgetsSources/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -897,7 +898,6 @@
 				CLANG_WARN_SUSPICIOUS_MOVE = YES;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
-				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
@@ -930,7 +930,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;
 				CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";
-				DEVELOPMENT_TEAM = QTQ2A74G4D;
+				DEVELOPMENT_TEAM = 44XL6NQB2S;
 				ENABLE_BITCODE = NO;
 				INFOPLIST_FILE = Runner/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -976,7 +976,7 @@
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_ENTITLEMENTS = LixeeWidgetsSources/LixeeWidgets.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = QTQ2A74G4D;
+				DEVELOPMENT_TEAM = 44XL6NQB2S;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = LixeeWidgetsSources/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;

@@ -67,6 +67,15 @@ class DeviceAction {
     this.manufacturerCode,
   });
 
+  /// Vrai si la valeur envoyée est une consigne que l'utilisateur choisit.
+  ///
+  /// La 252 place un volet à un pourcentage d'ouverture ; le gabarit lui donne
+  /// `value: 0`, que l'interface de la box remplace par la position réglée au
+  /// curseur. Émettre le gabarit tel quel fermerait le volet au lieu de
+  /// demander où l'arrêter — et un widget, iOS comme Android, n'a pas de
+  /// curseur à offrir.
+  bool get needsSetpoint => command == 252;
+
   /// Requête à émettre, **arguments dans cet ordre impérativement**.
   ///
   /// `handleZigbeeAction` les lit par position (`request->arg(0)`…), pas par
