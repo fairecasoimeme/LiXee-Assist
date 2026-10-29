@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as io;
 import 'package:shelf_proxy/shelf_proxy.dart';
@@ -45,9 +46,55 @@ Future<HttpServer> startProxy({
   }
 
   // Pas d'auth : proxy simple
-  final handler = proxyHandler(resolvedUrl);
+  final handler = const Pipeline()
+      .addMiddleware(_originMiddleware(Uri.parse(resolvedUrl)))
+      .addHandler(proxyHandler(resolvedUrl));
   final server = await io.serve(handler, '127.0.0.1', 0);
   return server;
+}
+
+/// La WebView parle au proxy local (`http://127.0.0.1:<port>`) : ses en-têtes
+/// Origin et Referer désignent ce proxy, pas la box. Depuis la v2.26, la box
+/// refuse un POST dont l'origine n'est pas la sienne (« Forbidden : CSRF
+/// check failed »), ce qui bloquait par exemple l'activation du tunnel. Le
+/// proxy les réécrit donc vers l'adresse de la box ; une origine étrangère
+/// au proxy est retirée plutôt que transmise.
+@visibleForTesting
+String? rewriteProxyOrigin(String name, String value, Uri target) {
+  final lower = name.toLowerCase();
+  if (lower != 'origin' && lower != 'referer') return value;
+  final uri = Uri.tryParse(value);
+  final local = uri != null &&
+      (uri.host == '127.0.0.1' || uri.host == 'localhost');
+  if (!local) return null;
+  if (lower == 'origin') return target.origin;
+  return target
+      .replace(path: uri.path, query: uri.query.isEmpty ? null : uri.query)
+      .toString();
+}
+
+/// En-tête Host de la box, avec son port s'il n'est pas celui par défaut.
+String _hostHeader(Uri target) =>
+    target.hasPort &&
+            !((target.scheme == 'http' && target.port == 80) ||
+                (target.scheme == 'https' && target.port == 443))
+        ? '${target.host}:${target.port}'
+        : target.host;
+
+/// [rewriteProxyOrigin] pour les proxys shelf.
+Middleware _originMiddleware(Uri target) {
+  return (innerHandler) {
+    return (request) {
+      final headers = <String, String?>{};
+      for (final MapEntry(:key, :value) in request.headers.entries) {
+        final lower = key.toLowerCase();
+        if (lower == 'origin' || lower == 'referer') {
+          headers[key] = rewriteProxyOrigin(key, value, target);
+        }
+      }
+      return innerHandler(request.change(headers: headers));
+    };
+  };
 }
 
 /// Proxy avec authentification par formulaire + cookie de session.
@@ -116,16 +163,17 @@ Future<List<int>?> _proxyRequest(
     final proxyRequest =
         await httpClient.openUrl(currentMethod, currentUrl);
 
-    // Copier les headers (sans host, cookie, auth, encoding, referer)
+    // Copier les headers (sans host, cookie, auth, encoding) ; Origin et
+    // Referer désignent la box, pas le proxy local.
     clientRequest.headers.forEach((name, values) {
       final lower = name.toLowerCase();
       if (lower != 'host' &&
           lower != 'cookie' &&
           lower != 'authorization' &&
-          lower != 'accept-encoding' &&
-          lower != 'referer') {
+          lower != 'accept-encoding') {
         for (var value in values) {
-          proxyRequest.headers.add(name, value);
+          final rewritten = rewriteProxyOrigin(name, value, targetUri);
+          if (rewritten != null) proxyRequest.headers.add(name, rewritten);
         }
       }
     });
@@ -133,7 +181,7 @@ Future<List<int>?> _proxyRequest(
     if (cookie != null) {
       proxyRequest.headers.set('Cookie', cookie);
     }
-    proxyRequest.headers.set('host', targetUri.host);
+    proxyRequest.headers.set('host', _hostHeader(targetUri));
     proxyRequest.followRedirects = false;
 
     // Body uniquement sur la toute première requête
@@ -272,13 +320,14 @@ Future<HttpServer> _startBasicAuthProxy(String targetBaseUrl, String username, S
           final lower = name.toLowerCase();
           if (lower != 'host' && lower != 'authorization' && lower != 'accept-encoding') {
             for (var value in values) {
-              proxyRequest.headers.add(name, value);
+              final rewritten = rewriteProxyOrigin(name, value, targetUri);
+              if (rewritten != null) proxyRequest.headers.add(name, rewritten);
             }
           }
         });
 
         proxyRequest.headers.set('Authorization', 'Basic $encoded');
-        proxyRequest.headers.set('host', targetUri.host);
+        proxyRequest.headers.set('host', _hostHeader(targetUri));
         proxyRequest.followRedirects = true;
         proxyRequest.maxRedirects = 5;
 
@@ -315,6 +364,7 @@ Future<HttpServer> _startBasicAuthProxy(String targetBaseUrl, String username, S
   } else {
     // HTTP + Basic Auth : shelf_proxy avec middleware
     final handler = const Pipeline()
+        .addMiddleware(_originMiddleware(targetUri))
         .addMiddleware(_authMiddleware(username, password))
         .addHandler(proxyHandler(targetBaseUrl));
     return io.serve(handler, '127.0.0.1', 0);
