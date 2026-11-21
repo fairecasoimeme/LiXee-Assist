@@ -1,0 +1,3 @@
+• Accès à distance : l'activation du tunnel avec le code d'activation ne bloque plus sur « Forbidden : CSRF check failed ».
+• Avec une LiXee-Box en v3.3, les conseils et la comparaison des tarifs sont calculés par la box : l'application, la page web de la box et MQTT affichent les mêmes chiffres.
+• Onglet Économies : le plus fort appel de puissance, mois par mois.

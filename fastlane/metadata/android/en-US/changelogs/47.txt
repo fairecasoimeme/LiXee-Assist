@@ -1,0 +1,3 @@
+• Remote access: activating the tunnel with the activation code no longer stops on "Forbidden: CSRF check failed".
+• With a LiXee-Box on v3.3, the advice and the tariff comparison are computed by the box: the app, the box's web page and MQTT show the same figures.
+• Savings tab: the highest power draw, month by month.
