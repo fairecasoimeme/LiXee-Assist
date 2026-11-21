@@ -71,14 +71,25 @@ class PanelMonthCard extends StatelessWidget {
   }) {
     final month = EnergyAdvice.month(extras, DateTime.now());
     if (month == null) return null;
-    final budget = extras?.thresholds.monthBudgetEur;
     final now = DateTime.now();
+    // Avec une box qui calcule (v3.3), son budget et ses jours.
+    final fromBox = extras?.advice != null;
+    final budget =
+        fromBox ? month.budget?.round() : extras?.thresholds.monthBudgetEur;
     return PanelMonthCard(
       month: month,
       budget: month.euros && budget != null ? budget : 0,
       compact: compact,
       days: [
-        if (withDays)
+        if (withDays && fromBox)
+          for (final (i, value) in month.daily.indexed)
+            DailySample(
+              i + 1,
+              now.month,
+              month.euros ? 0 : (value * 1000).round(),
+              month.euros ? value : 0,
+            )
+        else if (withDays)
           for (final d in extras?.daily ?? const <DailySample>[])
             if (d.month == now.month && d.day <= now.day) d,
       ],
@@ -356,11 +367,18 @@ class PanelSavingsView extends StatelessWidget {
         load.yearlyEur != null
             ? '≈ ${tvNumber(load.yearlyEur!)} € par an'
             : '≈ ${tvNumber(load.yearlyKWh)} kWh par an';
-    // Les heures complètes des dernières 24 h, la plus calme en avant.
+    // Les heures complètes des dernières 24 h, la plus calme en avant :
+    // celles de la box quand elle a fait le calcul.
     final hours =
-        snapshot.hourly.length > 1
-            ? snapshot.hourly.sublist(0, snapshot.hourly.length - 1)
-            : snapshot.hourly;
+        load.hours.isNotEmpty
+            ? [for (final h in load.hours) (hour: h.hour, wh: h.wh)]
+            : [
+              for (final h
+                  in snapshot.hourly.length > 1
+                      ? snapshot.hourly.sublist(0, snapshot.hourly.length - 1)
+                      : snapshot.hourly)
+                (hour: h.hour, wh: h.wh),
+            ];
     final calmest = hours.indexWhere(
       (h) => h.hour == load.hour && h.wh == load.watts,
     );
@@ -398,9 +416,10 @@ class PanelSavingsView extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              'Ton heure la plus calme des dernières 24 h : de '
-              '${load.hour} h à ${(load.hour! + 1) % 24} h, '
-              '${tvNumber(load.watts)} W en moyenne.',
+              load.text ??
+                  'Ton heure la plus calme des dernières 24 h : de '
+                      '${load.hour} h à ${(load.hour! + 1) % 24} h, '
+                      '${tvNumber(load.watts)} W en moyenne.',
               style: const TextStyle(fontSize: 12.5, color: TvColors.muted),
             ),
           ],
@@ -422,6 +441,7 @@ class PanelSavingsView extends StatelessWidget {
       snapshot,
       peaks,
       summary: extras?.power,
+      box: extras?.advice,
     );
     if (check == null) return null;
     // En triphasé, le pic qui compte est celui de la phase la plus chargée.
@@ -454,8 +474,25 @@ class PanelSavingsView extends StatelessWidget {
     // triphasé, ils portent sur le total, pas sur une phase).
     final days = (peaks.keys.toList()..sort());
     final recent = days.length > 30 ? days.sublist(days.length - 30) : days;
+    // La box (v3.3) donne le plus fort appel de chaque mois connu, comparé
+    // à la limite qui compte : en triphasé, celle de la phase.
+    final months = check.months;
+    final monthly =
+        months.length >= 2 && check.limitVA != null
+            ? PanelMiniBars(
+              values: [for (final m in months) m.va.toDouble()],
+              highlight: months.length - 1,
+              line: check.limitVA!.toDouble(),
+              lineLabel: 'Ton abonnement',
+              lineColor: TvColors.bad,
+              labels: [
+                _monthLabel(months.first.month),
+                _monthLabel(months.last.month),
+              ],
+            )
+            : null;
     final daily =
-        phase == null && recent.length >= 5
+        monthly == null && phase == null && recent.length >= 5
             ? PanelMiniBars(
               values: [for (final d in recent) peaks[d]!.toDouble()],
               highlight: recent.length - 1,
@@ -468,7 +505,7 @@ class PanelSavingsView extends StatelessWidget {
               ],
             )
             : null;
-    final String text;
+    String text;
     final Color color;
     if (check.tight) {
       color = TvColors.warn;
@@ -502,6 +539,8 @@ class PanelSavingsView extends StatelessWidget {
           'Ton plus fort pic : $peak en ${check.days} jours. Ton '
           'abonnement est bien taillé pour ta maison.';
     }
+    // La phrase de la box, quand c'est elle qui a jugé.
+    text = check.text ?? text;
     return _card(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -513,6 +552,17 @@ class PanelSavingsView extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           meter,
+          if (monthly != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              phase != null
+                  ? 'Le plus fort appel de ta phase la plus chargée, mois par mois'
+                  : 'Ton plus fort appel, mois par mois',
+              style: const TextStyle(fontSize: 12.5, color: TvColors.muted),
+            ),
+            const SizedBox(height: 4),
+            monthly,
+          ],
           if (daily != null) ...[
             const SizedBox(height: 10),
             const Text(
@@ -600,8 +650,49 @@ class _TariffCard extends StatelessWidget {
   static String _eur(double value) =>
       '${tvNumber(value, decimals: value.abs() < 100 ? 2 : 0)} €';
 
+  /// « 1er août 2026 », « 15 février 2027 ».
+  static String _date(DateTime day) {
+    const months = [
+      'janvier',
+      'février',
+      'mars',
+      'avril',
+      'mai',
+      'juin',
+      'juillet',
+      'août',
+      'septembre',
+      'octobre',
+      'novembre',
+      'décembre',
+    ];
+    return '${day.day == 1 ? '1er' : day.day} ${months[day.month - 1]} ${day.year}';
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Une box récente (v3.3) compare elle-même, avec sa grille et les
+    // couleurs Tempo qu'elle a relevées : ni calcul ni calendrier ici.
+    if (extras?.advice case final box?) {
+      final tariffs = box.tariffs;
+      if (tariffs == null) return const SizedBox.shrink();
+      if (tariffs.comparison case final comparison?) {
+        return _comparison(comparison);
+      }
+      return _card(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _title(Icons.compare_arrows, 'Et avec un autre tarif ?'),
+            _body(
+              tariffs.text ??
+                  'Il faut au moins une semaine de relevés, et la puissance '
+                      'de ton abonnement, pour comparer les tarifs.',
+            ),
+          ],
+        ),
+      );
+    }
     return FutureBuilder<Map<DateTime, TempoColor>>(
       future: TempoCalendar.load(),
       builder: (context, colors) {
@@ -648,9 +739,16 @@ class _TariffCard extends StatelessWidget {
         .take((extras?.daily.length ?? 1) - 1)
         .fold<double>(0, (sum, d) => sum + d.costEur);
 
-    final String verdict;
-    final Color color;
-    if (mine == null) {
+    String verdict;
+    Color color;
+    if (r.text case final text?) {
+      // Le verdict de la box, sur son estimation annuelle.
+      verdict = text;
+      color =
+          current == null
+              ? TvColors.focus
+              : (r.savingYear != null ? TvColors.warn : TvColors.ok);
+    } else if (mine == null) {
       color = TvColors.focus;
       verdict =
           'Sur un an, l\'option la moins chère pour toi serait '
@@ -736,11 +834,18 @@ class _TariffCard extends StatelessWidget {
               'des heures creuses (${(r.offPeakShare * 100).round()} %) est '
               'estimée sur les dernières 24 heures, de 22 h à 6 h. Heures '
               'creuses et Tempo sont donc des estimations.',
+        OffPeakSource.hours =>
+          'Tes heures creuses : ${(r.offPeakShare * 100).round()} % de ta '
+              'consommation, mesurées de 22 h à 6 h, jour par jour.',
       },
+      if (r.colorsKnown case final known? when known < r.days)
+        'Couleur Tempo connue pour $known jour${known > 1 ? 's' : ''} sur '
+            '${r.days} : les autres sont comptés au prix moyen de la saison.',
       if (r.redDays == 0)
         'Aucun jour rouge sur ces ${r.days} jours : le calcul sur un an en '
-            'compte 22, l\'hiver. Si tu te chauffes à l\'électricité, ils '
-            'coûteront plus que ça.'
+            '${r.seasonMeasured ? 'compte autant que la dernière saison' : 'compte 22'}, '
+            'l\'hiver. Si tu te chauffes à l\'électricité, ils coûteront plus '
+            'que ça.'
       else
         'Sur ces jours : ${r.redDays} jour${r.redDays > 1 ? 's' : ''} rouge'
             '${r.redDays > 1 ? 's' : ''} et ${r.whiteDays} blanc'
@@ -796,12 +901,41 @@ class _TariffCard extends StatelessWidget {
             ),
           const SizedBox(height: 4),
           Text(
-            'Grille du ${RegulatedTariffs.validFrom.day}er août '
-            '${RegulatedTariffs.validFrom.year}, TTC · couleurs Tempo : RTE.',
-            style: const TextStyle(fontSize: 11, color: TvColors.muted),
+            r.gridFrom != null
+                ? 'Grille du ${_date(r.gridFrom!)}, TTC'
+                    '${r.gridOutdated ? ' : elle a plus de sept mois, mets à jour ta box' : ''}'
+                    ' · couleurs Tempo relevées par ta box.'
+                : 'Grille du ${RegulatedTariffs.validFrom.day}er août '
+                    '${RegulatedTariffs.validFrom.year}, TTC · couleurs Tempo : RTE.',
+            style: TextStyle(
+              fontSize: 11,
+              color: r.gridOutdated ? TvColors.warn : TvColors.muted,
+            ),
           ),
         ],
       ),
     );
   }
+}
+
+/// « 2026-11 » → « nov. 26 ».
+String _monthLabel(String yearMonth) {
+  const names = [
+    'janv.',
+    'févr.',
+    'mars',
+    'avr.',
+    'mai',
+    'juin',
+    'juil.',
+    'août',
+    'sept.',
+    'oct.',
+    'nov.',
+    'déc.',
+  ];
+  final m = RegExp(r'^\d{2}(\d{2})-(\d{2})$').firstMatch(yearMonth);
+  final month = int.tryParse(m?.group(2) ?? '') ?? 0;
+  if (m == null || month < 1 || month > 12) return yearMonth;
+  return '${names[month - 1]} ${m.group(1)}';
 }

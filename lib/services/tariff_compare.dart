@@ -102,6 +102,10 @@ enum OffPeakSource {
   /// Supposée de 22 h à 6 h sur les dernières 24 heures (contrat Base) :
   /// la box ne garde pas l'heure de la consommation au-delà.
   assumed,
+
+  /// Mesurée de 22 h à 6 h, jour par jour, sur l'archive horaire de la box
+  /// (v3.3).
+  hours,
 }
 
 /// La comparaison : les options sur les jours relevés, et sur un an.
@@ -126,7 +130,31 @@ class TariffComparison {
   final List<OptionCost> period;
   final List<OptionCost> year;
 
+  /// Calculé par la box (v3.3) : l'option la moins chère, choisie sur
+  /// l'estimation annuelle, l'économie par an si ce n'est pas l'option
+  /// actuelle, et sa phrase.
+  final TariffOption? cheapestOption;
+  final double? savingYear;
+  final String? text;
+
+  /// Jours dont la box connaît la couleur Tempo, et si l'estimation sur un
+  /// an suit la dernière saison réelle.
+  final int? colorsKnown;
+  final bool seasonMeasured;
+
+  /// Date de la grille du Tarif Bleu qu'elle applique, et si elle a plus
+  /// de sept mois.
+  final DateTime? gridFrom;
+  final bool gridOutdated;
+
   const TariffComparison({
+    this.cheapestOption,
+    this.savingYear,
+    this.text,
+    this.colorsKnown,
+    this.seasonMeasured = false,
+    this.gridFrom,
+    this.gridOutdated = false,
     required this.current,
     required this.days,
     required this.offPeakShare,
@@ -137,7 +165,10 @@ class TariffComparison {
     required this.year,
   });
 
+  /// La box choisit sur un an : l'été, Tempo paraîtrait toujours gagnant
+  /// sur la seule période.
   OptionCost get cheapest =>
+      (cheapestOption == null ? null : costOf(cheapestOption!)) ??
       period.reduce((a, b) => b.totalEur < a.totalEur ? b : a);
 
   OptionCost? costOf(TariffOption option, {bool yearly = false}) =>

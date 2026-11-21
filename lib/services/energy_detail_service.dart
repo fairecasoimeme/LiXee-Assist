@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'box_advice.dart';
 import 'box_client.dart';
 import 'box_energy_api.dart';
 import 'widget_data_service.dart';
@@ -168,7 +169,12 @@ class EnergyExtras {
   /// chargée en triphasé), relevée en même temps.
   final int? minuteLoad;
 
+  /// Les conseils calculés par la box (v3.3, `/api/energy/advice`) ; `null`
+  /// pour une box plus ancienne, dont l'application fait les calculs.
+  final BoxAdvice? advice;
+
   const EnergyExtras({
+    this.advice,
     this.subMeterColors = const {},
     this.utilities = const [],
     this.prices = const {},
@@ -221,6 +227,7 @@ class EnergyExtras {
         minuteVA: va,
         minuteAt: DateTime.now(),
         minuteLoad: load,
+        advice: advice,
       );
 
   /// Ce relevé, complété par [known] là où il est revenu vide : une
@@ -251,8 +258,27 @@ class EnergyExtras {
       minuteVA: minuteVA ?? known.minuteVA,
       minuteAt: minuteAt ?? known.minuteAt,
       minuteLoad: minuteLoad ?? known.minuteLoad,
+      advice: advice ?? known.advice,
     );
   }
+
+  EnergyExtras withAdvice(BoxAdvice? advice) => EnergyExtras(
+    subMeterColors: subMeterColors,
+    utilities: utilities,
+    prices: prices,
+    tariff: tariff,
+    daily: daily,
+    shedding: shedding,
+    thresholds: thresholds,
+    power: power,
+    floorW: floorW,
+    boxAlerts: boxAlerts,
+    modern: modern,
+    minuteVA: minuteVA,
+    minuteAt: minuteAt,
+    minuteLoad: minuteLoad,
+    advice: advice,
+  );
 
   EnergyExtras withTariff(TariffNow? tariff) => EnergyExtras(
     subMeterColors: subMeterColors,
@@ -269,6 +295,7 @@ class EnergyExtras {
     minuteVA: minuteVA,
     minuteAt: minuteAt,
     minuteLoad: minuteLoad,
+    advice: advice,
   );
 
   Map<String, dynamic> toJson() => {
@@ -283,6 +310,7 @@ class EnergyExtras {
     if (floorW != null) 'floorW': floorW,
     'boxAlerts': boxAlerts.map((a) => a.toJson()).toList(),
     'modern': modern,
+    if (advice != null) 'advice': advice!.toJson(),
   };
 
   factory EnergyExtras.fromJson(Map<String, dynamic> json) => EnergyExtras(
@@ -330,6 +358,10 @@ class EnergyExtras {
             .toList() ??
         const [],
     modern: json['modern'] == true,
+    advice:
+        json['advice'] is Map
+            ? BoxAdvice.fromJson(json['advice'] as Map<String, dynamic>)
+            : null,
   );
 }
 
@@ -571,6 +603,21 @@ class EnergyDetailService {
   static final Map<String, DateTime> _lastFetch = {};
   static final Map<String, DateTime> _lastTariff = {};
 
+  /// Les box qui ont `/api/energy/advice` (v3.3) : `false` pour une box qui
+  /// ne l'a pas, absente tant que la question n'est pas tranchée. Comme les
+  /// routes v2.26, la route n'est pas réessayée à chaque relevé.
+  static final Map<String, bool> _hasAdvice = {};
+
+  /// Une requête dont l'échec ne coûte qu'une partie vide.
+  static Future<String?> _get(BoxRoute route, String path) async {
+    try {
+      return await BoxClient.get(route, path);
+    } catch (e) {
+      print('[ENERGY] $path: ${e.runtimeType}');
+      return null;
+    }
+  }
+
   /// Force le prochain relevé complet, après une action qui en change le
   /// résultat (rallumage du délestage).
   static void forget(BoxDevice device) => _lastFetch.remove(device.key);
@@ -606,13 +653,34 @@ class EnergyDetailService {
     if (reached == null) return null;
     try {
       final known = previous ?? await read(device.name);
+      // Les conseils de la box, s'il elle sait les calculer : avant le reste,
+      // dont ils dispensent des alertes.
+      String? adviceBody;
+      if (full && _hasAdvice[device.key] != false) {
+        adviceBody = await _get(reached, '/api/energy/advice');
+      }
+      final advice = adviceBody == null ? null : BoxAdvice.parse(adviceBody);
+      // Une réponse qui n'est pas la sienne tranche ; un silence peut venir
+      // du tunnel, et n'est tranché qu'avec la réponse au tarif plus bas.
+      if (advice != null) _hasAdvice[device.key] = true;
+      if (adviceBody != null && advice == null) _hasAdvice[device.key] = false;
+
       var extras =
           full
-              ? (await fetch(reached)).keeping(known)
+              ? (await fetch(reached, withAlerts: advice == null)).keeping(known)
               : (known ?? const EnergyExtras());
       if (full) _lastFetch[device.key] = DateTime.now();
+      if (advice != null) {
+        extras = extras.withAdvice(advice);
+      } else if (!full && extras.advice != null) {
+        // Entre deux relevés complets, la météo de l'électricité seule.
+        final body = await _get(reached, '/api/energy/advice?part=weather');
+        if (body != null) extras = extras.withAdvice(extras.advice!.withWeather(body));
+      }
+      var tariffAnswered = false;
       try {
         final body = await BoxClient.get(reached, '/api/tariff');
+        tariffAnswered = body != null;
         // Une réponse vide ou illisible — le tunnel coupe parfois — garde le
         // tarif connu : sans cela, le bandeau du tarif apparaissait puis
         // disparaissait au gré des relevés.
@@ -623,6 +691,14 @@ class EnergyDetailService {
         }
       } catch (e) {
         print('[ENERGY] /api/tariff: ${e.runtimeType}');
+      }
+      // La box répond, mais pas à la route des conseils : box ancienne, dont
+      // l'application refait les calculs.
+      if (full && adviceBody == null && tariffAnswered && known?.advice == null) {
+        _hasAdvice.putIfAbsent(device.key, () => false);
+      }
+      if (_hasAdvice[device.key] == false && extras.advice != null) {
+        extras = extras.withAdvice(null);
       }
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(
@@ -640,14 +716,20 @@ class EnergyDetailService {
   ///
   /// Chaque partie est facultative : un firmware qui ne connaît pas une
   /// route, ou une box sans compteur, donne simplement une partie vide.
-  static Future<EnergyExtras> fetch(BoxRoute route) async {
+  ///
+  /// [withAlerts] à faux, les alertes de la box ne sont pas relues : sa
+  /// route des conseils les donne déjà, sans les doublons.
+  static Future<EnergyExtras> fetch(
+    BoxRoute route, {
+    bool withAlerts = true,
+  }) async {
     // Firmware v2.26 et suivants : une route de configuration sans secrets,
     // et les mesures de puissance calculées par la box.
     try {
       final body = await BoxClient.get(route, '/api/energy/config');
       final config = body == null ? null : ApiEnergyConfig.parse(body);
       if (config != null) {
-        return await _fetchV226(route, config);
+        return await _fetchV226(route, config, withAlerts: withAlerts);
       }
     } catch (e) {
       print('[ENERGY] /api/energy/config: ${e.runtimeType}');
@@ -658,8 +740,9 @@ class EnergyDetailService {
   /// Box v2.26 : tout vient de routes dédiées.
   static Future<EnergyExtras> _fetchV226(
     BoxRoute route,
-    ApiEnergyConfig config,
-  ) async {
+    ApiEnergyConfig config, {
+    bool withAlerts = true,
+  }) async {
     Future<String?> get(String path) async {
       try {
         return await BoxClient.get(route, path);
@@ -732,7 +815,7 @@ class EnergyDetailService {
     }
 
     final summary = await get('/api/power/summary');
-    final alerts = await get('/api/alerts?since=0');
+    final alerts = withAlerts ? await get('/api/alerts?since=0') : null;
 
     return EnergyExtras(
       subMeterColors: config.subMeterColors,
