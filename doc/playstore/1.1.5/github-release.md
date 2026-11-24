@@ -2,6 +2,8 @@
 
 ### Corrections
 - **Activation du tunnel** : la validation du code d'activation échouait avec « Forbidden : CSRF check failed » sur les box récentes. L'application présente désormais à la box sa propre adresse comme origine des requêtes, au lieu de celle du proxy local.
+- **Heure la plus calme** : depuis la v3.2, la box exporte à 0 Wh une heure qu'elle n'a pas relevée. Le graphe heure par heure du kiosque la prenait pour l'heure la plus calme, et la consommation plancher en était faussée. Ces heures sont maintenant ignorées.
+- **Installation** : le Wi-Fi n'est plus une fonctionnalité exigée, ce qui ouvre l'installation aux appareils sans Wi-Fi (TV en Ethernet, par exemple).
 
 ### Nouveautés
 - **Conseils calculés par la box** : avec une LiXee-Box en v3.3, l'application affiche les conseils que la box calcule (`/api/energy/advice`), sans rien recalculer. La page web de la box, MQTT et l'application disent donc la même chose. Cela couvre :
