@@ -218,6 +218,15 @@ class _PanelChartDetailState extends State<PanelChartDetail> {
   }
 }
 
+/// Les heures qui ont une mesure. Depuis la v3.2, la box exporte à 0 Wh une
+/// heure qu'elle n'a pas relevée (la plus ancienne des 24, souvent) : elle
+/// passait pour l'heure la plus calme. Une maison ne consomme jamais rien
+/// sur une heure entière, sauf à produire plus qu'elle ne tire.
+List<HourlySample> _measured(List<HourlySample> hours) => [
+  for (final h in hours)
+    if (h.wh > 0 || h.productionWh > 0) h,
+];
+
 /// Le détail d'une heure : ce qu'elle a consommé et coûté, par tarif et par
 /// sous-compteur, et comment elle se situe.
 class _HourDetail extends StatelessWidget {
@@ -264,8 +273,8 @@ class _HourDetail extends StatelessWidget {
       parts.add((TvColors.focus, 'Autre', s.wh - covered));
     }
 
-    // L'heure habituelle : la moyenne des heures complètes.
-    final complete = hours.sublist(0, hours.length - 1);
+    // L'heure habituelle : la moyenne des heures complètes et mesurées.
+    final complete = _measured(hours.sublist(0, hours.length - 1));
     final usual =
         complete.isEmpty
             ? null
@@ -438,7 +447,7 @@ class _HourDetail extends StatelessWidget {
   /// Les 24 heures d'un coup d'œil : l'heure la plus chargée, la plus
   /// calme, et la part de chaque tarif ou sous-compteur.
   List<Widget> _day(List<TvEnergySeries> series) {
-    final complete = hours.sublist(0, hours.length - 1);
+    final complete = _measured(hours.sublist(0, hours.length - 1));
     if (complete.isEmpty) return const [];
     final total = hours.fold<int>(0, (sum, h) => sum + h.wh);
     final busiest = complete.reduce((a, b) => b.wh > a.wh ? b : a);

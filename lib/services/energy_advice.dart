@@ -1,3 +1,4 @@
+import 'box_advice.dart';
 import 'box_energy_api.dart';
 import 'energy_detail_service.dart';
 import 'widget_data_service.dart';
@@ -76,7 +77,18 @@ class BaseLoad {
   /// Son coût sur un an, si un prix est connu.
   final double? yearlyEur;
 
-  const BaseLoad(this.watts, this.yearlyEur, {this.hour});
+  /// Calculé par la box : les heures complètes des 24 dernières heures, et
+  /// sa phrase. Vides pour un calcul de l'application.
+  final List<({int hour, int wh, int producedWh})> hours;
+  final String? text;
+
+  const BaseLoad(
+    this.watts,
+    this.yearlyEur, {
+    this.hour,
+    this.hours = const [],
+    this.text,
+  });
 }
 
 /// Le mois en cours : ce qui est consommé, et ce que ça donnera au rythme
@@ -91,7 +103,18 @@ class MonthOutlook {
   /// Vrai si les montants sont en euros, faux s'ils sont en kWh.
   final bool euros;
 
-  const MonthOutlook(this.soFar, this.projected, {required this.euros});
+  /// Calculé par la box : le budget du mois, en euros, et chaque jour du
+  /// 1er à aujourd'hui, dans l'unité des montants.
+  final double? budget;
+  final List<double> daily;
+
+  const MonthOutlook(
+    this.soFar,
+    this.projected, {
+    required this.euros,
+    this.budget,
+    this.daily = const [],
+  });
 }
 
 /// L'abonnement comparé aux pics de puissance réellement atteints.
@@ -128,7 +151,16 @@ class SubscriptionCheck {
   /// Jours des 30 derniers passés au-dessus de 80 % de la limite.
   final int? days30Over80;
 
+  /// Calculé par la box : la limite à laquelle comparer le plus fort appel
+  /// de chaque mois connu, et sa phrase.
+  final int? limitVA;
+  final List<({String month, int va})> months;
+  final String? text;
+
   const SubscriptionCheck({
+    this.limitVA,
+    this.months = const [],
+    this.text,
     this.phasePeakVA,
     this.phaseLimitVA,
     this.days30Over80,
@@ -161,15 +193,30 @@ class CutRisk {
   /// Phase la plus chargée, en triphasé.
   final int? phase;
 
-  const CutRisk(this.ratio, this.level, {this.averaged = false, this.phase});
+  /// Le libellé et le conseil de la box, quand c'est elle qui a calculé.
+  final String? boxLabel;
+  final String? boxAdvice;
 
-  String get label => switch (level) {
+  const CutRisk(
+    this.ratio,
+    this.level, {
+    this.averaged = false,
+    this.phase,
+    this.boxLabel,
+    this.boxAdvice,
+  });
+
+  String get label =>
+      boxLabel ??
+      switch (level) {
     RiskLevel.low => 'Faible',
     RiskLevel.medium => 'À surveiller',
     RiskLevel.high => 'Élevé',
   };
 
-  String get advice => switch (level) {
+  String get advice =>
+      boxAdvice ??
+      switch (level) {
     RiskLevel.low => 'Tu as de la marge avant que le disjoncteur saute.',
     RiskLevel.medium =>
       'Évite d\'allumer un autre gros appareil en même temps.',
@@ -182,8 +229,19 @@ class CutRisk {
 ///
 /// Rien ici ne parle au réseau : tout vient du relevé et des réglages déjà
 /// récupérés, pour que les règles se testent sans box.
+///
+/// Une box récente (v3.3) calcule elle-même ces conseils, et sa page web,
+/// MQTT et l'application doivent dire la même chose : quand sa réponse est
+/// connue ([EnergyExtras.advice]), chaque calcul la rend telle quelle, sans
+/// rien recalculer, et une section absente reste absente. Les calculs
+/// ci-dessous ne servent plus qu'aux box plus anciennes.
 class EnergyAdvice {
   EnergyAdvice._();
+
+  /// Le risque de coupure de la box n'est relu qu'avec le reste, toutes les
+  /// dix minutes : au-delà de cet âge, la moyenne sur une minute relue à
+  /// chaque relevé dit mieux ce qui se passe.
+  static const boxRiskMaxAge = Duration(minutes: 2);
 
   static String _day(TempoColor color) => switch (color) {
     TempoColor.blue => 'jour bleu',
@@ -196,6 +254,7 @@ class EnergyAdvice {
     LinkySnapshot snapshot,
     EnergyExtras? extras,
   ) {
+    if (extras?.advice case final box?) return box.weather;
     final tariff = extras?.tariff;
     if (tariff == null) return null;
     final price = tariff.price ?? extras?.prices[tariff.attribute];
@@ -297,6 +356,7 @@ class EnergyAdvice {
   /// puissance active, ce qui surestime un peu. C'est un ordre de grandeur,
   /// présenté comme tel.
   static double? costPerHour(LinkySnapshot snapshot, EnergyExtras? extras) {
+    if (extras?.advice case final box?) return box.costPerHour;
     final weather = EnergyAdvice.weather(snapshot, extras);
     final price = weather?.pricePerKWh;
     final power = snapshot.apparentPowerVA;
@@ -308,6 +368,10 @@ class EnergyAdvice {
   /// 90 % agir. En triphasé, c'est la phase la plus chargée qui compte, sur
   /// son tiers de l'abonnement.
   static CutRisk? cutRisk(LinkySnapshot snapshot, EnergyExtras? extras) {
+    if (extras?.advice case final box?
+        when DateTime.now().difference(box.receivedAt) < boxRiskMaxAge) {
+      return box.cutRisk;
+    }
     RiskLevel level(double ratio) =>
         ratio >= 0.9
             ? RiskLevel.high
@@ -362,6 +426,7 @@ class EnergyAdvice {
   /// L'heure en cours, incomplète, n'est pas comptée, et il faut au moins
   /// douze heures complètes pour que le plancher veuille dire quelque chose.
   static BaseLoad? baseLoad(LinkySnapshot snapshot, EnergyExtras? extras) {
+    if (extras?.advice case final box?) return box.baseLoad;
     final price = _averagePrice(extras?.prices ?? const {});
     final complete =
         snapshot.hourly.length > 1
@@ -378,7 +443,8 @@ class EnergyAdvice {
     final selfConsumes = snapshot.linkyMode == 5 || snapshot.linkyMode == 7;
     final measured = [
       for (final s in complete)
-        if (!selfConsumes || s.productionWh == 0) s,
+        // Une heure à 0 Wh sans production n'a pas été relevée (box v3.2).
+        if ((!selfConsumes || s.productionWh == 0) && s.wh > 0) s,
     ];
     if (measured.length < 4) return null;
     final calmest = measured.reduce((a, b) => b.wh < a.wh ? b : a);
@@ -407,7 +473,9 @@ class EnergyAdvice {
     LinkySnapshot snapshot,
     Map<String, int> peaks, {
     PowerSummary? summary,
+    BoxAdvice? box,
   }) {
+    if (box != null) return box.subscription;
     if (summary != null) return _fromSummary(summary);
     final subscribed = snapshot.subscribedPowerVA;
     if (subscribed == null || subscribed <= 0 || peaks.isEmpty) return null;
@@ -482,6 +550,7 @@ class EnergyAdvice {
     EnergyExtras? extras, {
     DateTime? now,
   }) {
+    if (extras?.advice case final box?) return box.hourlyBudgetWh;
     final budget = extras?.thresholds.monthBudgetEur;
     if (budget == null || budget <= 0) return null;
     final day = now ?? DateTime.now();
@@ -498,6 +567,7 @@ class EnergyAdvice {
   /// Le mois en cours, d'après l'historique jour par jour ; `null` s'il
   /// ne couvre pas encore le mois.
   static MonthOutlook? month(EnergyExtras? extras, DateTime now) {
+    if (extras?.advice case final box?) return box.month;
     final days =
         (extras?.daily ?? const <DailySample>[])
             .where((d) => d.month == now.month && d.day <= now.day)
@@ -518,6 +588,8 @@ class EnergyAdvice {
   /// Hier comparé à la semaine qui l'a précédé : de quoi féliciter ou
   /// alerter. `null` si l'écart est faible ou l'historique trop court.
   static EnergyAlert? yesterday(EnergyExtras? extras) {
+    // La box le compte dans ses alertes.
+    if (extras?.advice != null) return null;
     final daily = extras?.daily ?? const <DailySample>[];
     // Le dernier jour est aujourd'hui, incomplet.
     if (daily.length < 9) return null;
@@ -549,6 +621,9 @@ class EnergyAdvice {
     LinkySnapshot snapshot,
     EnergyExtras? extras,
   ) {
+    // La box y a déjà mis ses propres alertes, sans les doublons, et ne
+    // garde que celles des six dernières heures.
+    if (extras?.advice case final box?) return box.alerts;
     final alerts = <EnergyAlert>[];
 
     // Les alertes de la box (v2.26) des six dernières heures, telles
@@ -660,6 +735,7 @@ class EnergyAdvice {
     'over_power' ||
     'water_leak' ||
     'night_water_leak' ||
+    'water_continuous' ||
     'freeze' ||
     'power_outage' => AdviceLevel.danger,
     'over_budget' ||

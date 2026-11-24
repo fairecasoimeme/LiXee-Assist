@@ -314,6 +314,12 @@
 
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-feature android:name="android.software.leanback" android:required="false" />
+    <!-- wifi_iot exige le Wi-Fi : il ne sert qu'à configurer une box neuve, et
+         une TV ou un appareil en Ethernet doit pouvoir installer l'application. -->
+    <uses-feature
+        android:name="android.hardware.wifi"
+        android:required="false"
+        tools:replace="android:required" />
 
     <queries>
         <intent>
