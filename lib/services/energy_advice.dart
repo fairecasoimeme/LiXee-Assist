@@ -443,7 +443,8 @@ class EnergyAdvice {
     final selfConsumes = snapshot.linkyMode == 5 || snapshot.linkyMode == 7;
     final measured = [
       for (final s in complete)
-        if (!selfConsumes || s.productionWh == 0) s,
+        // Une heure à 0 Wh sans production n'a pas été relevée (box v3.2).
+        if ((!selfConsumes || s.productionWh == 0) && s.wh > 0) s,
     ];
     if (measured.length < 4) return null;
     final calmest = measured.reduce((a, b) => b.wh < a.wh ? b : a);

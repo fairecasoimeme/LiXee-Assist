@@ -201,6 +201,16 @@ void main() {
       expect(load.yearlyEur, closeTo(262.8, 0.1));
     });
 
+    test('une heure non relevée (0 Wh, box v3.2) n\'est pas le plancher', () {
+      final load =
+          EnergyAdvice.baseLoad(
+            _snapshot(hourly: [const HourlySample(21, 0), ...day.skip(1)]),
+            _extras(const TariffNow(label: 'Base')),
+          )!;
+      expect(load.watts, 150);
+      expect(load.hour, 4);
+    });
+
     final sunny = [
       for (var h = 0; h < 24; h++)
         h >= 9 && h <= 17
